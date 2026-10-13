@@ -35,6 +35,14 @@ spyhop
 - **Opens** in Orca as a **Spyhop** workspace, and at `http://127.0.0.1:47613/`.
 - **Menu bar** (optional): `brew install --cask swiftbar`, then run `spyhop` once more. The orca icon is added for you.
 
+**Update** to the latest version:
+
+```bash
+brew upgrade spyhop && spyhop
+```
+
+`spyhop` restarts the board on the new version if an older one is still running.
+
 ## Summarizer
 
 Spyhop uses the AI you already have: a logged-in `claude` or `codex` CLI. Switch models in **Settings → Summarizer**.

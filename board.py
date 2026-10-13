@@ -1664,10 +1664,32 @@ def serve():
 def watching():
     try:
         with open(PIDFILE) as f:
-            os.kill(int(f.read().strip()), 0)
+            os.kill(int(f.read().split()[0]), 0)
         return True
-    except (OSError, ValueError):
+    except (OSError, ValueError, IndexError):
         return False
+
+
+def stop_if_outdated():
+    """brew upgrade 뒤 `spyhop` 을 다시 치면, 옛 버전으로 도는 감시를 내리고 새 버전으로 띄운다."""
+    try:
+        with open(PIDFILE) as f:
+            parts = f.read().split()
+        pid, running = int(parts[0]), (parts[1] if len(parts) > 1 else '')
+    except (OSError, ValueError, IndexError):
+        return
+    if running == os.path.realpath(__file__):
+        return
+    try:
+        os.kill(pid, 15)
+    except OSError:
+        return
+    for _ in range(50):  # 최대 5초, 내려가길 기다린다
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.1)
 
 
 LOADER = os.path.expanduser('~/.spyhop/open.html')
@@ -1750,7 +1772,7 @@ def watch():
         sys.stderr.write('board: 이미 다른 감시가 돌고 있어 종료\n')
         return
     with open(PIDFILE, 'w') as f:
-        f.write(str(os.getpid()))
+        f.write('%d %s' % (os.getpid(), os.path.realpath(__file__)))  # 어느 버전 코드로 도는지 함께 적는다
     serve()
     last_seen = time.time()
     while time.time() - last_seen < IDLE_EXIT:
@@ -1787,6 +1809,7 @@ def main(argv):
         watch()
         return
     write_loader()
+    stop_if_outdated()
     if not watching():
         os.makedirs(BASE, exist_ok=True)  # 맥을 막 켜면 /tmp 가 비어 있다 (로그 파일을 열기 전에 폴더부터)
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'],

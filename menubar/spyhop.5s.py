@@ -22,9 +22,9 @@ ORCA = '/usr/local/bin/orca'
 def watcher_alive():
     try:
         with open(PIDFILE) as f:
-            os.kill(int(f.read().strip()), 0)
+            os.kill(int(f.read().split()[0]), 0)  # "pid 코드경로"
         return True
-    except (OSError, ValueError):
+    except (OSError, ValueError, IndexError):
         return False
 
 
