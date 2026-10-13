@@ -256,6 +256,8 @@ def orca(*args):
 def agent_kind(t):
     """클로드 창인지 Codex 창인지. 오르카가 알려 주는 agentType 을 먼저 믿는다.
     제목의 진행 기호로는 못 가린다: Codex 도 일하는 동안 제목 앞에 ⠹ 같은 기호를 붙인다."""
+    if t.get('_pkind'):  # 이 창에서 실제로 돌고 있는 프로그램
+        return t['_pkind']
     kind = (t.get('agent') or {}).get('agentType')
     if kind in ('claude', 'codex'):
         return kind
@@ -382,6 +384,7 @@ def claude_index(worktree_path):
 
 _CODEX_CWD = {}
 _COORD = {}            # 오르카 작업 창 → 부른 세션 창 (작업 지시문에 적힌 호출자)
+_COORD_SRC = {}        # 그 호출자를 어느 기록에서 읽었는지 (스레드가 바뀌면 다시 읽는다)
 _RECHECK = {}          # Codex 창별로 화면을 읽어 짝을 다시 확인한 시각
 _CODEX_LIST = {'at': 0, 'files': []}
 
@@ -612,27 +615,51 @@ def codex_user_msgs(path):
     return msgs
 
 
+@per_file
+def codex_coordinator(path):
+    """오르카 작업 창이면 첫 지시문에 「coordinator's terminal handle is: term_…」 가 있다. 첫 사용자 메시지 하나만 본다."""
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as fh:
+            for i, line in enumerate(fh):
+                if i > 400 or '"role":"user"' not in line:
+                    continue
+                try:
+                    text = text_of(json.loads(line).get('payload', {}).get('content')).strip()
+                except ValueError:
+                    continue
+                if not text or text.startswith('<') or text.startswith('# AGENTS.md instructions'):
+                    continue  # 환경 정보·AGENTS.md 같은 자동 블록은 건너뛴다
+                m = re.search(r"coordinator's terminal handle is: (term_[0-9a-f-]+)", text)
+                return m.group(1) if m else None
+    except OSError:
+        pass
+    return None
+
+
 MATCHES = os.path.join(BASE, 'codex-match.json')
 
 
-def codex_thread_names():
-    """Codex 가 스레드 이름을 남기는 색인: 이름 → id. 여러 대화가 같은 이름이면(오케스트레이션 작업 창은 모두
-    "Report task outcome") 어느 것인지 모르므로 뺀다."""
-    out, dup = {}, set()
+def codex_thread_names(home=None):
+    """Codex 스레드 이름 → id. 스레드마다 마지막(가장 최근) 이름만 쓴다(이름을 바꾸면 옛 이름은 버린다).
+    여러 스레드가 같은 이름이면(오케스트레이션 작업 창은 모두 "Report task outcome") 어느 것인지 모르므로 뺀다."""
+    path = os.path.join(home or os.path.expanduser('~/.codex'), 'session_index.jsonl')
+    latest = {}
     try:
-        with open(os.path.expanduser('~/.codex/session_index.jsonl'), encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             for line in f:
                 try:
                     d = json.loads(line)
                 except ValueError:
                     continue
-                n = d.get('thread_name')
-                if n:
-                    if n in out and out[n] != d['id']:
-                        dup.add(n)
-                    out[n] = d['id']
+                if d.get('id') and d.get('thread_name'):
+                    latest[d['id']] = d['thread_name']
     except OSError:
         pass
+    out, dup = {}, set()
+    for i, n in latest.items():
+        if n in out:
+            dup.add(n)
+        out[n] = i
     return {n: i for n, i in out.items() if n not in dup}
 
 
@@ -648,6 +675,245 @@ def save_matches(new):
     cur = load_matches()
     cur.update(new)
     save_json(MATCHES, cur)
+
+
+
+# ---------- 살아 있는 AI 프로그램에서 세션 찾기 ----------
+# 창 제목·화면 글자로 짐작하지 않고, 실제로 돌고 있는 claude / codex 프로그램에서 출발한다.
+#   클로드: 프로그램 번호 → ~/.claude/sessions/<pid>.json 의 sessionId → 대화 기록 (정확)
+#   Codex: 그 프로그램이나 Codex 서버(app-server)가 열어 둔 기록 파일 중에서, 같은 폴더·창 제목의 스레드 이름·시작 시각으로 고른다
+#   오르카 창과는 프로그램 환경 변수 ORCA_PANE_KEY(탭:칸)로 정확히 이어진다
+import calendar
+import datetime
+
+_PROC_CACHE = {'at': 0, 'data': None}
+
+
+def _ps_start(tokens):
+    """ps lstart 토큰 5개(예: Wed Oct  7 15:06:54 2026, 이 맥의 현지 시각) → epoch"""
+    try:
+        return time.mktime(time.strptime(' '.join(tokens), '%a %b %d %H:%M:%S %Y'))
+    except ValueError:
+        return 0
+
+
+def _agent_rows():
+    """(pid, ppid, tty, start, comm) — 가볍게 2초마다 불러도 되는 목록"""
+    try:
+        out = subprocess.run(['ps', '-axo', 'pid=,ppid=,tty=,lstart=,comm='], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = []
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) < 9:
+            continue
+        rows.append((int(p[0]), int(p[1]), p[2], _ps_start(p[3:8]), ' '.join(p[8:])))
+    return rows
+
+
+def agent_pids():
+    """지금 살아 있는 AI 프로그램 번호 모음 (새 세션이 생기거나 끝났는지 2초마다 보는 데 쓴다)"""
+    return {r[0] for r in _agent_rows() if os.path.basename(r[4]) in ('claude', 'codex')}
+
+
+def _lsof(pids, extra):
+    if not pids:
+        return ''
+    try:
+        return subprocess.run(['lsof', '-nP', '-w'] + extra + ['-Fpn', '-p', ','.join(map(str, pids))],
+                              capture_output=True, text=True, timeout=8).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def _by_pid(lsof_out):
+    out, pid = {}, None
+    for line in lsof_out.splitlines():
+        if line[:1] == 'p':
+            pid = int(line[1:])
+        elif line[:1] == 'n' and pid:
+            out.setdefault(pid, []).append(line[1:])
+    return out
+
+
+def agent_procs():
+    """살아 있는 클로드·Codex 프로그램과 그 세션. {pid: {...}}. 결과는 1초 안에 다시 부르면 그대로 준다."""
+    if time.time() - _PROC_CACHE['at'] < 1 and _PROC_CACHE['data'] is not None:
+        return _PROC_CACHE['data']
+    rows = _agent_rows()
+    parent = {r[0]: r[1] for r in rows}
+    me = os.getpid()
+
+    def mine(pid):  # 이 보드가 띄운 요약용 프로그램(claude -p, codex exec)은 세션이 아니다
+        seen = 0
+        while pid and pid != 1 and seen < 40:
+            if pid == me:
+                return True
+            pid, seen = parent.get(pid, 0), seen + 1
+        return False
+    agents, daemons = {}, []
+    for pid, ppid, tty, start, comm in rows:
+        base = os.path.basename(comm)
+        if base not in ('claude', 'codex') or mine(pid):
+            continue
+        agents[pid] = {'pid': pid, 'kind': base, 'tty': tty, 'start': start}
+    if not agents:
+        _PROC_CACHE.update(at=time.time(), data={})
+        return {}
+    # 실행 인자: Codex 서버(app-server)를 가려내고 resume 대상만 뽑는다 (요청 문장이 들어 있을 수 있어 그 밖엔 안 남긴다)
+    try:
+        args = subprocess.run(['ps', '-o', 'pid=,args=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        args = ''
+    for line in args.splitlines():
+        p = line.strip().split(None, 1)
+        if len(p) < 2 or int(p[0]) not in agents:
+            continue
+        a = agents[int(p[0])]
+        if a['kind'] == 'codex' and ' app-server' in ' ' + p[1]:
+            daemons.append(a['pid'])
+            del agents[a['pid']]
+            continue
+        m = re.search(r'\bresume\s+([0-9a-f]{8}-[0-9a-f-]{27})', p[1])
+        a['resume'] = m.group(1) if m else None
+    # 환경 변수: 오르카 창 표식과 Codex 기록 위치만 꺼낸다 (나머지는 버린다)
+    try:
+        env = subprocess.run(['ps', '-E', '-o', 'pid=,command=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        env = ''
+    for line in env.splitlines():
+        p = line.strip().split(None, 1)
+        if len(p) < 2 or int(p[0]) not in agents:
+            continue
+        a = agents[int(p[0])]
+        for key in ('ORCA_PANE_KEY', 'CODEX_HOME', 'TERM_PROGRAM'):  # CODEX_HOME 이 다르면 그 폴더의 색인을 읽는다
+            m = re.search(r'(?:^| )%s=(\S+)' % key, p[1])
+            a[key.lower()] = m.group(1) if m else None
+    for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
+        if pid in agents and paths:
+            agents[pid]['cwd'] = paths[0]
+    # 클로드: 실행 기록 → 대화 번호 → 기록 파일
+    for a in agents.values():
+        if a['kind'] != 'claude':
+            continue
+        try:
+            with open(os.path.expanduser('~/.claude/sessions/%d.json' % a['pid']), encoding='utf-8') as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            a['why'] = 'claude:no-session-registration'
+            continue
+        try:  # 프로그램 번호가 재사용된 옛 기록이면 안 믿는다 (procStart 는 UTC)
+            ps = calendar.timegm(time.strptime(d.get('procStart', ''), '%a %b %d %H:%M:%S %Y'))
+        except ValueError:
+            ps = 0
+        if ps and a['start'] and abs(ps - a['start']) > 5:
+            a['why'] = 'claude:stale-registration'
+            continue
+        sid = d.get('sessionId')
+        cwd = d.get('cwd') or a.get('cwd') or ''
+        f = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), sid))
+        if not os.path.exists(f):
+            f = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % sid))), None)
+        if f:
+            a.update(log=f, how='claude:process', busy=d.get('status') == 'busy')
+        else:
+            a['why'] = 'claude:transcript-not-written-yet'
+    # Codex: 열어 둔 기록 파일(프로그램 자신 또는 Codex 서버)이 후보다
+    codex = [a for a in agents.values() if a['kind'] == 'codex']
+    if codex:
+        held = _by_pid(_lsof([a['pid'] for a in codex] + daemons, []))
+        own = {}
+        loaded = set()
+        for pid, paths in held.items():
+            rolls = [x for x in paths if re.search(r'/sessions/.*rollout-.*\.jsonl$', x)]
+            if pid in daemons:
+                loaded.update(rolls)
+            elif rolls:
+                own[pid] = rolls
+        claimed = set()
+        for a in codex:  # 1) 프로그램이 직접 쓰고 있는 기록 (예전 버전 TUI, codex exec)
+            r = own.get(a['pid'])
+            if r and len(r) == 1:
+                a.update(log=r[0], how='codex:own-open-file')
+                claimed.add(r[0])
+        meta = {}
+        for r in loaded - claimed:
+            try:
+                with open(r, encoding='utf-8', errors='ignore') as fh:
+                    pm = json.loads(fh.readline()).get('payload', {})
+                ts = pm.get('timestamp') or ''
+                meta[r] = {'id': pm.get('id'), 'cwd': pm.get('cwd'),
+                           'ts': calendar.timegm(time.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S')) if ts else 0}
+            except (OSError, ValueError):
+                pass
+        a_by_pane = {}
+        for a in codex:
+            if a.get('log'):
+                continue
+            a_by_pane[a['pid']] = a
+        for a in a_by_pane.values():  # 후보: Codex 서버가 열어 둔 스레드 중 같은 폴더, 아직 아무도 안 가져간 것
+            a['codex_candidates'] = [r for r, m in meta.items() if r not in claimed and m['cwd'] == a.get('cwd')]
+        _PROC_CACHE['codex_meta'] = meta
+    _PROC_CACHE.update(at=time.time(), data=agents)
+    return agents
+
+
+
+def attach_procs(terms):
+    """오르카 창마다 그 창에서 돌고 있는 AI 프로그램과 (찾았으면) 대화 기록을 붙인다."""
+    try:
+        procs = agent_procs()
+    except Exception as e:  # 프로그램 목록을 못 읽으면 예전 방식(창 제목)으로만 간다
+        sys.stderr.write('procs: %s\n' % e)
+        return
+    by_pane = {}
+    for a in sorted(procs.values(), key=lambda a: a['start']):  # 한 창에 여럿이면(안에서 띄운 하위 프로그램) 먼저 뜬 것
+        if a.get('orca_pane_key'):
+            by_pane.setdefault(a['orca_pane_key'], a)
+    meta = _PROC_CACHE.get('codex_meta') or {}
+    claimed = {a['log'] for a in procs.values() if a.get('log')}
+    codex_all = [x for x in procs.values() if x['kind'] == 'codex']
+    for t in terms:
+        a = by_pane.get('%s:%s' % (t.get('tabId'), t.get('leafId')))
+        if not a:
+            continue
+        t['_proc'], t['_pkind'] = a, a['kind']
+        if a.get('log'):
+            t['_plog'] = a['log']
+            why(t, 'process', how=a['how'])
+            continue
+        if a['kind'] != 'codex':
+            why(t, 'process-unresolved', kind='claude', reason=a.get('why') or '?')
+            continue
+        cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+        tid = codex_thread_names(a.get('codex_home')).get(codex_head(t.get('title')))
+        pick, how = None, ''
+        by_title = [r for r in cands if tid and meta[r]['id'] == tid]
+        if len(by_title) == 1:  # 1) 창 제목이 보여 주는 스레드 (/new·/resume 으로 바뀌어도 제목이 따라간다)
+            pick, how = by_title[0], 'codex:loaded-thread-by-title'
+        elif not tid:  # 제목이 다른 스레드를 가리키면 아래 짐작은 하지 않는다
+            hit = [r for r in cands if a.get('resume') and meta[r]['id'] == a['resume']]
+            if len(hit) == 1:  # 2) codex resume <id> 로 연 스레드 (처음 연 것일 뿐이라 제목이 생기면 제목을 따른다)
+                pick, how = hit[0], 'codex:resume-arg'
+            else:  # 3) 이 프로그램이 뜬 직후 만들어진 스레드. 같은 폴더의 Codex 중 그 시각에 가장 가까이 뜬 것이 이 프로그램일 때만
+                fresh = []
+                for r in cands:
+                    ts = meta[r]['ts']
+                    near = [x for x in codex_all if x.get('cwd') == a.get('cwd') and 0 <= ts - x['start'] <= 15]
+                    if near and min(near, key=lambda x: ts - x['start'])['pid'] == a['pid']:
+                        fresh.append(r)
+                if len(fresh) == 1:
+                    pick, how = fresh[0], 'codex:started-together'
+        if pick:
+            t['_plog'] = pick
+            claimed.add(pick)
+            why(t, 'process', how=how)
+        else:
+            why(t, 'process-unresolved', kind='codex', candidates=len(cands), title_names_thread=bool(tid))
+
+def is_codex_log(path):
+    return bool(path) and os.path.basename(path).startswith('rollout-')
 
 
 def codex_head(title):
@@ -675,10 +941,16 @@ def match_sessions(terms, worktrees):
         known = load_matches()
         rest = []
         anywhere = None
-        taken = set()
+        taken = {x['_plog'] for x in terms if x.get('_plog')}
         for t in panes:
+            if t.get('_plog'):  # 살아 있는 프로그램으로 이미 정확히 찾았다
+                t['log'] = t['_plog']
+                continue
             kind = agent_kind(t)
-            why(t, 'kind', kind=kind, by='orca' if (t.get('agent') or {}).get('agentType') in ('claude', 'codex') else 'title')
+            if t.get('_pkind') == 'codex':  # 프로그램이 Codex 면 클로드 쪽 짝 맞추기는 하지 않는다
+                rest.append(t)
+                continue
+            why(t, 'kind', kind=kind, by='process' if t.get('_pkind') else 'orca' if (t.get('agent') or {}).get('agentType') in ('claude', 'codex') else 'title')
             f = cidx.get(clean_title(t['title']))
             if f:
                 why(t, 'claude:title-in-folder')
@@ -695,7 +967,7 @@ def match_sessions(terms, worktrees):
                 if f:
                     cfiles.add(f)
                     why(t, 'claude:live-title-any-folder')
-            if not f and known.get(t['handle']) in cfiles:
+            if not f and known.get(t['handle']) in cfiles and not t.get('_proc'):  # 프로그램이 있는 창은 옛 짝을 되살리지 않는다
                 f = known[t['handle']]
                 why(t, 'saved-match')
             if f:
@@ -718,7 +990,7 @@ def match_sessions(terms, worktrees):
         if not rest:
             continue
         files = [(f, codex_user_msgs(f)) for f in sorted(codex_files(path), key=os.path.getmtime, reverse=True)]
-        used = set()
+        used = {x['_plog'] for x in terms if x.get('_plog')}
         names = codex_thread_names()
         # 이름(스레드) 짝은 폴더를 가리지 않는다: 다른 폴더 칸으로 옮긴 Codex 창은 원래 폴더의 기록을 쓴다
         codex_files(path)
@@ -741,7 +1013,7 @@ def match_sessions(terms, worktrees):
                 used.add(t['log'])
                 why(t, 'codex:thread-name')
                 continue
-            prev = known.get(t['handle'])
+            prev = None if t.get('_proc') else known.get(t['handle'])  # 프로그램이 있는 창은 옛 짝을 되살리지 않는다
             if prev and os.path.exists(prev) and prev not in used:
                 t['log'] = prev
                 used.add(prev)
@@ -811,9 +1083,18 @@ def model_of(path):
             tail = f.read().decode('utf-8', 'ignore')
     except OSError:
         return ''
-    if '"turn_context"' in tail:  # Codex
-        model = (re.findall(r'"turn_context".*?"model":"([^"]+)"', tail) or [''])[-1]
-        effort = (re.findall(r'"turn_context".*?"effort":"([^"]+)"', tail) or [''])[-1]
+    if is_codex_log(path):  # Codex: 마지막 turn_context 의 모델. 한 번만 적혀 있으면 끝부분에 없으니 처음부터 한 줄씩 훑는다
+        model = effort = ''
+        lines = [l for l in tail.splitlines() if '"turn_context"' in l]
+        if not lines:
+            try:
+                with open(path, 'rb') as f:
+                    lines = [l.decode('utf-8', 'ignore') for l in f if b'"turn_context"' in l]
+            except OSError:
+                lines = []
+        for l in lines:
+            m, e = re.search(r'"model":"([^"]+)"', l), re.search(r'"effort":"([^"]+)"', l)
+            model, effort = (m.group(1) if m else model), (e.group(1) if e else effort)
     else:  # Claude
         model = ''
         for line in tail.splitlines():
@@ -951,7 +1232,7 @@ def status_of(t):
     agent = t.get('agent') or {}
     if agent.get('state'):
         state = 'busy' if agent['state'] == 'working' else 'idle'
-    if state == 'unknown' and '/.codex/' in (t.get('log') or ''):
+    if state == 'unknown' and is_codex_log(t.get('log')):
         state = 'idle' if codex_turn_done(t['log']) else 'busy'
     if state == 'unknown':
         state = 'busy' if time.time() - (t.get('lastOutputAt') or 0) / 1000 < 20 else 'idle'
@@ -1220,17 +1501,14 @@ def render_todo(items, log=''):
     return '<h4>TODO</h4><ul class="todo">%s</ul>' % ''.join(rows)
 
 
-def render_more(dg, items=()):
-    rows = []
-    if dg['ask']:
-        rows.append('<dt>Last request</dt><dd>%s</dd>' % escape(dg['ask'][:300]))
-    if dg.get('full'):
-        rows.append('<dt>Last reply (raw)</dt><dd class="md">%s</dd>' % md(dg['full']))
-    elif dg['block']:
-        rows.append('<dt>Last reply (raw)</dt><dd class="md">%s</dd>' % md('\n'.join(dg['block'])))
-    if not rows:
+def render_reply(reply, dg):
+    """마지막 요청 한 줄 + 마지막 답 요약. 답 원문은 같은 상자 안에서 펼쳐 본다 (따로 More 를 열 필요 없게)."""
+    raw = dg.get('full') or '\n'.join(dg.get('block') or [])
+    if not (reply or raw or dg.get('ask')):
         return ''
-    return '<details><summary>More</summary><dl>%s</dl></details>' % ''.join(rows)
+    ask = '<p class="ask"><b>You asked</b> %s</p>' % escape(dg['ask'][:200]) if dg.get('ask') else ''
+    full = '<details class="raw"><summary>Full reply</summary><div class="md">%s</div></details>' % md(raw) if raw else ''
+    return '<h4>Last reply</h4>%s<div class="replybox"><p>%s</p>%s</div>' % (ask, reply or escape(raw[:200]), full)
 
 
 def ring(done, total):
@@ -1277,7 +1555,8 @@ def render(t, steps, ws):
     st = status_of(t)
     since = since_of(t, st)
     cid = re.sub(r'[^A-Za-z0-9]', '', t['paneKey'])[-16:]
-    title = escape(steps.get('title') or clean_title(t['title']) or '(untitled)')
+    title = escape(steps.get('title') or ('New %s session' % t['_pkind'].capitalize() if t.get('_pkind') and not t.get('log') else '')
+                   or clean_title(t['title']) or '(untitled)')
     summary = escape(steps.get('summary') or '')
     reply = escape(steps.get('last_reply') or dg['recap'] or '')  # 터미널 recap 은 영어로 나올 때가 있어 DeepSeek 요약(한국어)을 먼저 쓴다
     done = sum(1 for i in items if i['state'] == 'done')
@@ -1295,7 +1574,7 @@ def render(t, steps, ws):
     model = model_of(t.get('log')) if t.get('log') else model_from_screen(read_tail(t['handle']))
     sid_m = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$', t.get('log') or '')
     sid = sid_m.group(1) if sid_m else ''
-    resume = ('codex resume ' if '/.codex/' in (t.get('log') or '') else 'claude --resume ') + sid if sid else ''
+    resume = ('codex resume ' if is_codex_log(t.get('log')) else 'claude --resume ') + sid if sid else ''
     stale = ''
     e = steps.get('err') or ''
     ok = steps.get('ok_at')
@@ -1328,7 +1607,7 @@ def render(t, steps, ws):
         a = s.get('agent') or {}
         kind, subj, short, ts = ORCH['last'].get(s['paneKey'], ('', '', '', 0))
         log = s.get('log')
-        if log and '/.codex/' in log:
+        if log and is_codex_log(log):
             busy = not codex_turn_done(log)
         else:
             busy = a.get('state') == 'working' if a.get('state') else status_of(s) == 'busy'
@@ -1374,8 +1653,8 @@ def render(t, steps, ws):
              '<div class="cols"><div class="c1"><h4>Steps</h4>%s</div><div class="c2">%s%s</div></div>%s</div></div>'
              % (st, cid, LABEL[st], escape(ws), chip, sidchip, stale, ring(sum(1 for f in flow if f['state'] in ('done', 'side')), len(flow)), title, summary, t['handle'], t['handle'],
                 render_flow(flow, st == 'busy', newest_first=False) if flow else '<p class="none">No steps yet</p>',
-                '<h4>Last reply</h4><div class="replybox"><p>%s</p></div>' % reply if reply else '',
-                sub_modal + render_todo(items, t.get('log')), render_more(dg, items)))
+                render_reply(reply, dg),
+                sub_modal + render_todo(items, t.get('log')), ''))
     order = (0, since) if st == 'wait' else (1, -since)  # 오래 기다린 내 차례가 맨 위
     cur_step = next((f for f in flow if f['state'] in ('blocked', 'now')), None)
     t['_info'] = {'ws': ws, 'fail': bool(t.get('_fail')), 'stuck': bool(t.get('_stuck')), 'wid': t['worktreeId'], 'log': t.get('log') or '', 'cwd': t.get('worktreePath') or '', 'status': st, 'title': steps.get('title') or clean_title(t['title']),
@@ -1442,18 +1721,19 @@ def _build():
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
     spy = {w for w, v in worktrees.items() if v.get('path') == os.path.expanduser('~/.spyhop')}
     raw = LIST_CACHE['list']['terminals']
+    attach_procs([t for t in raw if not t.get('orphaned')])
     for t in raw:
         sp = (t.get('ptyId') or '').split('@@')[0]
         t['_tr'] = {'h': t['handle'], 'ws': (worktrees.get(sp if sp in worktrees else t.get('worktreeId')) or {}).get('displayName') or '',
-                    'title_len': len(t.get('title') or ''), 'why': []}
+                    'title_len': len(t.get('title') or ''), 'why': (t.get('_tr') or {}).get('why', [])}  # 프로그램 연결 단계에서 남긴 것은 이어 간다
         if t.get('orphaned'):
             t['_tr']['out'] = 'orphaned'
-        elif is_shell(t.get('title', '')):
+        elif is_shell(t.get('title', '')) and not t.get('_proc'):
             t['_tr']['out'] = 'shell-title'
         elif t.get('worktreeId') in spy or sp in spy:
             t['_tr']['out'] = 'spyhop-workspace'
     terms = [t for t in raw
-             if not t.get('orphaned') and not is_shell(t.get('title', ''))
+             if not t.get('orphaned') and (not is_shell(t.get('title', '')) or t.get('_proc'))
              and t.get('worktreeId') not in spy and (t.get('ptyId') or '').split('@@')[0] not in spy]
     for t in terms:
         t['paneKey'] = '%s:%s' % (t['tabId'], t['leafId'])
@@ -1468,10 +1748,10 @@ def _build():
     moved = set(load_moved()) & {t['paneKey'] for t in terms}
     save_json(MOVED_FILE, sorted(moved))
     for t in terms:
-        if not (t['handle'] in shown or t.get('agent') or t['paneKey'] in moved):
+        if not (t['handle'] in shown or t.get('agent') or t['paneKey'] in moved or t.get('_proc')):
             t['_tr']['out'] = 'not-drawn-by-orca'
             t['_tr']['evidence'] = {'drawn_panes': len(shown), 'orca_agents': len(agents)}
-    terms = [t for t in terms if t['handle'] in shown or t.get('agent') or t['paneKey'] in moved]
+    terms = [t for t in terms if t['handle'] in shown or t.get('agent') or t['paneKey'] in moved or t.get('_proc')]  # AI 프로그램이 돌고 있으면 진짜 창이다
     # 다른 세션이 오케스트레이션으로 띄운 작업 창(검수·교차 확인)은 따로 카드로 만들지 않고 부른 세션 카드에 붙인다
     keys = {t['paneKey']: t for t in terms}
     links = orch_links()['parent']
@@ -1483,6 +1763,14 @@ def _build():
             t['_tr']['out'] = 'helper'
             t['_tr']['parent'] = keys[p]['handle']
     match_sessions(terms, worktrees)
+    for t in terms:  # 프로그램으로 찾은 Codex 작업 창도, 첫 지시문에 적힌 호출자를 읽어 둔다(부른 카드 아래로 붙이려고)
+        if t.get('_plog') and is_codex_log(t['_plog']) and _COORD_SRC.get(t['handle']) != t['_plog']:
+            _COORD_SRC[t['handle']] = t['_plog']
+            c = codex_coordinator(t['_plog'])
+            if c:
+                _COORD[t['handle']] = c
+            else:
+                _COORD.pop(t['handle'], None)
     # 오르카 기록에서 짝이 사라진 오래된 작업 창도, 작업 지시문에 적힌 호출자가 보드에 있으면 그 카드 아래로
     by_handle = {t['handle']: t for t in terms}
     for t in list(terms):
@@ -1494,13 +1782,14 @@ def _build():
             t['_tr']['parent'] = c['handle']
     alive = len(terms)
     # 대화 기록을 못 찾은 창은 보여줄 게 없다(빈 "Codex ready" 카드). 기록이 붙으면 그때 나온다
+    # 단, AI 프로그램이 돌고 있는 창은 아직 대화 기록이 없어도(막 연 새 세션) 바로 카드로 띄운다
     for t in terms:
-        if not t.get('log'):
+        if not t.get('log') and not t.get('_proc'):
             t['_tr']['out'] = 'no-transcript-matched'
-    terms = [t for t in terms if t.get('log')]
+    terms = [t for t in terms if t.get('log') or t.get('_proc')]
     for t in terms:
-        t['_tr']['out'] = 'card'
-        t['_tr']['agent_tool'] = 'codex' if '/.codex/' in t['log'] else 'claude'
+        t['_tr']['out'] = 'card' if t.get('log') else 'card-new-session'
+        t['_tr']['agent_tool'] = t.get('_pkind') or ('codex' if is_codex_log(t['log']) else 'claude')
     on_board = {t['handle'] for t in terms}
     for t in raw:  # 작업 창은 부른 카드가 보드에 있어야 보인다
         if t['_tr'].get('out') == 'helper' and t['_tr'].get('parent') not in on_board:
@@ -1509,7 +1798,7 @@ def _build():
              'inputs': {'terminals': len(raw), 'worktrees': len(worktrees), 'orca_agents': len(agents), 'drawn_panes': len(shown)},
              'raw': raw}
 
-    logs = sorted({t['log'] for t in terms})
+    logs = sorted({t['log'] for t in terms if t.get('log')})
     steps = {l: cached_summary(l) for l in logs}
     if logs:
         summarize_later(logs)
@@ -1787,7 +2076,7 @@ def serve():
         sid = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$', log)
         if not sid:
             return self.send(409, 'Transcript not found, cannot resume'.encode())
-        is_codex = '/.codex/' in log
+        is_codex = is_codex_log(log)
         if not is_codex:  # 같은 이름의 클로드 세션이 둘 이상 떠 있으면 어느 창이 어느 세션인지 확실하지 않다 → 옮기지 않는다
             names = [n for n in ai_title(log) if n]
             twins = [f for f in live_claude_sessions() if f != log and any(n in ai_title(f) for n in names)]
@@ -1877,7 +2166,7 @@ def serve():
 
 def session_cwd(log):
     """그 대화가 실제로 일하는 폴더. Codex 는 기록 첫 줄, 클로드는 기록 안의 마지막 "cwd"."""
-    if '/.codex/' in log:
+    if is_codex_log(log):
         return codex_cwd(log)
     sid = os.path.basename(log)[:-6]
     for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):  # 떠 있는 세션이면 그 프로그램의 실제 폴더가 가장 정확하다
@@ -2033,7 +2322,13 @@ def watch():
         except Exception as e:
             sys.stderr.write('board: %s\n' % e)
         sample_metrics()
-        time.sleep(refresh_sec())
+        # 다음 갱신까지 기다리되, AI 프로그램이 새로 뜨거나 끝나면 바로 다시 그린다 (새 세션이 1~2초 안에 뜬다)
+        pids, until = agent_pids(), time.time() + refresh_sec()
+        while time.time() < until:
+            time.sleep(2)
+            now = agent_pids()
+            if now != pids:
+                break
 
 
 METRICS = []          # 최근 60개 [시각, CPU %(맥 전체 대비), 메모리 MB]
@@ -2070,6 +2365,9 @@ WHY_TEXT = {
     'helper-parent-not-on-board': 'a helper of a session that is not on the board, so it is not shown either',
     'no-transcript-matched': 'no transcript could be matched to this pane',
     'card': 'on the board',
+    'card-new-session': 'on the board as a new session (no transcript yet; steps appear after the first message)',
+    'process': 'found from the running program',
+    'process-unresolved': 'the running program was found but its transcript could not be pinned down',
     'claude:title-in-folder': 'title matches a transcript in this folder',
     'claude:kept-previous': 'kept the previous match (several transcripts share the title)',
     'claude:same-title-taken': 'another pane already took the transcript with this title',
@@ -2195,17 +2493,21 @@ def doctor(argv):
             counts[o] = counts.get(o, 0) + 1
             if o in ('orphaned', 'spyhop-workspace'):
                 continue
-            mark = {'card': '✓', 'helper': '↳', 'helper-older-hidden': '↳', 'shell-title': '–'}.get(o, '✗')  # – 는 문제가 아니라 원래 안 보이는 것
+            mark = {'card': '✓', 'card-new-session': '✓', 'helper': '↳', 'helper-older-hidden': '↳', 'shell-title': '–'}.get(o, '✗')  # – 는 문제가 아니라 원래 안 보이는 것
             name = titles.get(e['h'], '')[:40] if show_titles else ''
             ws = (e.get('ws') or '?')[:18] if show_titles else alias[e.get('ws') or '?']
             say('  %s %s  %-6s %s%s' % (mark, e['h'][:13], ws, WHY_TEXT.get(o, o), ('  "%s"' % name) if name else ''))
+            if o == 'card':
+                how = next((w for w in e.get('why') or [] if w[0] not in ('kind',)), None)
+                if how:
+                    say('        · found by: %s' % ((how[1] or {}).get('how') if how[0] == 'process' else WHY_TEXT.get(how[0], how[0])))
             if o in ('helper', 'helper-older-hidden'):
                 say('        · under the card of %s (only the newest helper of a card is shown)' % (e.get('parent') or '?')[:13])
-            if o not in ('card', 'helper', 'helper-older-hidden', 'shell-title'):
+            if o not in ('card', 'card-new-session', 'helper', 'helper-older-hidden', 'shell-title'):
                 for w in e.get('why') or []:
                     code, det = w[0], (w[1] if len(w) > 1 else {})
                     if code == 'kind':
-                        say('        · read as %s (from %s)' % (det.get('kind'), 'Orca' if det.get('by') == 'orca' else 'the title'))
+                        say('        · read as %s (from %s)' % (det.get('kind'), {'orca': 'Orca', 'process': 'the running program'}.get(det.get('by'), 'the title')))
                         continue
                     extra = ', '.join('%s=%s' % kv for kv in det.items())
                     say('        · %s%s' % (WHY_TEXT.get(code, code), ' (%s)' % extra if extra else ''))
@@ -2431,7 +2733,7 @@ border-radius:10px;padding:16px 18px;border-top:5px solid var(--st)}
 .rv{fill:none;stroke:var(--done);stroke-width:4;stroke-linecap:round;transform:rotate(-90deg);transform-origin:center}
 .ring text{font-size:8.5px;font-weight:700;fill:var(--ink)}
 .replybox{background:var(--col);border-left:3px solid var(--st);border-radius:4px;padding:8px 10px;margin-bottom:12px}
-.replybox b{font-size:11px;color:var(--st)}.replybox p{margin:3px 0 0}
+.replybox b{font-size:11px;color:var(--st)}.replybox p{margin:3px 0 0}.ask{margin:0 0 6px;font-size:11.5px;color:var(--ink3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ask b{color:var(--ink2);margin-right:6px}.raw{margin-top:8px}.raw summary{cursor:pointer;font-size:11px;font-weight:600;color:var(--ink3)}.raw summary:hover{color:var(--ink)}.raw .md{margin-top:6px;max-height:320px;overflow:auto;font-size:12px}
 h4{font-size:12px;color:var(--ink3);margin:6px 0 8px}
 .flow{list-style:none;margin:0;padding:0}
 .n{display:flex;gap:10px;position:relative;padding-bottom:8px}
