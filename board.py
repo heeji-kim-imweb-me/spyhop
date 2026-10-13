@@ -28,6 +28,7 @@ RESUMMARIZE = 60
 IDLE_EXIT = 30 * 60   # 에이전트 세션이 하나도 없는 상태가 30분 이어지면 감시를 끝낸다
 STATE = os.path.join(BASE, 'state.json')  # 메뉴바가 읽는 요약
 IDLE_MARK = '✳'
+CLAUDE_MARKS = set('✳✶✻✽✢·*◐◓◑◒')
 SPINNERS = set('◐◓◑◒✶✻✽✢·*⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
 STATES = ('done', 'now', 'open', 'side', 'left', 'blocked')
 MODEL = os.environ.get('PROGRESS_BOARD_MODEL', 'deepseek-flash')
@@ -258,9 +259,13 @@ def agent_kind(t):
     kind = (t.get('agent') or {}).get('agentType')
     if kind in ('claude', 'codex'):
         return kind
-    if ' | ' in t['title']:  # 오르카가 종류를 안 알려 주면: Codex 창 제목은 「스레드 이름 | 폴더」 꼴이다
+    title = t.get('title') or ''
+    head = title[:1]
+    if head in CLAUDE_MARKS:  # 클로드 코드만 쓰는 기호(✳ 쉬는 중, ✶✻ 등 일하는 중)
+        return 'claude'
+    if '\u2800' <= head <= '\u28ff' or ' | ' in title:  # Codex 는 점자 진행 기호(⠹)를 쓰고, 제목이 「스레드 이름 | 폴더」 꼴이다
         return 'codex'
-    return 'claude' if pane_state(t['title']) != 'unknown' else 'codex'
+    return 'claude' if pane_state(title) != 'unknown' else 'codex'
 
 
 def pane_state(title):
@@ -645,6 +650,16 @@ def save_matches(new):
     save_json(MATCHES, cur)
 
 
+def codex_head(title):
+    """Codex 창 제목에서 스레드 이름. 일하는 동안 앞에 붙는 점자 진행 기호(⠹)만 떼고 나머지는 그대로 둔다."""
+    return re.sub(r'^[\u2800-\u28ff]\s*', '', (title or '').split(' | ')[0]).strip()
+
+
+def why(t, code, **detail):
+    """진단(doctor)용: 이 창이 어떤 판정을 거쳤는지. 제목·대화 내용은 남기지 않고 코드와 숫자만."""
+    t.setdefault('_tr', {}).setdefault('why', []).append([code, detail] if detail else [code])
+
+
 def match_sessions(terms, worktrees):
     """창마다 대화 기록 파일을 붙인다.
     Claude 는 창 제목 = 기록의 제목(ai-title)으로 맞춘다.
@@ -662,29 +677,43 @@ def match_sessions(terms, worktrees):
         anywhere = None
         taken = set()
         for t in panes:
+            kind = agent_kind(t)
+            why(t, 'kind', kind=kind, by='orca' if (t.get('agent') or {}).get('agentType') in ('claude', 'codex') else 'title')
             f = cidx.get(clean_title(t['title']))
+            if f:
+                why(t, 'claude:title-in-folder')
             prev = known.get(t['handle'])
             if prev and prev != f and prev in cfiles and prev not in taken and clean_title(t['title']) in ai_title(prev):
                 f = prev  # 같은 제목 세션이 여럿이면 지난번 짝을 그대로 둔다 (갱신마다 카드 내용이 뒤바뀌지 않게)
+                why(t, 'claude:kept-previous')
             if f in taken:  # 같은 제목 창이 둘이면 두 번째는 제목으로 못 가린다 → 아래 '남은 세션' 짝에 맡긴다
                 f = None
-            if not f and agent_kind(t) == 'claude':
+                why(t, 'claude:same-title-taken')
+            if not f and kind == 'claude':
                 anywhere = anywhere if anywhere is not None else live_title_index()
                 f = anywhere.get(clean_title(t['title']))
                 if f:
                     cfiles.add(f)
+                    why(t, 'claude:live-title-any-folder')
             if not f and known.get(t['handle']) in cfiles:
                 f = known[t['handle']]
+                why(t, 'saved-match')
             if f:
                 t['log'] = f
                 taken.add(f)
-            elif agent_kind(t) == 'codex':
+            elif kind == 'codex':
                 rest.append(t)
+            else:
+                why(t, 'claude:no-title-match', folder_transcripts=len(cidx), live_in_folder=len(live), untitled=t['title'].strip() in ('', 'Claude Code') or clean_title(t['title']) == 'Claude Code')
         # 아직 제목이 없는 클로드 창(예: "Claude Code")은, 이 폴더의 떠 있는 세션 중 다른 창이 안 가져간 게 딱 하나 남으면 그것이다
         left_panes = [t for t in panes if not t.get('log') and agent_kind(t) == 'claude']
         left_files = [f for f in live if f not in {t.get('log') for t in panes}]
         if len(left_panes) == 1 and len(left_files) == 1:
             left_panes[0]['log'] = left_files[0]
+            why(left_panes[0], 'claude:paired-by-elimination')
+        else:
+            for t in left_panes:
+                why(t, 'claude:elimination-not-possible', unmatched_panes=len(left_panes), unclaimed_live=len(left_files))
         save_matches({t['handle']: t['log'] for t in panes if t.get('log') in cfiles})
         if not rest:
             continue
@@ -694,23 +723,35 @@ def match_sessions(terms, worktrees):
         # 이름(스레드) 짝은 폴더를 가리지 않는다: 다른 폴더 칸으로 옮긴 Codex 창은 원래 폴더의 기록을 쓴다
         codex_files(path)
         by_id = {re.sub(r'.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', r'\1', f): f for f in _CODEX_LIST['files']}
-        heads = [clean_title(t['title']).split(' | ')[0].strip() for t in rest]
+        heads = [codex_head(t['title']) for t in rest]
         for t in rest:
             # 1순위: 창 제목(Codex 스레드 이름) → session_index 의 id → 기록 파일. 같은 이름 창이 여럿이면 못 가린다
-            head = clean_title(t['title']).split(' | ')[0].strip()  # 일하는 중이면 앞에 붙는 진행 기호는 뗀다
+            head = codex_head(t['title'])
             tid = names.get(head) if heads.count(head) == 1 else None
+            if heads.count(head) > 1:
+                why(t, 'codex:name-shared-by-panes', panes=heads.count(head))
+            elif not tid:
+                why(t, 'codex:name-not-usable')
+            elif tid not in by_id:
+                why(t, 'codex:name-transcript-not-recent')
+            elif by_id[tid] in used:
+                why(t, 'codex:name-transcript-taken')
             if tid and tid in by_id and by_id[tid] not in used:
                 t['log'] = by_id[tid]
                 used.add(t['log'])
+                why(t, 'codex:thread-name')
                 continue
             prev = known.get(t['handle'])
             if prev and os.path.exists(prev) and prev not in used:
                 t['log'] = prev
                 used.add(prev)
+                why(t, 'saved-match')
                 if time.time() - _RECHECK.get(t['handle'], 0) < 60:
                     continue
                 _RECHECK[t['handle']] = time.time()
             raw = digest(read_tail(t['handle']))['ask']
+            if not raw:
+                why(t, 'codex:no-request-on-screen')
             coord = re.search(r"coordinator's terminal handle is: (term_[0-9a-f-]+)", raw or '')
             if coord:
                 _COORD[t['handle']] = coord.group(1)
@@ -718,16 +759,24 @@ def match_sessions(terms, worktrees):
             if task:  # 오르카 작업 창: 첫 지시문은 다 같으니, 그 안의 작업 번호로 기록을 정확히 찾는다
                 ask = task.group(0)
             elif (raw or '').startswith('You are working inside Orca'):
+                why(t, 'codex:only-orca-preamble')
                 continue
             else:
                 ask = norm(raw)[:20]
             if len(ask) < 6:
+                if raw:
+                    why(t, 'codex:request-too-short')
                 continue
             # 같은 문장이 여러 기록에 있으면(오케스트레이션 작업 창은 첫 지시문이 다 같다) 못 가리므로 붙이지 않는다
             hits = [f for f, msgs in files if f not in used and any(ask in m for m in msgs[-5:])]
             if len(hits) == 1:
                 t['log'] = hits[0]
                 used.add(hits[0])
+                why(t, 'codex:task-id' if task else 'codex:request-text')
+            elif hits:
+                why(t, 'codex:request-in-several-transcripts', transcripts=len(hits))
+            else:
+                why(t, 'codex:request-not-found', candidates=len(files))
         save_matches({t['handle']: t['log'] for t in rest if t.get('log')})
         if any(not t.get('log') for t in rest):
             _CODEX_LIST['at'] = 0  # 새로 생긴 Codex 기록일 수 있다 → 1분 기다리지 않고 다음 갱신 때 다시 훑는다
@@ -816,6 +865,7 @@ def layout_handles():
 
 ORCH = {'at': 0, 'parent': {}, 'last': {}}
 MOVED_FILE = os.path.join(BASE, 'moved.json')
+TRACE = os.path.join(BASE, 'trace.json')  # 마지막 갱신에서 창마다 내린 판정 (spyhop doctor 가 읽는다)
 
 
 def load_moved():
@@ -1295,6 +1345,11 @@ def render(t, steps, ws):
         helpers.append(s['handle'])
         subs.append((when, (s['handle'], sst, who.capitalize(), a.get('taskTitle') or clean_title(s['title']) or '', res)))
     # 교차검증을 여러 번 불렀으면 가장 최근 것 하나만 보여준다
+    if subs:
+        newest = max(subs, key=lambda x: x[0])[1][0]
+        for s in t.get('subs') or []:
+            if s['handle'] != newest and isinstance(s.get('_tr'), dict):
+                s['_tr']['out'] = 'helper-older-hidden'
     subs = [max(subs, key=lambda x: x[0])[1]] if subs else []
     sub_card = ('<div class="subs">%s</div>' % ''.join(
         '<span class="sub %s">↳ %s · <b>%s</b></span>' % (sst, escape(who), SUB_LABEL[sst]) for _, sst, who, _, _ in subs)) if subs else ''
@@ -1386,7 +1441,18 @@ def _build():
         agents = f_agents.result()
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
     spy = {w for w, v in worktrees.items() if v.get('path') == os.path.expanduser('~/.spyhop')}
-    terms = [t for t in LIST_CACHE['list']['terminals']
+    raw = LIST_CACHE['list']['terminals']
+    for t in raw:
+        sp = (t.get('ptyId') or '').split('@@')[0]
+        t['_tr'] = {'h': t['handle'], 'ws': (worktrees.get(sp if sp in worktrees else t.get('worktreeId')) or {}).get('displayName') or '',
+                    'title_len': len(t.get('title') or ''), 'why': []}
+        if t.get('orphaned'):
+            t['_tr']['out'] = 'orphaned'
+        elif is_shell(t.get('title', '')):
+            t['_tr']['out'] = 'shell-title'
+        elif t.get('worktreeId') in spy or sp in spy:
+            t['_tr']['out'] = 'spyhop-workspace'
+    terms = [t for t in raw
              if not t.get('orphaned') and not is_shell(t.get('title', ''))
              and t.get('worktreeId') not in spy and (t.get('ptyId') or '').split('@@')[0] not in spy]
     for t in terms:
@@ -1401,6 +1467,10 @@ def _build():
     # 옮기기로 연 창은 아직 한 번도 안 연 워크스페이스에 생기면 화면 배치에 안 잡힌다 → 그 창은 남긴다
     moved = set(load_moved()) & {t['paneKey'] for t in terms}
     save_json(MOVED_FILE, sorted(moved))
+    for t in terms:
+        if not (t['handle'] in shown or t.get('agent') or t['paneKey'] in moved):
+            t['_tr']['out'] = 'not-drawn-by-orca'
+            t['_tr']['evidence'] = {'drawn_panes': len(shown), 'orca_agents': len(agents)}
     terms = [t for t in terms if t['handle'] in shown or t.get('agent') or t['paneKey'] in moved]
     # 다른 세션이 오케스트레이션으로 띄운 작업 창(검수·교차 확인)은 따로 카드로 만들지 않고 부른 세션 카드에 붙인다
     keys = {t['paneKey']: t for t in terms}
@@ -1410,6 +1480,8 @@ def _build():
         if p in keys and p != t['paneKey'] and not moved_on(t):
             keys[p].setdefault('subs', []).append(t)
             terms.remove(t)
+            t['_tr']['out'] = 'helper'
+            t['_tr']['parent'] = keys[p]['handle']
     match_sessions(terms, worktrees)
     # 오르카 기록에서 짝이 사라진 오래된 작업 창도, 작업 지시문에 적힌 호출자가 보드에 있으면 그 카드 아래로
     by_handle = {t['handle']: t for t in terms}
@@ -1418,9 +1490,24 @@ def _build():
         if c is not None and c is not t and not moved_on(t):
             c.setdefault('subs', []).append(t)
             terms.remove(t)
+            t['_tr']['out'] = 'helper'
+            t['_tr']['parent'] = c['handle']
     alive = len(terms)
     # 대화 기록을 못 찾은 창은 보여줄 게 없다(빈 "Codex ready" 카드). 기록이 붙으면 그때 나온다
+    for t in terms:
+        if not t.get('log'):
+            t['_tr']['out'] = 'no-transcript-matched'
     terms = [t for t in terms if t.get('log')]
+    for t in terms:
+        t['_tr']['out'] = 'card'
+        t['_tr']['agent_tool'] = 'codex' if '/.codex/' in t['log'] else 'claude'
+    on_board = {t['handle'] for t in terms}
+    for t in raw:  # 작업 창은 부른 카드가 보드에 있어야 보인다
+        if t['_tr'].get('out') == 'helper' and t['_tr'].get('parent') not in on_board:
+            t['_tr']['out'] = 'helper-parent-not-on-board'
+    trace = {'code': os.path.realpath(__file__),
+             'inputs': {'terminals': len(raw), 'worktrees': len(worktrees), 'orca_agents': len(agents), 'drawn_panes': len(shown)},
+             'raw': raw}
 
     logs = sorted({t['log'] for t in terms})
     steps = {l: cached_summary(l) for l in logs}
@@ -1481,6 +1568,10 @@ def _build():
     infos = sorted((t['_info'] for t in terms if t.get('_info')), key=lambda i: (i['ws'], i['order']))
     check_board(terms)
     save_json(STATE, {'at': time.time(), 'sessions': infos})
+    try:  # 진단 기록은 보드와 상태를 다 쓴 뒤에 남긴다. 여기서 실패해도 보드는 그대로 간다
+        save_json(TRACE, {'at': time.time(), 'code': trace['code'], 'inputs': trace['inputs'], 'panes': [x['_tr'] for x in trace['raw']]})
+    except Exception as e:
+        sys.stderr.write('trace: %s\n' % e)
     return alive
 
 
@@ -1603,6 +1694,8 @@ def serve():
                                                   'summarizer': summarizer_name(current_summarizer())}).encode(), 'application/json')
             if u.path == '/config':
                 return self.send(200, json.dumps({'summarizer': current_summarizer(), 'options': summarizers(), 'theme': current_theme()}).encode(), 'application/json')
+            if u.path == '/doctor.json':
+                return self.send(200, open(TRACE, 'rb').read() if os.path.exists(TRACE) else b'{}', 'application/json')
             if u.path == '/state.json':
                 return self.send(200, open(STATE, 'rb').read(), 'application/json')
             if u.path == '/switch':
@@ -1962,7 +2055,173 @@ def sample_metrics():
     _LAST.update(cpu=cpu, t=now)
 
 
+# ---------- 진단 (spyhop doctor) ----------
+# 읽기만 한다: 보드를 띄우거나 다시 그리지 않고, 요약을 만들지 않고, 파일을 쓰지 않는다.
+# 창마다 판정은 돌고 있는 보드가 마지막 갱신에서 남긴 기록(/doctor.json)을 읽는다 — 같은 코드를 따로 돌려 짐작하지 않는다.
+# 제목·요청 문장은 기본으로 안 찍는다(--titles 를 줘야 찍는다).
+
+WHY_TEXT = {
+    'orphaned': 'Orca lists this pane as orphaned (its tab is gone)',
+    'shell-title': 'title starts with ~ / or .. so it is treated as a plain shell, not an AI session',
+    'spyhop-workspace': "it is Spyhop's own workspace",
+    'not-drawn-by-orca': 'Orca reports no on-screen layout and no agent for this pane (often a workspace not opened in Orca since it started; clicking it usually helps)',
+    'helper': 'shown as a helper line under another card',
+    'helper-older-hidden': 'a helper under another card, hidden because only the newest helper of a card is shown',
+    'helper-parent-not-on-board': 'a helper of a session that is not on the board, so it is not shown either',
+    'no-transcript-matched': 'no transcript could be matched to this pane',
+    'card': 'on the board',
+    'claude:title-in-folder': 'title matches a transcript in this folder',
+    'claude:kept-previous': 'kept the previous match (several transcripts share the title)',
+    'claude:same-title-taken': 'another pane already took the transcript with this title',
+    'claude:live-title-any-folder': 'matched a running session by title in another folder',
+    'claude:no-title-match': 'no transcript with this title in this folder (last 3 days) and no running session with this title',
+    'claude:paired-by-elimination': 'untitled pane paired with the only unclaimed running session in this folder',
+    'claude:elimination-not-possible': 'untitled/unmatched pane could not be paired: needs exactly 1 unmatched pane and 1 unclaimed running session',
+    'saved-match': 'reused the match from a previous update',
+    'codex:name-shared-by-panes': 'several panes have the same Codex thread name, so the name cannot tell them apart',
+    'codex:name-not-usable': 'the Codex thread name is not in ~/.codex/session_index.jsonl, or several threads share that name',
+    'codex:name-transcript-not-recent': 'no transcript for that thread among recently written files (last 3 days, list refreshed every minute)',
+    'codex:name-transcript-taken': 'another pane already took that thread',
+    'codex:thread-name': 'matched by Codex thread name',
+    'codex:no-request-on-screen': 'could not read the last request from the pane screen',
+    'codex:only-orca-preamble': 'the screen only shows the shared Orca task preamble',
+    'codex:request-too-short': 'the last request on screen is too short to search for',
+    'codex:task-id': 'matched by Orca task id',
+    'codex:request-text': 'matched by the last request text',
+    'codex:request-in-several-transcripts': 'the last request appears in several transcripts, so it is ambiguous',
+    'codex:request-not-found': "the last request is not in this folder's recent Codex transcripts",
+}
+
+
+def _doctor_get(path, timeout=3):
+    import urllib.request
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:%d%s' % (PORT, path), timeout=timeout) as r:
+            return json.loads(r.read() or b'{}')
+    except Exception as e:  # 보드가 없거나 응답이 이상하다
+        return e
+
+
+def _where(path):
+    m = re.search(r'/Cellar/spyhop/([^/]+)/', path or '')
+    return ('brew %s' % m.group(1)) if m else (path.replace(os.path.expanduser('~'), '~') if path else '?')
+
+
+def doctor(argv):
+    show_titles = '--titles' in argv
+    out = []
+    say = out.append
+    me = os.path.realpath(__file__)
+    say('Spyhop doctor')
+    say('  this doctor:   %s' % _where(me))
+    say('  python:        %s' % sys.version.split()[0])
+    # 1) 보드가 도는가, 어떤 코드로
+    pid, running = None, ''
+    try:
+        with open(PIDFILE) as f:
+            parts = f.read().split()
+        pid, running = int(parts[0]), (parts[1] if len(parts) > 1 else '')
+        os.kill(pid, 0)
+        alive = True
+    except (OSError, ValueError, IndexError):
+        alive = False
+    if not alive:
+        say('  board:         NOT RUNNING. Start it with: spyhop')
+    else:
+        same = running == me
+        say('  board:         running (pid %d) from %s%s' % (pid, _where(running),
+            '' if same else '  <-- DIFFERENT CODE than this doctor. Run: spyhop  (restarts it on this version)'))
+    st = _doctor_get('/state.json')
+    if isinstance(st, Exception):
+        say('  board web:     not reachable on 127.0.0.1:%d (%s)' % (PORT, type(st).__name__))
+    trace = _doctor_get('/doctor.json')
+    if isinstance(trace, Exception) or 'panes' not in trace:
+        try:
+            with open(TRACE) as f:
+                trace = json.load(f)
+            say('  trace:         read from %s (board web did not answer)' % TRACE)
+        except (OSError, ValueError):
+            trace = {}
+    if trace.get('at'):
+        age = time.time() - trace['at']
+        say('  last update:   %ds ago%s' % (age, '  <-- STALE, the board may be failing to update (see %s)' % os.path.join(BASE, 'watch.log') if age > max(60, 3 * refresh_sec()) else ''))
+    elif alive:
+        say('  last update:   no trace yet. This board version may be too old for doctor; run: brew upgrade spyhop && spyhop')
+    # 2) 오르카
+    ob = find_bin('orca')
+    if not ob:
+        say('  orca:          NOT FOUND on PATH. Spyhop finds sessions through Orca, so the board stays empty')
+    else:
+        try:
+            ok = subprocess.run([ob, 'status', '--json'], capture_output=True, text=True, timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        say('  orca:          %s' % ('ok' if ok else 'not answering (is the Orca app open?)'))
+    # 3) 요약 모델 (만드는 사람은 안 부른다)
+    want = load_config().get('summarizer', 'deepseek')
+    eff = current_summarizer()
+    provs = [p['id'] for p in summarizers()]
+    say('  summarizer:    %s%s · available: %s' % (eff, '' if OLD_IDS.get(want, want) == eff else ' (configured %s is not available, fell back)' % want, ', '.join(provs) or 'NONE'))
+    say('  grouping:      %s' % group_mode())
+    # 4) 감시 기록의 최근 오류 (내용 없이 개수와 마지막 종류만)
+    try:
+        with open(os.path.join(BASE, 'watch.log'), 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - 200000))
+            tail = f.read().decode('utf-8', 'ignore').splitlines()[-400:]
+        errs = [l for l in tail if re.match(r'^(board|summary|summarize|grouping|server|rebuild)[^:]*: ', l) or 'Traceback' in l]
+        if errs:
+            say('  recent errors: %d in the last 400 log lines (last: %s)' % (len(errs), errs[-1].split(':', 1)[0]))
+    except OSError:
+        pass
+    # 5) 창마다
+    panes = trace.get('panes') or []
+    if panes:
+        inp = trace.get('inputs', {})
+        say('')
+        say('Panes in Orca: %d  (Orca reported %d drawn panes, %d agents)' % (inp.get('terminals', len(panes)), inp.get('drawn_panes', 0), inp.get('orca_agents', 0)))
+        titles = {}
+        if show_titles and ob:
+            try:
+                titles = {t['handle']: t.get('title') or '' for t in orca('terminal', 'list').get('terminals', [])}
+            except Exception:
+                pass
+        counts = {}
+        order = {'card': 0, 'helper': 1}
+        alias = {}
+        for e in panes:  # 워크스페이스 이름도 일 내용일 수 있어 기본은 W1, W2 … 로 가린다
+            alias.setdefault(e.get('ws') or '?', 'W%d' % (len(alias) + 1))
+        for e in sorted(panes, key=lambda e: (order.get(e.get('out'), 2), e.get('ws') or '')):
+            o = e.get('out') or '?'
+            counts[o] = counts.get(o, 0) + 1
+            if o in ('orphaned', 'spyhop-workspace'):
+                continue
+            mark = {'card': '✓', 'helper': '↳', 'helper-older-hidden': '↳', 'shell-title': '–'}.get(o, '✗')  # – 는 문제가 아니라 원래 안 보이는 것
+            name = titles.get(e['h'], '')[:40] if show_titles else ''
+            ws = (e.get('ws') or '?')[:18] if show_titles else alias[e.get('ws') or '?']
+            say('  %s %s  %-6s %s%s' % (mark, e['h'][:13], ws, WHY_TEXT.get(o, o), ('  "%s"' % name) if name else ''))
+            if o in ('helper', 'helper-older-hidden'):
+                say('        · under the card of %s (only the newest helper of a card is shown)' % (e.get('parent') or '?')[:13])
+            if o not in ('card', 'helper', 'helper-older-hidden', 'shell-title'):
+                for w in e.get('why') or []:
+                    code, det = w[0], (w[1] if len(w) > 1 else {})
+                    if code == 'kind':
+                        say('        · read as %s (from %s)' % (det.get('kind'), 'Orca' if det.get('by') == 'orca' else 'the title'))
+                        continue
+                    extra = ', '.join('%s=%s' % kv for kv in det.items())
+                    say('        · %s%s' % (WHY_TEXT.get(code, code), ' (%s)' % extra if extra else ''))
+                if e.get('evidence'):
+                    say('        · %s' % ', '.join('%s=%s' % kv for kv in e['evidence'].items()))
+        say('')
+        say('Summary: ' + ', '.join('%s %d' % (k, v) for k, v in sorted(counts.items(), key=lambda x: -x[1])))
+    say('')
+    say('Titles and workspace names are hidden (W1, W2 ...). Add --titles to show them; they may contain work content.' if not show_titles else 'Titles and workspace names shown: check them before sharing.')
+    print('\n'.join(out))
+
+
 def main(argv):
+    if '--doctor' in argv:  # 진단은 아무것도 띄우거나 바꾸지 않는다
+        doctor(argv)
+        return
     if '--watch' in argv:
         watch()
         return
