@@ -3256,11 +3256,12 @@ function live(){
     document.querySelectorAll('.modal[id^="c"]').forEach(function(m){if(!seen[m.id]&&m.id!==open){m.remove();delete modalHtml[m.id]}});
     var gr=!!document.getElementById('grouping');if(gr&&!window.gStop)window.gStop=busy();if(!gr&&window.gStop){window.gStop();window.gStop=null}
     if(gr)setTimeout(live,2500);
-  }).catch(function(){if(window.top===window)location.href='__LOADER__'})}
+    return true  // 새 화면을 실제로 반영했다
+  }).catch(function(){if(window.top===window)location.href='__LOADER__';return false})}
 var RT=setInterval(function(){if(!document.hidden)live()},__REFRESH_MS__),GEN=null;
 setInterval(function(){if(document.hidden||drag||press)return;  // 새 세션·끝난 세션은 서버가 2초 안에 다시 그리니, 그걸 바로 따라간다
   fetch('http://127.0.0.1:47613/gen',{cache:'no-store'}).then(function(r){return r.text()}).then(function(g){if(g===GEN)return;
-    return live().then(function(){if(!drag&&!press)GEN=g})}).catch(function(){})},2000);  // 끄는 중이라 못 그렸으면 GEN 을 두고 다음에 다시
+    return live().then(function(ok){if(ok===true)GEN=g})}).catch(function(){})},2000);  // 끄는 중이라 못 그렸으면 GEN 을 두고 다음에 다시
 document.addEventListener('visibilitychange',function(){if(!document.hidden)live()});
 if(document.getElementById('grouping'))setTimeout(live,2500);
 </script>
