@@ -34,7 +34,7 @@ STATES = ('done', 'now', 'open', 'side', 'left', 'blocked')
 MODEL = os.environ.get('PROGRESS_BOARD_MODEL', 'deepseek-flash')
 DEEPSEEK_URL = 'https://api.deepseek.com/anthropic/v1/messages'
 SECRET = re.compile(r'(AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,}|xox[abpr]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}'
-                    r'|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|(?i:password|passwd|secret|token)\s*[=:]\s*\S+)')
+                    r'''|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|(?i:["']?(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth[_-]?token)["']?\s*[=:]\s*(?:"[^"\n]*"|'[^'\n]*'|\S+)))''')
 
 
 def mask(text):
@@ -211,6 +211,7 @@ def codex_cli(system, user, model):
 
 
 def llm(system, user, sid=None):
+    user = mask(user)  # 모델로 나가는 글은 어디서 부르든 여기서 한 번 더 가린다 (요약·주제 묶기 공통)
     provider, _, model = (sid or current_summarizer()).partition(':')
     if provider == 'claude':
         return claude_cli(system, user, model)
@@ -253,9 +254,21 @@ def orca(*args):
     return json.loads(out.stdout)['result']
 
 
+def orca_or(default, *args):
+    """오르카가 없거나(설치 안 함·꺼짐) 답이 이상하면 빈 결과. 그래도 오르카 밖 터미널 세션은 보드에 뜬다."""
+    if not find_bin('orca'):
+        return default
+    try:
+        return orca(*args)
+    except Exception:
+        return default
+
+
 def agent_kind(t):
     """클로드 창인지 Codex 창인지. 오르카가 알려 주는 agentType 을 먼저 믿는다.
     제목의 진행 기호로는 못 가린다: Codex 도 일하는 동안 제목 앞에 ⠹ 같은 기호를 붙인다."""
+    if t.get('_pkind'):  # 이 창에서 실제로 돌고 있는 프로그램
+        return t['_pkind']
     kind = (t.get('agent') or {}).get('agentType')
     if kind in ('claude', 'codex'):
         return kind
@@ -382,6 +395,7 @@ def claude_index(worktree_path):
 
 _CODEX_CWD = {}
 _COORD = {}            # 오르카 작업 창 → 부른 세션 창 (작업 지시문에 적힌 호출자)
+_COORD_SRC = {}        # 그 호출자를 어느 기록에서 읽었는지 (스레드가 바뀌면 다시 읽는다)
 _RECHECK = {}          # Codex 창별로 화면을 읽어 짝을 다시 확인한 시각
 _CODEX_LIST = {'at': 0, 'files': []}
 
@@ -558,6 +572,8 @@ def read_tail(handle):
 
 
 def _read_tail(handle):
+    if handle.startswith('proc_'):
+        return []  # 오르카 밖 세션은 화면을 읽을 수 없다
     try:
         return orca('terminal', 'read', '--terminal', handle, '--limit', '200')['terminal'].get('tail') or []
     except Exception:
@@ -612,27 +628,69 @@ def codex_user_msgs(path):
     return msgs
 
 
+@per_file
+def codex_coordinator(path):
+    """오르카 작업 창이면 첫 지시문에 「coordinator's terminal handle is: term_…」 가 있다. 첫 사용자 메시지 하나만 본다."""
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as fh:
+            for i, line in enumerate(fh):
+                if i > 400 or '"role":"user"' not in line:
+                    continue
+                try:
+                    text = text_of(json.loads(line).get('payload', {}).get('content')).strip()
+                except ValueError:
+                    continue
+                if not text or text.startswith('<') or text.startswith('# AGENTS.md instructions'):
+                    continue  # 환경 정보·AGENTS.md 같은 자동 블록은 건너뛴다
+                m = re.search(r"coordinator's terminal handle is: (term_[0-9a-f-]+)", text)
+                return m.group(1) if m else None
+    except OSError:
+        pass
+    return None
+
+
 MATCHES = os.path.join(BASE, 'codex-match.json')
 
 
-def codex_thread_names():
-    """Codex 가 스레드 이름을 남기는 색인: 이름 → id. 여러 대화가 같은 이름이면(오케스트레이션 작업 창은 모두
-    "Report task outcome") 어느 것인지 모르므로 뺀다."""
-    out, dup = {}, set()
+def codex_latest_names(home=None):
+    """Codex 스레드 id → 가장 최근 이름."""
+    path = os.path.join(home or os.path.expanduser('~/.codex'), 'session_index.jsonl')
+    latest = {}
     try:
-        with open(os.path.expanduser('~/.codex/session_index.jsonl'), encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             for line in f:
                 try:
                     d = json.loads(line)
                 except ValueError:
                     continue
-                n = d.get('thread_name')
-                if n:
-                    if n in out and out[n] != d['id']:
-                        dup.add(n)
-                    out[n] = d['id']
+                if d.get('id') and d.get('thread_name'):
+                    latest[d['id']] = d['thread_name']
     except OSError:
         pass
+    return latest
+
+
+def codex_thread_names(home=None):
+    """Codex 스레드 이름 → id. 스레드마다 마지막(가장 최근) 이름만 쓴다(이름을 바꾸면 옛 이름은 버린다).
+    여러 스레드가 같은 이름이면(오케스트레이션 작업 창은 모두 "Report task outcome") 어느 것인지 모르므로 뺀다."""
+    path = os.path.join(home or os.path.expanduser('~/.codex'), 'session_index.jsonl')
+    latest = {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get('id') and d.get('thread_name'):
+                    latest[d['id']] = d['thread_name']
+    except OSError:
+        pass
+    out, dup = {}, set()
+    for i, n in latest.items():
+        if n in out:
+            dup.add(n)
+        out[n] = i
     return {n: i for n, i in out.items() if n not in dup}
 
 
@@ -648,6 +706,418 @@ def save_matches(new):
     cur = load_matches()
     cur.update(new)
     save_json(MATCHES, cur)
+
+
+
+# ---------- 살아 있는 AI 프로그램에서 세션 찾기 ----------
+# 창 제목·화면 글자로 짐작하지 않고, 실제로 돌고 있는 claude / codex 프로그램에서 출발한다.
+#   클로드: 프로그램 번호 → ~/.claude/sessions/<pid>.json 의 sessionId → 대화 기록 (정확)
+#   Codex: 그 프로그램이나 Codex 서버(app-server)가 열어 둔 기록 파일 중에서, 같은 폴더·창 제목의 스레드 이름·시작 시각으로 고른다
+#   오르카 창과는 프로그램 환경 변수 ORCA_PANE_KEY(탭:칸)로 정확히 이어진다
+import calendar
+import datetime
+
+_PROC_CACHE = {'at': 0, 'data': None}
+
+
+def _ps_start(tokens):
+    """ps lstart 토큰 5개(예: Wed Oct  7 15:06:54 2026, 이 맥의 현지 시각) → epoch"""
+    try:
+        return time.mktime(time.strptime(' '.join(tokens), '%a %b %d %H:%M:%S %Y'))
+    except ValueError:
+        return 0
+
+
+def _agent_rows():
+    """(pid, ppid, tty, start, comm) — 가볍게 2초마다 불러도 되는 목록"""
+    try:
+        out = subprocess.run(['ps', '-axo', 'pid=,ppid=,tty=,lstart=,comm='], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = []
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) < 9:
+            continue
+        rows.append((int(p[0]), int(p[1]), p[2], _ps_start(p[3:8]), ' '.join(p[8:])))
+    return rows
+
+
+def proc_kind(comm):
+    """실행 파일 경로 → 'claude' / 'codex' / None. 클로드 설치판은 실행 파일 이름이 버전 번호일 수 있다 (…/claude/versions/2.1.296)"""
+    base = os.path.basename(comm)
+    if base in ('claude', 'codex'):
+        return base
+    if re.search(r'/claude/versions/\d[\w.-]*$', comm):
+        return 'claude'
+    return None
+
+
+def agent_pids():
+    """지금 살아 있는 AI 프로그램 번호 모음 (새 세션이 생기거나 끝났는지 2초마다 보는 데 쓴다)"""
+    return {r[0] for r in _agent_rows() if proc_kind(r[4])}
+
+
+def _lsof(pids, extra):
+    if not pids:
+        return ''
+    try:
+        return subprocess.run(['lsof', '-nP', '-w'] + extra + ['-Fpn', '-p', ','.join(map(str, pids))],
+                              capture_output=True, text=True, timeout=8).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def _by_pid(lsof_out):
+    out, pid = {}, None
+    for line in lsof_out.splitlines():
+        if line[:1] == 'p':
+            pid = int(line[1:])
+        elif line[:1] == 'n' and pid:
+            out.setdefault(pid, []).append(line[1:])
+    return out
+
+
+def agent_procs():
+    """살아 있는 클로드·Codex 프로그램과 그 세션. {pid: {...}}. 결과는 1초 안에 다시 부르면 그대로 준다."""
+    if time.time() - _PROC_CACHE['at'] < 1 and _PROC_CACHE['data'] is not None:
+        return _PROC_CACHE['data']
+    rows = _agent_rows()
+    parent = {r[0]: r[1] for r in rows}
+    me = os.getpid()
+
+    def mine(pid):  # 이 보드가 띄운 요약용 프로그램(claude -p, codex exec)은 세션이 아니다
+        seen = 0
+        while pid and pid != 1 and seen < 40:
+            if pid == me:
+                return True
+            pid, seen = parent.get(pid, 0), seen + 1
+        return False
+    agents, daemons = {}, []
+    for pid, ppid, tty, start, comm in rows:
+        base = proc_kind(comm)
+        if not base or mine(pid):
+            continue
+        agents[pid] = {'pid': pid, 'kind': base, 'tty': tty, 'start': start}
+    if not agents:
+        _PROC_CACHE.update(at=time.time(), data={})
+        return {}
+    # 실행 인자: Codex 서버(app-server)를 가려내고 resume 대상만 뽑는다 (요청 문장이 들어 있을 수 있어 그 밖엔 안 남긴다)
+    try:
+        args = subprocess.run(['ps', '-o', 'pid=,args=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        args = ''
+    for line in args.splitlines():
+        p = line.strip().split(None, 1)
+        if len(p) < 2 or int(p[0]) not in agents:
+            continue
+        a = agents[int(p[0])]
+        if a['kind'] == 'codex' and ' app-server' in ' ' + p[1]:
+            daemons.append(a['pid'])
+            del agents[a['pid']]
+            continue
+        m = re.search(r'\bresume\s+([0-9a-f]{8}-[0-9a-f-]{27})', p[1])
+        a['resume'] = m.group(1) if m else None
+    # 환경 변수: 오르카 창 표식과 Codex 기록 위치만 꺼낸다 (나머지는 버린다)
+    try:
+        env = subprocess.run(['ps', '-E', '-o', 'pid=,command=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        env = ''
+    for line in env.splitlines():
+        p = line.strip().split(None, 1)
+        if len(p) < 2 or int(p[0]) not in agents:
+            continue
+        a = agents[int(p[0])]
+        for key in ('ORCA_PANE_KEY', 'CODEX_HOME', 'TERM_PROGRAM'):  # CODEX_HOME 이 다르면 그 폴더의 색인을 읽는다
+            m = re.search(r'(?:^| )%s=(\S+)' % key, p[1])
+            a[key.lower()] = m.group(1) if m else None
+        if a.get('term_program') not in (None, 'Orca', 'tmux'):
+            a['orca_pane_key'] = None  # 오르카에서 띄운 다른 터미널은 오르카 표식을 물려받는다 → 그 터미널 세션으로 본다
+    for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
+        if pid in agents and paths:
+            agents[pid]['cwd'] = paths[0]
+    # 클로드: 실행 기록 → 대화 번호 → 기록 파일
+    for a in agents.values():
+        if a['kind'] != 'claude':
+            continue
+        try:
+            with open(os.path.expanduser('~/.claude/sessions/%d.json' % a['pid']), encoding='utf-8') as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            a['why'] = 'claude:no-session-registration'
+            continue
+        try:  # 프로그램 번호가 재사용된 옛 기록이면 안 믿는다 (procStart 는 UTC)
+            ps = calendar.timegm(time.strptime(d.get('procStart', ''), '%a %b %d %H:%M:%S %Y'))
+        except ValueError:
+            ps = 0
+        if ps and a['start'] and abs(ps - a['start']) > 5:
+            a['why'] = 'claude:stale-registration'
+            continue
+        a['busy'] = d.get('status') == 'busy'
+        sid = d.get('sessionId')
+        cwd = d.get('cwd') or a.get('cwd') or ''
+        f = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), sid))
+        if not os.path.exists(f):
+            f = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % sid))), None)
+        if f:
+            a.update(log=f, how='claude:process')
+        else:
+            a['why'] = 'claude:transcript-not-written-yet'
+    # Codex: 열어 둔 기록 파일(프로그램 자신 또는 Codex 서버)이 후보다
+    codex = [a for a in agents.values() if a['kind'] == 'codex']
+    if codex:
+        held = _by_pid(_lsof([a['pid'] for a in codex] + daemons, []))
+        own = {}
+        loaded = set()
+        for pid, paths in held.items():
+            rolls = [x for x in paths if re.search(r'/sessions/.*rollout-.*\.jsonl$', x)]
+            if pid in daemons:
+                loaded.update(rolls)
+            elif rolls:
+                own[pid] = rolls
+        claimed = set()
+        for a in codex:  # 1) 프로그램이 직접 쓰고 있는 기록 (예전 버전 TUI, codex exec)
+            r = own.get(a['pid'])
+            if r and len(r) == 1:
+                a.update(log=r[0], how='codex:own-open-file')
+                claimed.add(r[0])
+        meta = {}
+        for r in loaded - claimed:
+            try:
+                with open(r, encoding='utf-8', errors='ignore') as fh:
+                    pm = json.loads(fh.readline()).get('payload', {})
+                ts = pm.get('timestamp') or ''
+                meta[r] = {'id': pm.get('id'), 'cwd': pm.get('cwd'),
+                           'ts': calendar.timegm(time.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S')) if ts else 0}
+            except (OSError, ValueError):
+                pass
+        a_by_pane = {}
+        for a in codex:
+            if a.get('log'):
+                continue
+            a_by_pane[a['pid']] = a
+        for a in a_by_pane.values():  # 후보: Codex 서버가 열어 둔 스레드 중 같은 폴더, 아직 아무도 안 가져간 것
+            a['codex_candidates'] = [r for r, m in meta.items() if r not in claimed and m['cwd'] == a.get('cwd')]
+        _PROC_CACHE['codex_meta'] = meta
+    _PROC_CACHE.update(at=time.time(), data=agents)
+    return agents
+
+
+
+
+# ---------- 오르카 밖 터미널 (iTerm2 · 터미널 · Ghostty · WezTerm …) ----------
+TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'WezTerm', 'ghostty': 'Ghostty',
+              'vscode': 'VS Code', 'tmux': 'tmux', 'WarpTerminal': 'Warp', 'Hyper': 'Hyper', 'kitty': 'kitty', 'alacritty': 'Alacritty'}
+
+
+def outside_terms():
+    """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널)."""
+    out, wts = [], {}
+    for a in agent_procs().values():
+        if a.get('orca_pane_key') or a.get('tty') in (None, '??'):
+            continue  # 오르카 창이거나, 화면 없는 프로그램(서버·백그라운드)
+        cwd = a.get('cwd') or ''
+        label = TERM_LABEL.get(a.get('term_program') or '', a.get('term_program') or 'Terminal')
+        wid = 'term:%s:%s' % (label, cwd)
+        wts[wid] = {'id': wid, 'displayName': '%s · %s' % (os.path.basename(cwd) or cwd, label), 'path': cwd, 'sortOrder': -1}
+        try:
+            last = os.path.getmtime(a['log']) * 1000 if a.get('log') else a['start'] * 1000
+        except OSError:
+            last = a['start'] * 1000
+        t = {'handle': 'proc_%d' % a['pid'], 'title': '', 'tabId': 'proc', 'leafId': str(a['pid']), 'worktreeId': wid,
+             'worktreePath': cwd, 'ptyId': '', 'lastOutputAt': last, '_proc': a, '_ext': label}
+        if a['kind'] == 'claude' and 'busy' in a:
+            t['agent'] = {'state': 'working' if a['busy'] else 'done'}
+        out.append(t)
+    return out, wts
+
+
+def _osa(script, want=None):
+    """want 를 주면 스크립트가 그 글자를 돌려줬을 때만 성공 (찾지 못하고 그냥 끝난 경우를 가른다)"""
+    try:
+        r = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=8)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and (want is None or r.stdout.strip() == want)
+
+
+def focus_outside(pid):
+    """오르카 밖 세션의 창을 앞으로. 터미널마다 방법이 다르다(tty 로 찾는다).
+    'tab' = 그 탭까지 갔다, 'app' = 탭은 못 찾고 앱만 앞으로, '' = 못 했다"""
+    a = agent_procs().get(pid)
+    if not a:
+        return ''
+
+    def app(name):
+        return 'app' if _open_app(name) else ''
+    tty = '/dev/' + a.get('tty', '')
+    tp = a.get('term_program') or ''
+    if tp == 'Apple_Terminal':
+        return _osa('tell application "Terminal"\nrepeat with w in windows\nrepeat with t in tabs of w\n'
+                    'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn "ok"\nend if\n'
+                    'end repeat\nend repeat\nend tell' % tty, 'ok') and _open_app('Terminal') and 'tab' or app('Terminal')
+    if tp == 'iTerm.app':
+        return _osa('tell application "iTerm2"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
+                    'if tty of s is "%s" then\nselect w\ntell t to select\ntell s to select\nactivate\nreturn "ok"\nend if\n'
+                    'end repeat\nend repeat\nend repeat\nend tell' % tty, 'ok') and 'tab' or app('iTerm')
+    if tp == 'WezTerm':
+        wz = find_bin('wezterm') or '/Applications/WezTerm.app/Contents/MacOS/wezterm'
+        try:
+            panes = json.loads(subprocess.run([wz, 'cli', 'list', '--format', 'json'], capture_output=True, text=True, timeout=5).stdout or '[]')
+            pane = next((p for p in panes if p.get('tty_name') == tty), None)
+            ok = bool(pane) and subprocess.run([wz, 'cli', 'activate-pane', '--pane-id', str(pane['pane_id'])],
+                                               capture_output=True, timeout=5).returncode == 0
+        except (OSError, ValueError, subprocess.SubprocessError):
+            ok = False
+        return 'tab' if _open_app('WezTerm') and ok else app('WezTerm')
+    if tp == 'ghostty':
+        return 'tab' if _ghostty_focus(a) else app('Ghostty')
+    name = {'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
+    return app(name) if name else ''
+
+
+def _session_title(a):
+    """창 제목에 보일 세션 이름: 클로드는 대화 제목(ai-title), Codex 는 스레드 이름."""
+    log = a.get('log') or a.get('bound')
+    if not log:
+        return ''
+    if is_codex_log(log):
+        m = re.search(r'([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', log)
+        return codex_latest_names(a.get('codex_home')).get(m.group(1), '') if m else ''
+    custom, auto = ai_title(log)
+    return custom or auto or ''
+
+
+def _ghostty_focus(a):
+    """Ghostty 는 tty 를 알려 주지 않는다. 같은 폴더에서 창 제목에 이 세션 이름이 보이는 칸을 찾아 그 칸으로 간다.
+    폴더가 같은 칸이 하나뿐이면 그것."""
+    try:
+        out = subprocess.run(['osascript', '-e', 'tell application "Ghostty"\nset out to ""\nrepeat with w in windows\nrepeat with t in tabs of w\n'
+                              'repeat with s in terminals of t\nset out to out & (id of s) & (character id 9) & (name of s) & (character id 9) & (working directory of s) & linefeed\n'
+                              'end repeat\nend repeat\nend repeat\nreturn out\nend tell'], capture_output=True, text=True, timeout=8).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    rows = [l.split('\t') for l in out.splitlines() if l.count('\t') == 2]
+    here = [r for r in rows if r[2].rstrip('/') == (a.get('cwd') or '').rstrip('/')]
+    title = _session_title(a)
+    named = [r for r in here if title and title in r[1]]
+    pick = named[0] if len(named) == 1 else (here[0] if len(here) == 1 else None)
+    if not pick:
+        return False
+    return _osa('tell application "Ghostty"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in terminals of t\n'
+                'if id of s is "%s" then\nfocus s\nreturn "ok"\nend if\nend repeat\nend repeat\nend repeat\nend tell' % pick[0], 'ok')
+
+
+def _open_app(name):
+    # 앞으로 가져오기는 open -a 가 가장 잘 먹힌다 (macOS 가 다른 프로그램의 activate 요청은 무시할 때가 있다)
+    try:
+        return subprocess.run(['open', '-a', name], capture_output=True, timeout=8).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def attach_procs(terms):
+    """오르카 창마다 그 창에서 돌고 있는 AI 프로그램과 (찾았으면) 대화 기록을 붙인다."""
+    try:
+        procs = agent_procs()
+    except Exception as e:  # 프로그램 목록을 못 읽으면 예전 방식(창 제목)으로만 간다
+        sys.stderr.write('procs: %s\n' % e)
+        return
+    by_pane = {}
+    for a in sorted(procs.values(), key=lambda a: a['start']):  # 한 창에 여럿이면(안에서 띄운 하위 프로그램) 먼저 뜬 것
+        if a.get('orca_pane_key'):
+            by_pane.setdefault(a['orca_pane_key'], a)
+    meta = _PROC_CACHE.get('codex_meta') or {}
+    claimed = {a['log'] for a in procs.values() if a.get('log')}
+    codex_all = [x for x in procs.values() if x['kind'] == 'codex']
+    todo = []
+    for t in terms:  # 1차: 확실한 증거(프로그램이 연 파일, 창 제목의 스레드 이름, resume 인자)
+        a = t.get('_proc') or by_pane.get('%s:%s' % (t.get('tabId'), t.get('leafId')))
+        if not a:
+            continue
+        t['_proc'], t['_pkind'] = a, a['kind']
+        if a.get('log'):
+            t['_plog'] = a['log']
+            why(t, 'process', how=a['how'])
+            continue
+        if a['kind'] != 'codex':
+            why(t, 'process-unresolved', kind='claude', reason=a.get('why') or '?')
+            continue
+        cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+        head = codex_head(t.get('title'))
+        latest = codex_latest_names(a.get('codex_home'))
+        # 창 제목의 이름을 열려 있는 후보들 사이에서만 찾는다 (옛 스레드에 같은 이름이 있어도 상관없다)
+        by_title = [r for r in cands if head and latest.get(meta[r]['id']) == head]
+        names_thread = bool(by_title) or head in latest.values()
+        a['_head'], a['_same_name'], a['_head_known'] = head, by_title, names_thread
+        pick, how = None, ''
+        if len(by_title) == 1:  # 창 제목이 보여 주는 스레드 (/new·/resume 으로 바뀌어도 제목이 따라간다)
+            pick, how = by_title[0], 'codex:loaded-thread-by-title'
+        elif not names_thread and a.get('resume'):  # codex resume <id> 로 연 스레드. 처음 연 것일 뿐이라 이 폴더에서 가장 최근에 쓰인 후보일 때만
+            hit = [r for r in cands if meta[r]['id'] == a['resume']]
+            try:
+                newest = max(cands, key=os.path.getmtime) if cands else None
+            except OSError:
+                newest = None
+            if len(hit) == 1 and hit[0] == newest:
+                pick, how = hit[0], 'codex:resume-arg'
+        if pick:
+            t['_plog'], a['bound'] = pick, pick
+            claimed.add(pick)
+            why(t, 'process', how=how)
+        else:
+            todo.append((t, a, names_thread))
+    for t, a, names_thread in todo:  # 오르카 밖 Codex 는 창 제목이 없다: 그 폴더에 Codex 가 하나뿐이면 가장 최근에 쓰인 스레드가 지금 보는 것이다(/new·/resume 포함)
+        if t['handle'].startswith('proc_') and not t.get('_plog'):
+            alone = [x for x in codex_all if x.get('cwd') == a.get('cwd')]
+            cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+            if len(alone) == 1 and cands:
+                try:
+                    pick = max(cands, key=os.path.getmtime)
+                except OSError:
+                    continue
+                t['_plog'], a['bound'] = pick, pick
+                claimed.add(pick)
+                why(t, 'process', how='codex:only-codex-in-folder-latest-thread')
+    todo.sort(key=lambda x: x[1]['start'])  # 먼저 뜬 프로그램부터 (그래야 뒤에 뜬 것의 후보가 줄어든다)
+    for _ in range(2):  # 앞에서 하나가 정해지면 뒤의 것이 풀릴 수 있어 한 번 더 돈다
+        for t, a, names_thread in todo:
+            if t.get('_plog'):
+                continue
+            resolve_by_start(t, a, names_thread, meta, claimed, codex_all)
+    for t, a, names_thread in todo:
+        if not t.get('_plog'):
+            cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+            why(t, 'process-unresolved', kind='codex', candidates=len(cands), title_names_thread=names_thread)
+
+
+def resolve_by_start(t, a, names_thread, meta, claimed, codex_all):
+    """2차: 시작 시각. 이 프로그램이 뜬 직후(15초 안) 만들어진 스레드이고, 같은 폴더에 아직 짝 없는 다른 Codex 가
+    그보다 먼저 떠 있지 않을 때만. 제목이 다른 스레드를 가리키면 하지 않는다."""
+    cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+    same = [r for r in a.get('_same_name') or [] if r not in claimed]
+    if names_thread:
+        # 제목이 가리키는 이름이 여러 스레드에 같이 붙어 있으면(예: 도우미가 쓰는 "Report task outcome") 그 이름의 스레드들 안에서만 시각으로 고른다.
+        # 이때 막는 쪽도 같은 이름을 띄운 Codex 또는 제목을 모르는 Codex 뿐이다 (다른 스레드를 띄운 Codex 는 이 후보의 주인이 아니다)
+        cands = same
+    fresh = []
+    for r in cands:
+        ts = meta[r]['ts']
+        # 같은 폴더에 아직 짝 없는 다른 Codex 가 이 스레드보다 먼저 떠 있으면, 시각만으로는 누구 것인지 모른다
+        if any(x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and not (x.get('log') or x.get('bound')) and x['start'] <= ts
+               and (not names_thread or not x.get('_head_known') or x.get('_head') == a.get('_head'))
+               for x in codex_all):
+            continue
+        if 0 <= ts - a['start'] <= 15:
+            fresh.append(r)
+    if len(fresh) == 1:
+        t['_plog'], a['bound'] = fresh[0], fresh[0]
+        claimed.add(fresh[0])
+        why(t, 'process', how='codex:same-name-started-together' if names_thread else 'codex:started-together')
+
+
+def is_codex_log(path):
+    return bool(path) and os.path.basename(path).startswith('rollout-')
 
 
 def codex_head(title):
@@ -668,22 +1138,29 @@ def match_sessions(terms, worktrees):
     paths = {}
     for t in terms:
         paths.setdefault(worktrees.get(t['worktreeId'], {}).get('path') or t['worktreePath'], []).append(t)
+    taken = {x['_plog'] for x in terms if x.get('_plog')}  # 모든 폴더에 걸쳐 한 기록은 한 카드에만
     for path, panes in paths.items():
+        taken |= {x['log'] for x in terms if x.get('log')}
         cidx = claude_index(path)
         live = live_claude_sessions(path)
         cfiles = set(cidx.values()) | set(live)
         known = load_matches()
         rest = []
         anywhere = None
-        taken = set()
         for t in panes:
+            if t.get('_plog'):  # 살아 있는 프로그램으로 이미 정확히 찾았다
+                t['log'] = t['_plog']
+                continue
             kind = agent_kind(t)
-            why(t, 'kind', kind=kind, by='orca' if (t.get('agent') or {}).get('agentType') in ('claude', 'codex') else 'title')
+            if t.get('_pkind') == 'codex':  # 프로그램이 Codex 면 클로드 쪽 짝 맞추기는 하지 않는다
+                rest.append(t)
+                continue
+            why(t, 'kind', kind=kind, by='process' if t.get('_pkind') else 'orca' if (t.get('agent') or {}).get('agentType') in ('claude', 'codex') else 'title')
             f = cidx.get(clean_title(t['title']))
             if f:
                 why(t, 'claude:title-in-folder')
             prev = known.get(t['handle'])
-            if prev and prev != f and prev in cfiles and prev not in taken and clean_title(t['title']) in ai_title(prev):
+            if prev and prev != f and prev in cfiles and prev not in taken and clean_title(t['title']) in ai_title(prev) and not t.get('_proc'):
                 f = prev  # 같은 제목 세션이 여럿이면 지난번 짝을 그대로 둔다 (갱신마다 카드 내용이 뒤바뀌지 않게)
                 why(t, 'claude:kept-previous')
             if f in taken:  # 같은 제목 창이 둘이면 두 번째는 제목으로 못 가린다 → 아래 '남은 세션' 짝에 맡긴다
@@ -692,10 +1169,12 @@ def match_sessions(terms, worktrees):
             if not f and kind == 'claude':
                 anywhere = anywhere if anywhere is not None else live_title_index()
                 f = anywhere.get(clean_title(t['title']))
+                if f in taken:  # 다른 창이 이미 가져간 기록이면 두 카드에 같은 대화가 붙지 않게
+                    f = None
                 if f:
                     cfiles.add(f)
                     why(t, 'claude:live-title-any-folder')
-            if not f and known.get(t['handle']) in cfiles:
+            if not f and known.get(t['handle']) in cfiles and known[t['handle']] not in taken and not t.get('_proc'):  # 프로그램이 있는 창은 옛 짝을 되살리지 않는다
                 f = known[t['handle']]
                 why(t, 'saved-match')
             if f:
@@ -707,7 +1186,7 @@ def match_sessions(terms, worktrees):
                 why(t, 'claude:no-title-match', folder_transcripts=len(cidx), live_in_folder=len(live), untitled=t['title'].strip() in ('', 'Claude Code') or clean_title(t['title']) == 'Claude Code')
         # 아직 제목이 없는 클로드 창(예: "Claude Code")은, 이 폴더의 떠 있는 세션 중 다른 창이 안 가져간 게 딱 하나 남으면 그것이다
         left_panes = [t for t in panes if not t.get('log') and agent_kind(t) == 'claude']
-        left_files = [f for f in live if f not in {t.get('log') for t in panes}]
+        left_files = [f for f in live if f not in {t.get('log') for t in panes} and f not in taken]
         if len(left_panes) == 1 and len(left_files) == 1:
             left_panes[0]['log'] = left_files[0]
             why(left_panes[0], 'claude:paired-by-elimination')
@@ -718,13 +1197,17 @@ def match_sessions(terms, worktrees):
         if not rest:
             continue
         files = [(f, codex_user_msgs(f)) for f in sorted(codex_files(path), key=os.path.getmtime, reverse=True)]
-        used = set()
+        used = {x['_plog'] for x in terms if x.get('_plog')}
         names = codex_thread_names()
         # 이름(스레드) 짝은 폴더를 가리지 않는다: 다른 폴더 칸으로 옮긴 Codex 창은 원래 폴더의 기록을 쓴다
         codex_files(path)
         by_id = {re.sub(r'.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', r'\1', f): f for f in _CODEX_LIST['files']}
         heads = [codex_head(t['title']) for t in rest]
         for t in rest:
+            home = (t.get('_proc') or {}).get('codex_home')
+            if home and os.path.realpath(home) != os.path.realpath(os.path.expanduser('~/.codex')):
+                why(t, 'codex:other-codex-home-no-guessing')
+                continue
             # 1순위: 창 제목(Codex 스레드 이름) → session_index 의 id → 기록 파일. 같은 이름 창이 여럿이면 못 가린다
             head = codex_head(t['title'])
             tid = names.get(head) if heads.count(head) == 1 else None
@@ -741,7 +1224,7 @@ def match_sessions(terms, worktrees):
                 used.add(t['log'])
                 why(t, 'codex:thread-name')
                 continue
-            prev = known.get(t['handle'])
+            prev = None if t.get('_proc') else known.get(t['handle'])  # 프로그램이 있는 창은 옛 짝을 되살리지 않는다
             if prev and os.path.exists(prev) and prev not in used:
                 t['log'] = prev
                 used.add(prev)
@@ -811,9 +1294,18 @@ def model_of(path):
             tail = f.read().decode('utf-8', 'ignore')
     except OSError:
         return ''
-    if '"turn_context"' in tail:  # Codex
-        model = (re.findall(r'"turn_context".*?"model":"([^"]+)"', tail) or [''])[-1]
-        effort = (re.findall(r'"turn_context".*?"effort":"([^"]+)"', tail) or [''])[-1]
+    if is_codex_log(path):  # Codex: 마지막 turn_context 의 모델. 한 번만 적혀 있으면 끝부분에 없으니 처음부터 한 줄씩 훑는다
+        model = effort = ''
+        lines = [l for l in tail.splitlines() if '"turn_context"' in l]
+        if not lines:
+            try:
+                with open(path, 'rb') as f:
+                    lines = [l.decode('utf-8', 'ignore') for l in f if b'"turn_context"' in l]
+            except OSError:
+                lines = []
+        for l in lines:
+            m, e = re.search(r'"model":"([^"]+)"', l), re.search(r'"effort":"([^"]+)"', l)
+            model, effort = (m.group(1) if m else model), (e.group(1) if e else effort)
     else:  # Claude
         model = ''
         for line in tail.splitlines():
@@ -951,7 +1443,7 @@ def status_of(t):
     agent = t.get('agent') or {}
     if agent.get('state'):
         state = 'busy' if agent['state'] == 'working' else 'idle'
-    if state == 'unknown' and '/.codex/' in (t.get('log') or ''):
+    if state == 'unknown' and is_codex_log(t.get('log')):
         state = 'idle' if codex_turn_done(t['log']) else 'busy'
     if state == 'unknown':
         state = 'busy' if time.time() - (t.get('lastOutputAt') or 0) / 1000 < 20 else 'idle'
@@ -1220,17 +1712,14 @@ def render_todo(items, log=''):
     return '<h4>TODO</h4><ul class="todo">%s</ul>' % ''.join(rows)
 
 
-def render_more(dg, items=()):
-    rows = []
-    if dg['ask']:
-        rows.append('<dt>Last request</dt><dd>%s</dd>' % escape(dg['ask'][:300]))
-    if dg.get('full'):
-        rows.append('<dt>Last reply (raw)</dt><dd class="md">%s</dd>' % md(dg['full']))
-    elif dg['block']:
-        rows.append('<dt>Last reply (raw)</dt><dd class="md">%s</dd>' % md('\n'.join(dg['block'])))
-    if not rows:
+def render_reply(reply, dg):
+    """마지막 요청 한 줄 + 마지막 답 요약. 답 원문은 같은 상자 안에서 펼쳐 본다 (따로 More 를 열 필요 없게)."""
+    raw = dg.get('full') or '\n'.join(dg.get('block') or [])
+    if not (reply or raw or dg.get('ask')):
         return ''
-    return '<details><summary>More</summary><dl>%s</dl></details>' % ''.join(rows)
+    ask = '<p class="ask"><b>You asked</b> %s</p>' % escape(dg['ask'][:200]) if dg.get('ask') else ''
+    full = '<details class="raw"><summary>Full reply</summary><div class="md">%s</div></details>' % md(raw) if raw else ''
+    return '<h4>Last reply</h4>%s<div class="replybox"><p>%s</p>%s</div>' % (ask, reply or escape(raw[:200]), full)
 
 
 def ring(done, total):
@@ -1277,7 +1766,8 @@ def render(t, steps, ws):
     st = status_of(t)
     since = since_of(t, st)
     cid = re.sub(r'[^A-Za-z0-9]', '', t['paneKey'])[-16:]
-    title = escape(steps.get('title') or clean_title(t['title']) or '(untitled)')
+    title = escape(steps.get('title') or ('New %s session' % t['_pkind'].capitalize() if t.get('_pkind') and not t.get('log') else '')
+                   or clean_title(t['title']) or '(untitled)')
     summary = escape(steps.get('summary') or '')
     reply = escape(steps.get('last_reply') or dg['recap'] or '')  # 터미널 recap 은 영어로 나올 때가 있어 DeepSeek 요약(한국어)을 먼저 쓴다
     done = sum(1 for i in items if i['state'] == 'done')
@@ -1295,7 +1785,7 @@ def render(t, steps, ws):
     model = model_of(t.get('log')) if t.get('log') else model_from_screen(read_tail(t['handle']))
     sid_m = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$', t.get('log') or '')
     sid = sid_m.group(1) if sid_m else ''
-    resume = ('codex resume ' if '/.codex/' in (t.get('log') or '') else 'claude --resume ') + sid if sid else ''
+    resume = ('codex resume ' if is_codex_log(t.get('log')) else 'claude --resume ') + sid if sid else ''
     stale = ''
     e = steps.get('err') or ''
     ok = steps.get('ok_at')
@@ -1328,7 +1818,7 @@ def render(t, steps, ws):
         a = s.get('agent') or {}
         kind, subj, short, ts = ORCH['last'].get(s['paneKey'], ('', '', '', 0))
         log = s.get('log')
-        if log and '/.codex/' in log:
+        if log and is_codex_log(log):
             busy = not codex_turn_done(log)
         else:
             busy = a.get('state') == 'working' if a.get('state') else status_of(s) == 'busy'
@@ -1344,13 +1834,13 @@ def render(t, steps, ws):
             when = ts
         helpers.append(s['handle'])
         subs.append((when, (s['handle'], sst, who.capitalize(), a.get('taskTitle') or clean_title(s['title']) or '', res)))
-    # 교차검증을 여러 번 불렀으면 가장 최근 것 하나만 보여준다
+    # 교차검증을 여러 번 불렀으면 하나만 보여준다: 아직 일하는 도우미가 있으면 그중 최근 것, 없으면 가장 최근 것
     if subs:
-        newest = max(subs, key=lambda x: x[0])[1][0]
+        pick = max(subs, key=lambda x: (x[1][1] == 'busy', x[0]))[1]
         for s in t.get('subs') or []:
-            if s['handle'] != newest and isinstance(s.get('_tr'), dict):
+            if s['handle'] != pick[0] and isinstance(s.get('_tr'), dict):
                 s['_tr']['out'] = 'helper-older-hidden'
-    subs = [max(subs, key=lambda x: x[0])[1]] if subs else []
+        subs = [pick]
     sub_card = ('<div class="subs">%s</div>' % ''.join(
         '<span class="sub %s">↳ %s · <b>%s</b></span>' % (sst, escape(who), SUB_LABEL[sst]) for _, sst, who, _, _ in subs)) if subs else ''
     sub_modal = ('<h4>Helpers</h4><div class="helpers">%s</div>' % ''.join(
@@ -1361,6 +1851,8 @@ def render(t, steps, ws):
         for h, sst, who, what, res in subs)) if subs else ''
     sidchip = ('<button class="sid" title="Click to copy: %s" onclick="cp(this,\'%s\')">ID %s</button>' % (escape(resume), sid, sid[:8])) if sid else ''
     chip = '<i class="model">%s</i>' % escape(model) if model else ''
+    if t.get('_ext'):
+        chip = '<i class="model ext">%s</i>' % escape(t['_ext']) + chip
     card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
             '<h3>%s</h3>%s%s%s'
             '</a>'
@@ -1374,11 +1866,11 @@ def render(t, steps, ws):
              '<div class="cols"><div class="c1"><h4>Steps</h4>%s</div><div class="c2">%s%s</div></div>%s</div></div>'
              % (st, cid, LABEL[st], escape(ws), chip, sidchip, stale, ring(sum(1 for f in flow if f['state'] in ('done', 'side')), len(flow)), title, summary, t['handle'], t['handle'],
                 render_flow(flow, st == 'busy', newest_first=False) if flow else '<p class="none">No steps yet</p>',
-                '<h4>Last reply</h4><div class="replybox"><p>%s</p></div>' % reply if reply else '',
-                sub_modal + render_todo(items, t.get('log')), render_more(dg, items)))
+                render_reply(reply, dg),
+                sub_modal + render_todo(items, t.get('log')), ''))
     order = (0, since) if st == 'wait' else (1, -since)  # 오래 기다린 내 차례가 맨 위
     cur_step = next((f for f in flow if f['state'] in ('blocked', 'now')), None)
-    t['_info'] = {'ws': ws, 'fail': bool(t.get('_fail')), 'stuck': bool(t.get('_stuck')), 'wid': t['worktreeId'], 'log': t.get('log') or '', 'cwd': t.get('worktreePath') or '', 'status': st, 'title': steps.get('title') or clean_title(t['title']),
+    t['_info'] = {'ws': ws, 'fail': bool(t.get('_fail')), 'stuck': bool(t.get('_stuck')), 'wid': t['worktreeId'], 'log': t.get('log') or '', 'cwd': t.get('worktreePath') or '', 'status': st, 'title': steps.get('title') or clean_title(t['title']) or ('New %s session' % t['_pkind'].capitalize() if t.get('_pkind') else ''),
                   'step': cur_step['label'] if cur_step else '',
                   'done': sum(1 for f in flow if f['state'] in ('done', 'side')), 'total': len(flow),
                   'model': model, 'since': since, 'handle': t['handle'], 'pane': t['paneKey'], 'order': order, 'helpers': helpers,
@@ -1435,29 +1927,34 @@ def build():
 def _build():
     # 오르카 조회 셋은 서로 기다릴 필요가 없어 한꺼번에 묻는다 (갱신 시간의 대부분이 이 대기다)
     with ThreadPoolExecutor(3) as ex:
-        f_wt, f_term, f_agents = ex.submit(orca, 'worktree', 'list'), ex.submit(orca, 'terminal', 'list'), ex.submit(orca_agents)
-        worktrees = {w['id']: w for w in f_wt.result()['worktrees']}
+        f_wt, f_term, f_agents = ex.submit(orca_or, {'worktrees': []}, 'worktree', 'list'), \
+            ex.submit(orca_or, {'terminals': [], 'visualLayouts': []}, 'terminal', 'list'), ex.submit(orca_agents)
+        worktrees = {w['id']: w for w in f_wt.result().get('worktrees', [])}
         LIST_CACHE['list'] = f_term.result()
         agents = f_agents.result()
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
     spy = {w for w, v in worktrees.items() if v.get('path') == os.path.expanduser('~/.spyhop')}
     raw = LIST_CACHE['list']['terminals']
+    ext, ext_wts = outside_terms()
+    raw = raw + ext
+    worktrees.update(ext_wts)
+    attach_procs([t for t in raw if not t.get('orphaned')])
     for t in raw:
         sp = (t.get('ptyId') or '').split('@@')[0]
         t['_tr'] = {'h': t['handle'], 'ws': (worktrees.get(sp if sp in worktrees else t.get('worktreeId')) or {}).get('displayName') or '',
-                    'title_len': len(t.get('title') or ''), 'why': []}
+                    'title_len': len(t.get('title') or ''), 'why': (t.get('_tr') or {}).get('why', [])}  # 프로그램 연결 단계에서 남긴 것은 이어 간다
         if t.get('orphaned'):
             t['_tr']['out'] = 'orphaned'
-        elif is_shell(t.get('title', '')):
+        elif is_shell(t.get('title', '')) and not t.get('_proc'):
             t['_tr']['out'] = 'shell-title'
         elif t.get('worktreeId') in spy or sp in spy:
             t['_tr']['out'] = 'spyhop-workspace'
     terms = [t for t in raw
-             if not t.get('orphaned') and not is_shell(t.get('title', ''))
+             if not t.get('orphaned') and (not is_shell(t.get('title', '')) or t.get('_proc'))
              and t.get('worktreeId') not in spy and (t.get('ptyId') or '').split('@@')[0] not in spy]
     for t in terms:
         t['paneKey'] = '%s:%s' % (t['tabId'], t['leafId'])
-        t['agent'] = agents.get(t['paneKey'])
+        t['agent'] = agents.get(t['paneKey']) or t.get('agent')  # 오르카 밖 세션은 실행 기록의 일하는 중/대기를 그대로 둔다
         # 지금 화면에 안 띄운 워크스페이스의 창은 worktreeId 가 부모로 뭉개져 나온다. 실제 소속은 ptyId 앞부분에 있다
         spawn = (t.get('ptyId') or '').split('@@')[0]
         if spawn in worktrees:
@@ -1468,10 +1965,13 @@ def _build():
     moved = set(load_moved()) & {t['paneKey'] for t in terms}
     save_json(MOVED_FILE, sorted(moved))
     for t in terms:
-        if not (t['handle'] in shown or t.get('agent') or t['paneKey'] in moved):
+        if not (t['handle'] in shown or t.get('agent') or t['paneKey'] in moved or t.get('_proc')):
             t['_tr']['out'] = 'not-drawn-by-orca'
             t['_tr']['evidence'] = {'drawn_panes': len(shown), 'orca_agents': len(agents)}
-    terms = [t for t in terms if t['handle'] in shown or t.get('agent') or t['paneKey'] in moved]
+    terms = [t for t in terms if t['handle'] in shown or t.get('agent') or t['paneKey'] in moved or t.get('_proc')]  # AI 프로그램이 돌고 있으면 진짜 창이다
+    for t in terms:
+        if t.get('_plog'):
+            t['log'] = t['_plog']
     # 다른 세션이 오케스트레이션으로 띄운 작업 창(검수·교차 확인)은 따로 카드로 만들지 않고 부른 세션 카드에 붙인다
     keys = {t['paneKey']: t for t in terms}
     links = orch_links()['parent']
@@ -1483,6 +1983,18 @@ def _build():
             t['_tr']['out'] = 'helper'
             t['_tr']['parent'] = keys[p]['handle']
     match_sessions(terms, worktrees)
+    for t in terms:  # 프로그램으로 찾은 Codex 작업 창도, 첫 지시문에 적힌 호출자를 읽어 둔다(부른 카드 아래로 붙이려고)
+        try:
+            src = (t.get('_plog'), os.path.getsize(t['_plog'])) if t.get('_plog') else None
+        except OSError:
+            src = None
+        if src and is_codex_log(src[0]) and _COORD_SRC.get(t['handle']) != src and not (t['handle'] in _COORD and _COORD_SRC.get(t['handle'], (None,))[0] == src[0]):
+            _COORD_SRC[t['handle']] = src
+            c = codex_coordinator(t['_plog'])
+            if c:
+                _COORD[t['handle']] = c
+            else:
+                _COORD.pop(t['handle'], None)
     # 오르카 기록에서 짝이 사라진 오래된 작업 창도, 작업 지시문에 적힌 호출자가 보드에 있으면 그 카드 아래로
     by_handle = {t['handle']: t for t in terms}
     for t in list(terms):
@@ -1492,15 +2004,32 @@ def _build():
             terms.remove(t)
             t['_tr']['out'] = 'helper'
             t['_tr']['parent'] = c['handle']
+    for t in terms:  # 도우미가 또 띄운 도우미(손주)도 맨 위 카드 아래 한 줄로 올린다 (안 올리면 어디에도 안 보인다)
+        flat, stack, seen = [], list(t.get('subs') or []), {t['handle']}
+        while stack:
+            s_ = stack.pop(0)
+            if s_['handle'] in seen:
+                continue
+            seen.add(s_['handle'])
+            flat.append(s_)
+            if s_ is not t and s_.get('subs'):
+                for g in s_.pop('subs'):
+                    g['_tr']['parent'] = t['handle']
+                    g['_tr']['via'] = s_['handle']
+                    stack.append(g)
+        if flat:
+            t['subs'] = flat
     alive = len(terms)
     # 대화 기록을 못 찾은 창은 보여줄 게 없다(빈 "Codex ready" 카드). 기록이 붙으면 그때 나온다
+    # 단, AI 프로그램이 돌고 있는 창은 아직 대화 기록이 없어도(막 연 새 세션) 바로 카드로 띄운다
     for t in terms:
-        if not t.get('log'):
+        if not t.get('log') and not t.get('_proc'):
             t['_tr']['out'] = 'no-transcript-matched'
-    terms = [t for t in terms if t.get('log')]
+    terms = [t for t in terms if t.get('log') or t.get('_proc')]
     for t in terms:
-        t['_tr']['out'] = 'card'
-        t['_tr']['agent_tool'] = 'codex' if '/.codex/' in t['log'] else 'claude'
+        t['_tr']['out'] = 'card' if t.get('log') else 'card-new-session'
+        t['_tr']['agent_tool'] = t.get('_pkind') or ('codex' if is_codex_log(t['log']) else 'claude')
+        t['_tr']['terminal'] = t.get('_ext') or 'Orca'
     on_board = {t['handle'] for t in terms}
     for t in raw:  # 작업 창은 부른 카드가 보드에 있어야 보인다
         if t['_tr'].get('out') == 'helper' and t['_tr'].get('parent') not in on_board:
@@ -1509,7 +2038,7 @@ def _build():
              'inputs': {'terminals': len(raw), 'worktrees': len(worktrees), 'orca_agents': len(agents), 'drawn_panes': len(shown)},
              'raw': raw}
 
-    logs = sorted({t['log'] for t in terms})
+    logs = sorted({t['log'] for t in terms if t.get('log')})
     steps = {l: cached_summary(l) for l in logs}
     if logs:
         summarize_later(logs)
@@ -1588,12 +2117,8 @@ _GROUPING = {'busy': False, 'at': 0}
 
 
 def group_mode():
-    m = load_config().get('group_by')
-    if m == 'orca' and find_bin('orca'):
-        return 'orca'
-    if m == 'ai':
-        return 'ai'
-    return 'orca' if find_bin('orca') else 'ai'
+    # 'orca' = 자리(오르카 워크스페이스, 오르카 밖이면 "폴더 · 터미널")로 묶기. 모델 없이 되니 기본값이다
+    return 'ai' if load_config().get('group_by') == 'ai' else 'orca'
 
 
 def load_groups():
@@ -1671,6 +2196,11 @@ def serve():
         def do_GET(self):
             u = urlparse(self.path)
             q = parse_qs(u.query)
+            if u.path == '/gen':  # 보드가 마지막으로 다시 그려진 때. 브라우저가 2초마다 가볍게 물어 바뀌었을 때만 가져간다
+                try:
+                    return self.send(200, str(int(os.path.getmtime(OUT) * 1000)).encode())
+                except OSError:
+                    return self.send(200, b'0')
             if u.path in ('/', '/board'):
                 # 새로고침이면 그 자리에서 다시 그린다. 단, 이미 그리는 중이거나 방금(3초 안) 그렸으면 기다리지 않고 지금 화면을 준다
                 # (요청마다 줄 서서 그리면, 맥이 바쁠 때 탭 여러 개의 새로고침이 쌓여 페이지가 멈춘다)
@@ -1703,9 +2233,11 @@ def serve():
                 known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
                 if h not in known:  # 지금 목록에 있는 창만 이동시킨다
                     return self.send(404, b'unknown')
-                subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
+                if h.startswith('proc_'):  # 결과를 글로 돌려준다: tab(그 탭까지) / app(앱만) / fail
+                    return self.send(200, (focus_outside(int(h[5:])) or 'fail').encode())
+                r = subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
                 subprocess.run(['osascript', '-e', 'tell application "Orca" to activate'], capture_output=True, timeout=5)
-                return self.send(204)
+                return self.send(200, b'pane' if r.returncode == 0 else b'fail')
             if u.path == '/open-board':
                 open_board()
                 return self.send(204)
@@ -1753,6 +2285,8 @@ def serve():
             if urlparse(self.path).path != '/close':
                 return self.send(404, b'not found')
             h = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode().strip()
+            if h.startswith('proc_'):
+                return self.send(409, b'This session runs outside Orca. End it in its terminal.')
             known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
             if h not in known:
                 return self.send(404, b'unknown')
@@ -1779,6 +2313,8 @@ def serve():
             return self.send(200, 'Moved'.encode())
         if not info:
             return self.send(404, 'Unknown session'.encode())
+        if info['handle'].startswith('proc_'):
+            return self.send(409, 'This session runs outside Orca, so it cannot be moved.'.encode())
         if info['status'] != 'wait':
             return self.send(409, 'Cannot move a working session. Wait until it stops.'.encode())
         if req.get('wid') == info['wid']:
@@ -1787,7 +2323,7 @@ def serve():
         sid = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$', log)
         if not sid:
             return self.send(409, 'Transcript not found, cannot resume'.encode())
-        is_codex = '/.codex/' in log
+        is_codex = is_codex_log(log)
         if not is_codex:  # 같은 이름의 클로드 세션이 둘 이상 떠 있으면 어느 창이 어느 세션인지 확실하지 않다 → 옮기지 않는다
             names = [n for n in ai_title(log) if n]
             twins = [f for f in live_claude_sessions() if f != log and any(n in ai_title(f) for n in names)]
@@ -1877,7 +2413,7 @@ def serve():
 
 def session_cwd(log):
     """그 대화가 실제로 일하는 폴더. Codex 는 기록 첫 줄, 클로드는 기록 안의 마지막 "cwd"."""
-    if '/.codex/' in log:
+    if is_codex_log(log):
         return codex_cwd(log)
     sid = os.path.basename(log)[:-6]
     for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):  # 떠 있는 세션이면 그 프로그램의 실제 폴더가 가장 정확하다
@@ -2033,7 +2569,13 @@ def watch():
         except Exception as e:
             sys.stderr.write('board: %s\n' % e)
         sample_metrics()
-        time.sleep(refresh_sec())
+        # 다음 갱신까지 기다리되, AI 프로그램이 새로 뜨거나 끝나면 바로 다시 그린다 (새 세션이 1~2초 안에 뜬다)
+        pids, until = agent_pids(), time.time() + refresh_sec()
+        while time.time() < until:
+            time.sleep(2)
+            now = agent_pids()
+            if now != pids:
+                break
 
 
 METRICS = []          # 최근 60개 [시각, CPU %(맥 전체 대비), 메모리 MB]
@@ -2066,10 +2608,13 @@ WHY_TEXT = {
     'spyhop-workspace': "it is Spyhop's own workspace",
     'not-drawn-by-orca': 'Orca reports no on-screen layout and no agent for this pane (often a workspace not opened in Orca since it started; clicking it usually helps)',
     'helper': 'shown as a helper line under another card',
-    'helper-older-hidden': 'a helper under another card, hidden because only the newest helper of a card is shown',
+    'helper-older-hidden': 'a helper under another card, hidden because a card shows one helper (a working one first, else the newest)',
     'helper-parent-not-on-board': 'a helper of a session that is not on the board, so it is not shown either',
     'no-transcript-matched': 'no transcript could be matched to this pane',
     'card': 'on the board',
+    'card-new-session': 'on the board as a new session (no transcript yet; steps appear after the first message)',
+    'process': 'found from the running program',
+    'process-unresolved': 'the running program was found but its transcript could not be pinned down',
     'claude:title-in-folder': 'title matches a transcript in this folder',
     'claude:kept-previous': 'kept the previous match (several transcripts share the title)',
     'claude:same-title-taken': 'another pane already took the transcript with this title',
@@ -2079,6 +2624,7 @@ WHY_TEXT = {
     'claude:elimination-not-possible': 'untitled/unmatched pane could not be paired: needs exactly 1 unmatched pane and 1 unclaimed running session',
     'saved-match': 'reused the match from a previous update',
     'codex:name-shared-by-panes': 'several panes have the same Codex thread name, so the name cannot tell them apart',
+    'codex:other-codex-home-no-guessing': 'this Codex uses a different CODEX_HOME, so Spyhop does not guess from the default one',
     'codex:name-not-usable': 'the Codex thread name is not in ~/.codex/session_index.jsonl, or several threads share that name',
     'codex:name-transcript-not-recent': 'no transcript for that thread among recently written files (last 3 days, list refreshed every minute)',
     'codex:name-transcript-taken': 'another pane already took that thread',
@@ -2150,7 +2696,7 @@ def doctor(argv):
     # 2) 오르카
     ob = find_bin('orca')
     if not ob:
-        say('  orca:          NOT FOUND on PATH. Spyhop finds sessions through Orca, so the board stays empty')
+        say('  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty and WezTerm still are')
     else:
         try:
             ok = subprocess.run([ob, 'status', '--json'], capture_output=True, text=True, timeout=10).returncode == 0
@@ -2178,7 +2724,7 @@ def doctor(argv):
     if panes:
         inp = trace.get('inputs', {})
         say('')
-        say('Panes in Orca: %d  (Orca reported %d drawn panes, %d agents)' % (inp.get('terminals', len(panes)), inp.get('drawn_panes', 0), inp.get('orca_agents', 0)))
+        say('Panes and sessions: %d  (Orca reported %d drawn panes, %d agents)' % (inp.get('terminals', len(panes)), inp.get('drawn_panes', 0), inp.get('orca_agents', 0)))
         titles = {}
         if show_titles and ob:
             try:
@@ -2195,17 +2741,26 @@ def doctor(argv):
             counts[o] = counts.get(o, 0) + 1
             if o in ('orphaned', 'spyhop-workspace'):
                 continue
-            mark = {'card': '✓', 'helper': '↳', 'helper-older-hidden': '↳', 'shell-title': '–'}.get(o, '✗')  # – 는 문제가 아니라 원래 안 보이는 것
+            mark = {'card': '✓', 'card-new-session': '✓', 'helper': '↳', 'helper-older-hidden': '↳', 'shell-title': '–'}.get(o, '✗')  # – 는 문제가 아니라 원래 안 보이는 것
             name = titles.get(e['h'], '')[:40] if show_titles else ''
             ws = (e.get('ws') or '?')[:18] if show_titles else alias[e.get('ws') or '?']
             say('  %s %s  %-6s %s%s' % (mark, e['h'][:13], ws, WHY_TEXT.get(o, o), ('  "%s"' % name) if name else ''))
+            if o == 'card':
+                how = next((w for w in e.get('why') or [] if w[0] not in ('kind',)), None)
+                if how:
+                    say('        · found by: %s' % ((how[1] or {}).get('how') if how[0] == 'process' else WHY_TEXT.get(how[0], how[0])))
+            if o in ('card', 'card-new-session') and e.get('terminal'):
+                term = e['terminal']
+                say('        · runs in %s (Go to session: %s)' % (term, 'exact pane' if term == 'Orca' else
+                    'exact tab' if term in ('Terminal', 'iTerm2', 'Ghostty', 'WezTerm') else 'brings the app to the front only'))
             if o in ('helper', 'helper-older-hidden'):
-                say('        · under the card of %s (only the newest helper of a card is shown)' % (e.get('parent') or '?')[:13])
-            if o not in ('card', 'helper', 'helper-older-hidden', 'shell-title'):
+                say('        · under the card of %s%s (a card shows one helper: a working one first, else the newest)' % ((e.get('parent') or '?')[:13],
+                    (', started by helper %s' % e['via'][:13]) if e.get('via') else ''))
+            if o not in ('card', 'card-new-session', 'helper', 'helper-older-hidden', 'shell-title'):
                 for w in e.get('why') or []:
                     code, det = w[0], (w[1] if len(w) > 1 else {})
                     if code == 'kind':
-                        say('        · read as %s (from %s)' % (det.get('kind'), 'Orca' if det.get('by') == 'orca' else 'the title'))
+                        say('        · read as %s (from %s)' % (det.get('kind'), {'orca': 'Orca', 'process': 'the running program'}.get(det.get('by'), 'the title')))
                         continue
                     extra = ', '.join('%s=%s' % kv for kv in det.items())
                     say('        · %s%s' % (WHY_TEXT.get(code, code), ' (%s)' % extra if extra else ''))
@@ -2321,18 +2876,18 @@ def render_settings():
             + sec('Summarizer', 'Model that writes titles, steps and TODOs',
                   '<select class="sel" onchange="setSum(this.value)">%s</select>' % groups)
             + sec('Theme', '', '<div class="thl">Light</div><div class="ths">%s</div><div class="thl">Dark</div><div class="ths">%s</div>' % cards)
-            + sec('Group by', 'Orca workspaces, or topics the AI picks' if find_bin('orca') else 'Topics the AI picks (Orca not found)',
+            + sec('Group by', 'Where each session runs, or topics the AI picks',
                   '<div class="pills">%s</div>' % ''.join(
-                      '<button class="%s"%s onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
-                      % ('on' if group_mode() == k else '', '' if (k == 'ai' or find_bin('orca')) else ' disabled', k, label)
-                      for k, label in (('orca', 'Orca workspace'), ('ai', 'AI topics'))))
+                      '<button class="%s" onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
+                      % ('on' if group_mode() == k else '', k, label)
+                      for k, label in (('orca', 'Orca workspace' if find_bin('orca') else 'Folder · terminal'), ('ai', 'AI topics'))))
             + sec('Orca animation', 'Orcas spyhop in the header',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({orcas:this.checked})"><i></i></label>' % (' checked' if orcas_on() else ''))
             + sec('Start at login', 'Run the board when you log in to this Mac',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({autostart:this.checked})"><i></i></label>' % (' checked' if autostart_on() else ''))
             + sec('Update every', 'Longer uses less CPU and fewer model calls',
                   pills('refresh', REFRESH_OPTS, refresh_sec(), lambda v: '%ds' % v))
-            + sec('Resource usage', 'This board, incl. orca and model calls',
+            + sec('Resource usage', 'CPU includes orca and model calls; memory is the board process',
                   '<div class="mets"><div class="met"><span>CPU</span><b id="mcpu">–</b><svg id="scpu" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>'
                   '<div class="met"><span>Memory</span><b id="mmem">–</b><svg id="smem" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div></div>')
             + '</div></div>')
@@ -2431,7 +2986,7 @@ border-radius:10px;padding:16px 18px;border-top:5px solid var(--st)}
 .rv{fill:none;stroke:var(--done);stroke-width:4;stroke-linecap:round;transform:rotate(-90deg);transform-origin:center}
 .ring text{font-size:8.5px;font-weight:700;fill:var(--ink)}
 .replybox{background:var(--col);border-left:3px solid var(--st);border-radius:4px;padding:8px 10px;margin-bottom:12px}
-.replybox b{font-size:11px;color:var(--st)}.replybox p{margin:3px 0 0}
+.replybox b{font-size:11px;color:var(--st)}.replybox p{margin:3px 0 0}.ask{margin:0 0 6px;font-size:11.5px;color:var(--ink3);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.ask b{color:var(--ink2);margin-right:6px}.raw{margin-top:8px}.raw summary{cursor:pointer;font-size:11px;font-weight:600;color:var(--ink3)}.raw summary:hover{color:var(--ink)}.raw .md{margin-top:6px;max-height:320px;overflow:auto;font-size:12px}
 h4{font-size:12px;color:var(--ink3);margin:6px 0 8px}
 .flow{list-style:none;margin:0;padding:0}
 .n{display:flex;gap:10px;position:relative;padding-bottom:8px}
@@ -2503,7 +3058,7 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 ::-webkit-scrollbar-corner{background:transparent}
 
 header{position:relative;overflow:hidden}.brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px}.sea{position:absolute;left:0;right:0;bottom:0;height:44px;pointer-events:none;overflow:hidden}.sea:after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%226%22%20viewBox%3D%220%200%2032%206%22%3E%3Cpath%20d%3D%22M0%203%20Q4%200.5%208%203%20T16%203%20T24%203%20T32%203%22%20fill%3D%22none%22%20stroke%3D%22%23cbd5e1%22%20stroke-width%3D%221.4%22/%3E%3C/svg%3E") repeat-x;opacity:.7}.orca{position:absolute;bottom:-1px;width:30px;height:52px;color:var(--ink3);transform:translateY(110%);transform-origin:50% 45%;animation:spyhop 3.2s linear forwards;pointer-events:none}.orca svg{display:block}@keyframes spyhop{0%,5%{transform:translateY(110%) rotate(0)}30%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}42%{transform:translateY(45%) rotate(-1.5deg);animation-timing-function:ease-in-out}56%{transform:translateY(45%) rotate(1.5deg);animation-timing-function:ease-in-out}68%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}100%{transform:translateY(110%) rotate(0)}}@media (prefers-reduced-motion:reduce){.orca{display:none}}
-.brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:transform .08s linear}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{animation:fadein .22s ease-out;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.modal:target .box{animation:popin .34s cubic-bezier(.16,1,.3,1)}@keyframes popin{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
+.brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{animation:fadein .22s ease-out;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.modal:target .box{animation:popin .34s cubic-bezier(.16,1,.3,1)}@keyframes popin{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}.drawer{position:fixed;left:0;bottom:12px;z-index:35;width:210px;padding:10px 12px 12px 10px;box-sizing:border-box;overflow:auto;background:var(--card);border:1px solid var(--line);border-left:0;border-radius:0 14px 14px 0;box-shadow:0 12px 32px rgba(15,23,42,.18);transform:translateX(-100%);transition:transform .32s cubic-bezier(.16,1,.3,1)}.drawer.peek{transform:translateX(calc(-100% + 30px))}.drawer.open{transform:none}.drawer .tab{position:absolute;right:0;top:0;bottom:0;width:30px;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;font-size:11px;font-weight:800;color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transition:opacity .2s}.drawer.open .tab{opacity:0;pointer-events:none}.drawer h2{margin:0 0 4px;font-size:11px;color:var(--ink3);white-space:nowrap}.drawer .slot{animation:none;opacity:0;transform:translateX(-8px);transition:opacity .2s ease,transform .25s cubic-bezier(.16,1,.3,1),background-color .15s,border-color .15s,box-shadow .15s}.drawer.open .slot{opacity:1;transform:none}.drawer.open .slot.drop{transform:translateX(3px) scale(1.03)}.modal .box.ticket{animation:none}.modal .box.ticket>*{animation:tkin .26s ease-out .08s both}@keyframes tkin{from{opacity:0}to{opacity:1}}.modal.closing .bg{opacity:0;transition:opacity .2s}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
 <div id="confirm"><div class="cb"><h3>End this session?</h3><p><b id="cft"></b><br><br>
 Only this pane closes; other panes in the tab stay. The transcript is kept so you can resume later.</p>
 <div class="row2"><button onclick="cancelEnd()">Cancel</button><button class="danger" onclick="doEnd()">End</button></div></div></div><header>__HEAD__</header>__BODY__
@@ -2523,19 +3078,35 @@ function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){if(!r.ok)throw 0;toast('Session ended');location.hash='';setTimeout(function(){live().then(stop)},1500)})
   .catch(function(){stop();toast('Could not end the session')})}
+
+var openFrom=null;
+document.addEventListener('click',function(e){var c=e.target.closest&&e.target.closest('main .card');if(c&&!justDragged&&!e.target.closest('button'))openFrom=c.getBoundingClientRect()},true);
+function cardOf(id){return document.querySelector('main .card[href="#'+id+'"]')}
+function morph(b,r,back){var f=b.getBoundingClientRect();if(!f.width||!r||!r.width||!b.animate||matchMedia('(prefers-reduced-motion: reduce)').matches)return null;
+  var k=[{transformOrigin:'0 0',transform:'translate('+(r.left-f.left)+'px,'+(r.top-f.top)+'px) scale('+(r.width/f.width)+','+(r.height/f.height)+')',opacity:.5},{transformOrigin:'0 0',transform:'none',opacity:1}];
+  return b.animate(back?k.reverse():k,{duration:back?200:320,easing:back?'cubic-bezier(.4,0,1,1)':'cubic-bezier(.16,1,.3,1)'})}
+addEventListener('hashchange',function(){var id=location.hash.slice(1),m=id&&document.getElementById(id),r=openFrom;openFrom=null;
+  if(!m||!r||!m.classList.contains('modal')||id==='settings')return;var b=m.querySelector('.box');b.classList.add('ticket');morph(b,r);
+  setTimeout(function(){b.classList.remove('ticket')},700)});
+function closeModal(){var id=location.hash.slice(1),m=id&&document.getElementById(id);if(!m||!m.classList.contains('modal')){location.hash='';return}if(m.classList.contains('closing'))return
+  var c=cardOf(id),a=c&&morph(m.querySelector('.box'),c.getBoundingClientRect(),true);if(!a){location.hash='';return}
+  m.classList.add('closing');var done=function(){if(!m.classList.contains('closing'))return;location.hash='';m.classList.remove('closing')};a.onfinish=done;setTimeout(done,260)}
+document.addEventListener('click',function(e){var x=e.target.closest&&e.target.closest('.modal .x, .modal .bg');if(x&&x.getAttribute('href')==='#'){e.preventDefault();closeModal()}});
 var WS=__WSLIST__,drag=null;
 // 카드 끌기: 지라 칸반처럼 카드가 손을 따라오고, 놓으면 그 칸으로 미끄러져 들어간다 (마우스 이벤트로 직접 구현)
 var press=null;
 document.addEventListener('pointerdown',function(e){if(e.button!==0)return;var c=e.target.closest&&e.target.closest('main .card');
-  if(!c||e.target.closest('button'))return;press={c:c,x:e.clientX,y:e.clientY,id:e.pointerId}});
+  if(!c||e.target.closest('button'))return;press={c:c,h:c.dataset.h,x:e.clientX,y:e.clientY,id:e.pointerId}});
 document.addEventListener('pointermove',function(e){
-  if(press&&!drag&&Math.abs(e.clientX-press.x)+Math.abs(e.clientY-press.y)>6)startDrag(press.c,e);
-  if(!drag)return;e.preventDefault();
+  if(press&&!drag&&Math.abs(e.clientX-press.x)+Math.abs(e.clientY-press.y)>6){  // 누르는 사이 보드가 새로 그려졌으면 같은 카드를 다시 찾는다
+    var pc=press.c.isConnected?press.c:document.querySelector('main .card[data-h="'+press.h+'"]'),p0=press;press=null;if(pc)startDrag(pc,e,p0)}
+  if(!drag)return;e.preventDefault();drawerAt(e.clientX);
   drag.float.style.transform='translate('+(e.clientX-drag.dx)+'px,'+(e.clientY-drag.dy)+'px) rotate(2deg) scale(1.03)';
   var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.drop').forEach(function(x){if(x!==col)x.classList.remove('drop')});
   if(col&&col!==drag.from&&canDrop(drag,col))col.classList.add('drop');edgeScroll(e.clientX)});
 function canDrop(d,col){return d.st==='wait'||(col.dataset.wid||'').indexOf('group:')===0}
-document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var d=drag;drag=null;
+document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var d=drag;drag=null;setTimeout(function(){justDragged=false},60);  // 놓을 때 생기는 클릭이 상세를 열지 않게
+
   var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.drop').forEach(function(x){x.classList.remove('drop')});
   d.el.classList.remove('dragging');document.body.classList.remove('dragging-on');
   var to=(col&&col!==d.from)?col:null,r=d.el.getBoundingClientRect();
@@ -2545,39 +3116,39 @@ document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var
   var fr=d.float.getBoundingClientRect();d.float.remove();dropOn(d,to,fr);unghost()});
 document.addEventListener('click',function(e){if(justDragged&&e.target.closest('main .card')){e.preventDefault();e.stopPropagation()}},true);
 var justDragged=false;
-function startDrag(c,e){var r=c.getBoundingClientRect(),f=c.cloneNode(true);if(c.dataset.st!=='wait'&&document.querySelector('main .col[data-wid^="group:"]')===null)f.classList.add('nope');
-  drag={h:c.dataset.h,st:c.dataset.st,wid:c.dataset.wid,log:c.dataset.log,el:c,from:c.closest('.col'),float:f,dx:e.clientX-r.left,dy:e.clientY-r.top};
+function startDrag(c,e,p0){var r=c.getBoundingClientRect(),f=c.cloneNode(true),nope=c.dataset.st!=='wait'&&document.querySelector('main .col[data-wid^="group:"]')===null;if(nope)f.classList.add('nope');
+  drag={h:c.dataset.h,st:c.dataset.st,wid:c.dataset.wid,log:c.dataset.log,el:c,from:c.closest('.col'),float:f,dx:p0.x-r.left,dy:p0.y-r.top};  // 처음 누른 자리를 잡은 채로 따라온다
+
   f.classList.add('floating');f.style.width=r.width+'px';f.style.transform='translate('+r.left+'px,'+r.top+'px)';document.body.appendChild(f);
-  c.classList.add('dragging');document.body.classList.add('dragging-on');ghosts();justDragged=true;setTimeout(function(){justDragged=false},400)}
-function colAt(x,y){var el=document.elementFromPoint(x,y);return el&&el.closest?(el.closest('main .slot')||el.closest('main .col:not(.ghost)')):null}
+  c.classList.add('dragging');document.body.classList.add('dragging-on');if(!nope)ghosts();justDragged=true}
+function colAt(x,y){var el=document.elementFromPoint(x,y);return el&&el.closest?(el.closest('.drawer .slot')||el.closest('main .col')):null}
 function edgeScroll(x){var m=document.querySelector('main'),r=m.getBoundingClientRect();if(x>r.right-60)m.scrollLeft+=18;else if(x<r.left+60)m.scrollLeft-=18}
-function grid(){  // 칸 폭: 보통 칸은 240px 이상, 끄는 동안 펼친 빈 칸 묶음은 좁게
-  var m=document.querySelector('main');m.style.gridTemplateColumns=[].map.call(m.querySelectorAll('.col'),function(c){
-    return c.classList.contains('ghost')?(c.classList.contains('open')?'170px':'0px'):'minmax(240px,1fr)'}).join(' ')}
-function ghosts(){  // 세션이 없는 워크스페이스는 끄는 동안에만 보드 끝에 좁은 점선 칸 하나로 펼쳐진다
-  var m=document.querySelector('main'),have={};m.querySelectorAll('.col').forEach(function(c){have[c.dataset.wid]=1});
+function grid(){var m=document.querySelector('main');m.style.gridTemplateColumns=[].map.call(m.querySelectorAll('.col'),function(){return 'minmax(240px,1fr)'}).join(' ')}
+function ghosts(){  // 세션이 없는 워크스페이스는 끄는 동안에만, 보드를 밀지 않고 왼쪽 가장자리에 서랍 손잡이로 나온다
+  var have={};document.querySelectorAll('main .col').forEach(function(c){have[c.dataset.wid]=1});
   var add=WS.filter(function(w){return !have[w.id]});if(!add.length)return;
-  var g=document.createElement('section');g.className='col ghost';g.innerHTML='<h2>Empty workspaces</h2>';
-  add.forEach(function(w){var b=document.createElement('div');b.className='slot';b.dataset.wid=w.id;b.dataset.name=w.name;b.textContent=w.name;b.style.animationDelay=(.06+.05*g.querySelectorAll('.slot').length)+'s';g.appendChild(b)});
-  m.insertBefore(g,m.firstChild);grid();m.offsetWidth;g.classList.add('open');grid();
-  if(m.scrollLeft>0)m.scrollTo({left:0,behavior:'smooth'})}  // 왼쪽 끝이 보이게
-function unghost(){var g=document.querySelector('main .col.ghost');if(!g)return;g.classList.remove('open');grid();
-  setTimeout(function(){if(!g.classList.contains('open'))g.remove();grid()},280)}
+  var g=document.createElement('aside'),top=document.querySelector('main').getBoundingClientRect().top;g.className='drawer';g.style.top=Math.max(top,8)+'px';
+  g.innerHTML='<div class="tab">+'+add.length+'</div><h2>Empty workspaces</h2>';
+  add.forEach(function(w,i){var b=document.createElement('div');b.className='slot';b.dataset.wid=w.id;b.dataset.name=w.name;b.textContent=w.name;b.style.transitionDelay=(.03*i)+'s';g.appendChild(b)});
+  document.body.appendChild(g);g.offsetWidth;g.classList.add('peek')}
+function drawerAt(x){var g=document.querySelector('.drawer');if(!g)return;var o=x<(g.classList.contains('open')?250:70);g.classList.toggle('open',o)}
+function unghost(){var g=document.querySelector('.drawer');if(!g)return;g.classList.remove('open','peek');setTimeout(function(){g.remove()},300)}
 function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
   if(!ai&&d.st!=='wait'){toast('This session is working. Move it after it stops.');return}
   if(col.classList.contains('slot')){  // 빈 칸에 놓으면 그 워크스페이스 칸을 새로 세운다
     var m=document.querySelector('main'),n=document.createElement('section'),h=document.createElement('h2'),em=document.createElement('em');
     n.className='col';n.dataset.wid=col.dataset.wid;n.dataset.name=col.dataset.name;h.textContent=col.dataset.name+' ';em.textContent='0';h.appendChild(em);
     n.appendChild(h);var mo=document.createElement('p');mo.className='more';n.appendChild(mo);
-    m.insertBefore(n,col.closest('.col'));col.remove();grid();col=n}
+    m.insertBefore(n,m.firstChild);col.remove();grid();m.scrollTo({left:0,behavior:'smooth'});col=n}
   flipTo(d.el,col,fr);d.el.classList.add('moving');var fromNext=d.from&&d.from.nextSibling;
   if(d.from&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 칸은 접는다
     setTimeout(function(){if(!gone.querySelector('.card')){gone.remove();var mm=document.querySelector('main');grid()}},200)}
-  pending[d.log]={wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
+  var pk=d.log?'l:'+d.log:'h:'+d.h;  // 대화 기록이 아직 없는 카드는 창 번호로 (두 장이 같은 빈 키를 쓰지 않게)
+  pending[pk]={sel:d.log?'.card[data-log="'+d.log+'"]':'.card[data-h="'+d.h+'"]',wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
   if(ai)toast('Moved in Spyhop only. The Orca pane stays where it is.');
   fetch('http://127.0.0.1:47613/move?k=__TOKEN__',{method:'POST',body:JSON.stringify({h:d.h,wid:col.dataset.wid})})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;if(!ai)toast(t);else d.el.classList.remove('moving')})})
-  .catch(function(t){delete pending[d.log];d.el.classList.remove('moving');
+  .catch(function(t){delete pending[pk];d.el.classList.remove('moving');
     if(d.from&&!document.body.contains(d.from)){d.from.style.opacity='';document.querySelector('main').insertBefore(d.from,fromNext&&document.body.contains(fromNext)?fromNext:null)}
     if(d.from)flipTo(d.el,d.from);
     toast(typeof t==='string'&&t?t:'Could not move it')})}
@@ -2591,7 +3162,7 @@ function recount(){document.querySelectorAll('main .col').forEach(function(c){va
 function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 칸에 둔다 (새로 그려도 원래 칸으로 튀지 않게)
   var m=document.querySelector('main');Object.keys(pending).forEach(function(log){var p=pending[log];
     if(Date.now()>p.until){delete pending[log];return}
-    var card=m.querySelector('.card[data-log="'+log+'"]'),col=m.querySelector('.col[data-wid="'+p.wid+'"]');
+    var card=m.querySelector(p.sel),col=m.querySelector('.col[data-wid="'+p.wid+'"]');
     if(card&&card.closest('.col')===col&&card.dataset.h!==p.from){delete pending[log];return}  // 새 창으로 자리 잡음
     if(card&&card.closest('.col')===col&&p.wid.indexOf('group:')===0){delete pending[log];return}
     if(!col){col=document.createElement('section');col.className='col';col.dataset.wid=p.wid;
@@ -2616,11 +3187,12 @@ function loadMetrics(){if(location.hash!=='#settings')return;fetch('http://127.0
   document.getElementById('mcpu').textContent=last[1].toFixed(1)+'%';document.getElementById('mmem').textContent=Math.round(last[2])+' MB';
   spark('scpu',s.map(function(x){return x[1]}));spark('smem',s.map(function(x){return x[2]}))})
   .catch(function(){})}
-loadMetrics();setInterval(loadMetrics,5000);addEventListener('hashchange',loadMetrics);document.addEventListener('mousedown',function(e){if(e.target.closest('.modal')&&!e.target.closest('.box')){e.preventDefault();location.hash=''}});addEventListener('keydown',function(e){if(e.key==='Escape'&&location.hash&&location.hash!=='#')location.hash=''});
+loadMetrics();setInterval(loadMetrics,5000);addEventListener('hashchange',loadMetrics);document.addEventListener('mousedown',function(e){if(e.target.closest('.modal')&&!e.target.closest('.box')){e.preventDefault();closeModal()}});addEventListener('keydown',function(e){if(e.key==='Escape'&&location.hash&&location.hash!=='#')closeModal()});
 function setCfg(o,btn){if(btn){btn.parentNode.querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b===btn)})}
   var stop=busy();
   return fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify(o)})
   .then(function(r){toast(r.ok?'Saved':'Could not save');if(r.ok&&'orcas' in o){var s=document.querySelector('.sea');if(s)s.style.display=o.orcas?'':'none'}
+    if(r.ok&&'refresh' in o){clearInterval(RT);RT=setInterval(function(){if(!document.hidden)live()},o.refresh*1000)}
     if(r.ok&&'group_by' in o){location.hash='';return live()}})
   .catch(function(){toast('Board server is not running')}).then(stop)}
 function setTheme(t){document.documentElement.dataset.theme=t;
@@ -2629,8 +3201,9 @@ function setTheme(t){document.documentElement.dataset.theme=t;
 function setSum(v){fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify({summarizer:v})})
   .then(function(r){toast(r.ok?'Summarizer saved · applies from the next update':'That model is not available')})
   .catch(function(){toast('Board server is not running')})}
-function go(h){fetch('http://127.0.0.1:47613/switch?h='+encodeURIComponent(h),{mode:'no-cors'})
-  .then(function(){toast('Switched to the Orca pane')}).catch(function(){toast('Board server is not running · restart it with ./spyhop')})}
+function go(h){fetch('http://127.0.0.1:47613/switch?h='+encodeURIComponent(h))
+  .then(function(r){return r.text()}).then(function(t){toast(t==='pane'?'Switched to the Orca pane':t==='tab'?'Switched to the terminal tab':
+    t==='app'?'Opened the terminal app · could not find the exact tab':'Could not find that session’s window')}).catch(function(){toast('Board server is not running · restart it with ./spyhop')})}
 // 칸이 화면 높이를 넘으면 그 칸의 카드를 아래쪽부터 한 장씩, 덜 중요한 것부터 줄인다.
 // 줄이는 순서: 요약 빼기 → 마지막 답 빼기 → 단계를 막대로 → 제목 1줄. 단계가 이 보드의 핵심이라 가장 늦게 줄인다.
 // 위쪽 카드(오래 기다린 내 차례)는 끝까지 단계·마지막 답이 남는다. 창 크기가 바뀌면 전부 풀고 다시 맞춘다
@@ -2652,8 +3225,9 @@ function snap(){document.querySelectorAll('main .card').forEach(function(c){card
   LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
 snap();
 function live(){
-  if(drag)return Promise.resolve();
+  if(drag||press)return Promise.resolve();
   return fetch('http://127.0.0.1:47613/?auto=1',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(txt){
+    if(drag||press)return;  // 응답이 오는 사이 끌기가 시작됐으면 이번 갱신은 버린다
     var d=new DOMParser().parseFromString(txt,'text/html');
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
     var nt=d.querySelector('.tiles'),ot=document.querySelector('.tiles');
@@ -2682,8 +3256,12 @@ function live(){
     document.querySelectorAll('.modal[id^="c"]').forEach(function(m){if(!seen[m.id]&&m.id!==open){m.remove();delete modalHtml[m.id]}});
     var gr=!!document.getElementById('grouping');if(gr&&!window.gStop)window.gStop=busy();if(!gr&&window.gStop){window.gStop();window.gStop=null}
     if(gr)setTimeout(live,2500);
-  }).catch(function(){if(window.top===window)location.href='__LOADER__'})}
-setInterval(function(){if(!document.hidden)live()},__REFRESH_MS__);
+    return true  // 새 화면을 실제로 반영했다
+  }).catch(function(){if(window.top===window)location.href='__LOADER__';return false})}
+var RT=setInterval(function(){if(!document.hidden)live()},__REFRESH_MS__),GEN=null;
+setInterval(function(){if(document.hidden||drag||press)return;  // 새 세션·끝난 세션은 서버가 2초 안에 다시 그리니, 그걸 바로 따라간다
+  fetch('http://127.0.0.1:47613/gen',{cache:'no-store'}).then(function(r){return r.text()}).then(function(g){if(g===GEN)return;
+    return live().then(function(ok){if(ok===true)GEN=g})}).catch(function(){})},2000);  // 끄는 중이라 못 그렸으면 GEN 을 두고 다음에 다시
 document.addEventListener('visibilitychange',function(){if(!document.hidden)live()});
 if(document.getElementById('grouping'))setTimeout(live,2500);
 </script>

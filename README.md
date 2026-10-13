@@ -33,8 +33,8 @@ brew install leeleelee3264/tap/spyhop
 spyhop
 ```
 
-- **Needs** [Orca](https://github.com/stablyai/orca) and one summarizer (below). Spyhop finds sessions through Orca, so without it the board is empty.
-- **Opens** in Orca as a **Spyhop** workspace, and at `http://127.0.0.1:47613/`.
+- **Needs** one summarizer (below). [Orca](https://github.com/stablyai/orca) is optional: Spyhop finds sessions from the running `claude` and `codex` processes.
+- **Opens** in Orca as a **Spyhop** workspace if you have it, and always at `http://127.0.0.1:47613/`.
 - **Menu bar** (optional): `brew install --cask swiftbar`, then run `spyhop` once more. The orca icon is added for you.
 
 **Update** to the latest version:
@@ -44,6 +44,18 @@ brew upgrade spyhop && spyhop
 ```
 
 `spyhop` restarts the board on the new version if an older one is still running.
+
+## Terminals
+
+| Where the session runs | Shows on the board | Go to session |
+|---|---|---|
+| Orca | yes | the exact pane; cards can also be moved between workspaces |
+| Terminal, iTerm2, Ghostty, WezTerm | yes, grouped by folder and terminal | the exact tab |
+| Other terminals | yes | brings the app to the front |
+
+tmux and SSH sessions outside Orca are not supported.
+
+If a session is missing or looks wrong, run `spyhop doctor`. It explains, card by card, how each session was found or why it was not, without printing titles or prompts (`--titles` to show them).
 
 ## Summarizer
 
@@ -85,7 +97,8 @@ How it works, privacy and file locations: [docs/details.md](docs/details.md).
 
 ## TODO
 
-- [ ] Work without Orca: find sessions from recent transcripts and group them by AI topics.
+- [x] Work without Orca: sessions in Terminal, iTerm2, Ghostty and WezTerm, grouped by folder and terminal.
+- [x] `spyhop doctor` to explain missing or wrong cards.
 - [ ] A "reset groups" button for AI topics.
 - [ ] Moving a session to another workspace, made safe end to end.
 - [ ] Notify when a session turns to "My turn".
