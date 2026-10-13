@@ -102,3 +102,4 @@ How it works, privacy and file locations: [docs/details.md](docs/details.md).
 - [ ] A "reset groups" button for AI topics.
 - [ ] Moving a session to another workspace, made safe end to end.
 - [ ] Notify when a session turns to "My turn".
+- [ ] Search past Claude and Codex sessions and reopen one (`claude --resume` / `codex resume`) from the board.
