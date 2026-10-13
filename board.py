@@ -20,6 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from html import escape
 
+import orca_art  # 범고래 그림 원본 (같은 폴더)
+
 BASE = '/tmp/progress-board'
 AUTO = os.path.join(BASE, 'auto')      # 대화 기록으로 자동 생성한 단계
 OUT = os.path.join(BASE, 'index.html')
@@ -2218,7 +2220,7 @@ def serve():
                         BUILD_LOCK.release()
                 return self.send(200, open(OUT, 'rb').read(), 'text/html; charset=utf-8')
             if u.path == '/panel':
-                page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1).replace('__TOKEN__', token()) \
+                page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1).replace('__TOKEN__', token()).replace('__LOGO__', orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1)) \
                     .replace('<html lang="ko">', '<html lang="ko" data-theme="%s">' % current_theme(), 1)
                 return self.send(200, page.encode(), 'text/html; charset=utf-8')
             if u.path == '/metrics':
@@ -2864,7 +2866,7 @@ def current_theme():
     return t if t in [x[0] for x in THEMES] else 'classic'
 
 
-LOGO = '<svg viewBox="0 0 32 32" width="24" height="24" class="logo"><clipPath id="lg"><rect width="32" height="32" rx="8"/></clipPath><g clip-path="url(#lg)"><rect width="32" height="32" fill="#e2e8f0"/><path d="M9.6 31 C9 23 9.8 15.6 12 10.2 C13.4 6.8 15.2 4.6 16.9 4.4 C18.7 4.3 20 6.2 20.8 9.2 C22 13.6 22.5 20 22.6 31 Z" fill="#1e293b"/><ellipse cx="23.6" cy="24.2" rx="2.8" ry="1.1" transform="rotate(-28 23.6 24.2)" fill="#1e293b"/><g fill="#ffffff"><ellipse cx="18.4" cy="12.2" rx="1.25" ry="3.1" transform="rotate(-12 18.4 12.2)"/><path d="M12.4 9.6 C11.1 13.4 10.4 19 10.6 26 L14.6 26 C14 20.2 13.7 14.8 13.9 7.6 C13.3 8.2 12.8 8.9 12.4 9.6 Z"/></g><path d="M0 25.5 Q4 23.6 8 25.5 T16 25.5 T24 25.5 T32 25.5 V32 H0 Z" fill="#94a3b8"/></g></svg>'
+LOGO = orca_art.tile(uid='lg').replace('<svg ', '<svg width="24" height="24" class="logo" ', 1)  # 앱 아이콘과 같은 그림
 
 GEAR = ('<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
         '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 '
