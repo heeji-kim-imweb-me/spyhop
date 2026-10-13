@@ -639,6 +639,24 @@ def codex_coordinator(path):
 MATCHES = os.path.join(BASE, 'codex-match.json')
 
 
+def codex_latest_names(home=None):
+    """Codex 스레드 id → 가장 최근 이름."""
+    path = os.path.join(home or os.path.expanduser('~/.codex'), 'session_index.jsonl')
+    latest = {}
+    try:
+        with open(path, encoding='utf-8') as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get('id') and d.get('thread_name'):
+                    latest[d['id']] = d['thread_name']
+    except OSError:
+        pass
+    return latest
+
+
 def codex_thread_names(home=None):
     """Codex 스레드 이름 → id. 스레드마다 마지막(가장 최근) 이름만 쓴다(이름을 바꾸면 옛 이름은 버린다).
     여러 스레드가 같은 이름이면(오케스트레이션 작업 창은 모두 "Report task outcome") 어느 것인지 모르므로 뺀다."""
@@ -887,18 +905,26 @@ def attach_procs(terms):
             why(t, 'process-unresolved', kind='claude', reason=a.get('why') or '?')
             continue
         cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
-        tid = codex_thread_names(a.get('codex_home')).get(codex_head(t.get('title')))
+        head = codex_head(t.get('title'))
+        latest = codex_latest_names(a.get('codex_home'))
+        # 창 제목의 이름을 열려 있는 후보들 사이에서만 찾는다 (옛 스레드에 같은 이름이 있어도 상관없다)
+        by_title = [r for r in cands if head and latest.get(meta[r]['id']) == head]
+        tid = head if (by_title or head in latest.values()) else None
         pick, how = None, ''
-        by_title = [r for r in cands if tid and meta[r]['id'] == tid]
         if len(by_title) == 1:  # 1) 창 제목이 보여 주는 스레드 (/new·/resume 으로 바뀌어도 제목이 따라간다)
             pick, how = by_title[0], 'codex:loaded-thread-by-title'
         elif not tid:  # 제목이 다른 스레드를 가리키면 아래 짐작은 하지 않는다
             hit = [r for r in cands if a.get('resume') and meta[r]['id'] == a['resume']]
-            if len(hit) == 1:  # 2) codex resume <id> 로 연 스레드 (처음 연 것일 뿐이라 제목이 생기면 제목을 따른다)
+            try:
+                newest = max(cands, key=os.path.getmtime) if cands else None
+            except OSError:
+                newest = None
+            if len(hit) == 1 and hit[0] == newest:  # 2) codex resume <id> 로 연 스레드 (처음 연 것일 뿐이라 제목이 생기면 제목을 따른다)
                 pick, how = hit[0], 'codex:resume-arg'
             else:  # 3) 이 프로그램이 뜬 직후 만들어진 스레드. 같은 폴더의 Codex 중 그 시각에 가장 가까이 뜬 것이 이 프로그램일 때만
                 fresh = []
-                for r in cands:
+                crowd = [x for x in codex_all if x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and abs(x['start'] - a['start']) <= 15]
+                for r in ([] if crowd else cands):
                     ts = meta[r]['ts']
                     near = [x for x in codex_all if x.get('cwd') == a.get('cwd') and 0 <= ts - x['start'] <= 15]
                     if near and min(near, key=lambda x: ts - x['start'])['pid'] == a['pid']:
@@ -955,7 +981,7 @@ def match_sessions(terms, worktrees):
             if f:
                 why(t, 'claude:title-in-folder')
             prev = known.get(t['handle'])
-            if prev and prev != f and prev in cfiles and prev not in taken and clean_title(t['title']) in ai_title(prev):
+            if prev and prev != f and prev in cfiles and prev not in taken and clean_title(t['title']) in ai_title(prev) and not t.get('_proc'):
                 f = prev  # 같은 제목 세션이 여럿이면 지난번 짝을 그대로 둔다 (갱신마다 카드 내용이 뒤바뀌지 않게)
                 why(t, 'claude:kept-previous')
             if f in taken:  # 같은 제목 창이 둘이면 두 번째는 제목으로 못 가린다 → 아래 '남은 세션' 짝에 맡긴다
@@ -997,6 +1023,10 @@ def match_sessions(terms, worktrees):
         by_id = {re.sub(r'.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', r'\1', f): f for f in _CODEX_LIST['files']}
         heads = [codex_head(t['title']) for t in rest]
         for t in rest:
+            home = (t.get('_proc') or {}).get('codex_home')
+            if home and os.path.realpath(home) != os.path.realpath(os.path.expanduser('~/.codex')):
+                why(t, 'codex:other-codex-home-no-guessing')
+                continue
             # 1순위: 창 제목(Codex 스레드 이름) → session_index 의 id → 기록 파일. 같은 이름 창이 여럿이면 못 가린다
             head = codex_head(t['title'])
             tid = names.get(head) if heads.count(head) == 1 else None
@@ -1752,6 +1782,9 @@ def _build():
             t['_tr']['out'] = 'not-drawn-by-orca'
             t['_tr']['evidence'] = {'drawn_panes': len(shown), 'orca_agents': len(agents)}
     terms = [t for t in terms if t['handle'] in shown or t.get('agent') or t['paneKey'] in moved or t.get('_proc')]  # AI 프로그램이 돌고 있으면 진짜 창이다
+    for t in terms:
+        if t.get('_plog'):
+            t['log'] = t['_plog']
     # 다른 세션이 오케스트레이션으로 띄운 작업 창(검수·교차 확인)은 따로 카드로 만들지 않고 부른 세션 카드에 붙인다
     keys = {t['paneKey']: t for t in terms}
     links = orch_links()['parent']
@@ -1764,8 +1797,12 @@ def _build():
             t['_tr']['parent'] = keys[p]['handle']
     match_sessions(terms, worktrees)
     for t in terms:  # 프로그램으로 찾은 Codex 작업 창도, 첫 지시문에 적힌 호출자를 읽어 둔다(부른 카드 아래로 붙이려고)
-        if t.get('_plog') and is_codex_log(t['_plog']) and _COORD_SRC.get(t['handle']) != t['_plog']:
-            _COORD_SRC[t['handle']] = t['_plog']
+        try:
+            src = (t.get('_plog'), os.path.getsize(t['_plog'])) if t.get('_plog') else None
+        except OSError:
+            src = None
+        if src and is_codex_log(src[0]) and _COORD_SRC.get(t['handle']) != src and not (t['handle'] in _COORD and _COORD_SRC.get(t['handle'], (None,))[0] == src[0]):
+            _COORD_SRC[t['handle']] = src
             c = codex_coordinator(t['_plog'])
             if c:
                 _COORD[t['handle']] = c
@@ -2377,6 +2414,7 @@ WHY_TEXT = {
     'claude:elimination-not-possible': 'untitled/unmatched pane could not be paired: needs exactly 1 unmatched pane and 1 unclaimed running session',
     'saved-match': 'reused the match from a previous update',
     'codex:name-shared-by-panes': 'several panes have the same Codex thread name, so the name cannot tell them apart',
+    'codex:other-codex-home-no-guessing': 'this Codex uses a different CODEX_HOME, so Spyhop does not guess from the default one',
     'codex:name-not-usable': 'the Codex thread name is not in ~/.codex/session_index.jsonl, or several threads share that name',
     'codex:name-transcript-not-recent': 'no transcript for that thread among recently written files (last 3 days, list refreshed every minute)',
     'codex:name-transcript-taken': 'another pane already took that thread',
