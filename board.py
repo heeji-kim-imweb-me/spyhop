@@ -561,6 +561,8 @@ def read_tail(handle):
 
 
 def _read_tail(handle):
+    if handle.startswith('proc_'):
+        return []  # 오르카 밖 세션은 화면을 읽을 수 없다
     try:
         return orca('terminal', 'read', '--terminal', handle, '--limit', '200')['terminal'].get('tail') or []
     except Exception:
@@ -808,6 +810,8 @@ def agent_procs():
         for key in ('ORCA_PANE_KEY', 'CODEX_HOME', 'TERM_PROGRAM'):  # CODEX_HOME 이 다르면 그 폴더의 색인을 읽는다
             m = re.search(r'(?:^| )%s=(\S+)' % key, p[1])
             a[key.lower()] = m.group(1) if m else None
+        if a.get('term_program') not in (None, 'Orca', 'tmux'):
+            a['orca_pane_key'] = None  # 오르카에서 띄운 다른 터미널은 오르카 표식을 물려받는다 → 그 터미널 세션으로 본다
     for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
         if pid in agents and paths:
             agents[pid]['cwd'] = paths[0]
@@ -828,13 +832,14 @@ def agent_procs():
         if ps and a['start'] and abs(ps - a['start']) > 5:
             a['why'] = 'claude:stale-registration'
             continue
+        a['busy'] = d.get('status') == 'busy'
         sid = d.get('sessionId')
         cwd = d.get('cwd') or a.get('cwd') or ''
         f = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), sid))
         if not os.path.exists(f):
             f = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % sid))), None)
         if f:
-            a.update(log=f, how='claude:process', busy=d.get('status') == 'busy')
+            a.update(log=f, how='claude:process')
         else:
             a['why'] = 'claude:transcript-not-written-yet'
     # Codex: 열어 둔 기록 파일(프로그램 자신 또는 Codex 서버)이 후보다
@@ -878,6 +883,78 @@ def agent_procs():
 
 
 
+
+# ---------- 오르카 밖 터미널 (iTerm2 · 터미널 · Ghostty · WezTerm …) ----------
+TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'WezTerm', 'ghostty': 'Ghostty',
+              'vscode': 'VS Code', 'tmux': 'tmux', 'WarpTerminal': 'Warp', 'Hyper': 'Hyper', 'kitty': 'kitty', 'alacritty': 'Alacritty'}
+
+
+def outside_terms():
+    """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널)."""
+    out, wts = [], {}
+    for a in agent_procs().values():
+        if a.get('orca_pane_key') or a.get('tty') in (None, '??'):
+            continue  # 오르카 창이거나, 화면 없는 프로그램(서버·백그라운드)
+        cwd = a.get('cwd') or ''
+        label = TERM_LABEL.get(a.get('term_program') or '', a.get('term_program') or 'Terminal')
+        wid = 'term:%s:%s' % (label, cwd)
+        wts[wid] = {'id': wid, 'displayName': '%s · %s' % (os.path.basename(cwd) or cwd, label), 'path': cwd, 'sortOrder': -1}
+        try:
+            last = os.path.getmtime(a['log']) * 1000 if a.get('log') else a['start'] * 1000
+        except OSError:
+            last = a['start'] * 1000
+        t = {'handle': 'proc_%d' % a['pid'], 'title': '', 'tabId': 'proc', 'leafId': str(a['pid']), 'worktreeId': wid,
+             'worktreePath': cwd, 'ptyId': '', 'lastOutputAt': last, '_proc': a, '_ext': label}
+        if a['kind'] == 'claude' and 'busy' in a:
+            t['agent'] = {'state': 'working' if a['busy'] else 'done'}
+        out.append(t)
+    return out, wts
+
+
+def _osa(script):
+    try:
+        return subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=8).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def focus_outside(pid):
+    """오르카 밖 세션의 창을 앞으로. 터미널마다 방법이 다르다(tty 로 찾는다). 못 찾으면 앱만 앞으로."""
+    a = agent_procs().get(pid)
+    if not a:
+        return False
+    tty = '/dev/' + a.get('tty', '')
+    tp = a.get('term_program') or ''
+    if tp == 'Apple_Terminal':
+        return _osa('tell application "Terminal"\nrepeat with w in windows\nrepeat with t in tabs of w\n'
+                    'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn\nend if\n'
+                    'end repeat\nend repeat\nend tell' % tty) and _open_app('Terminal')
+    if tp == 'iTerm.app':
+        return _osa('tell application "iTerm2"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
+                    'if tty of s is "%s" then\nselect w\ntell t to select\ntell s to select\nactivate\nreturn\nend if\n'
+                    'end repeat\nend repeat\nend repeat\nend tell' % tty)
+    if tp == 'WezTerm':
+        wz = find_bin('wezterm') or '/Applications/WezTerm.app/Contents/MacOS/wezterm'
+        try:
+            panes = json.loads(subprocess.run([wz, 'cli', 'list', '--format', 'json'], capture_output=True, text=True, timeout=5).stdout or '[]')
+            pane = next((p for p in panes if p.get('tty_name') == tty), None)
+            if pane:
+                subprocess.run([wz, 'cli', 'activate-pane', '--pane-id', str(pane['pane_id'])], capture_output=True, timeout=5)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        return _open_app('WezTerm')
+    app = {'ghostty': 'Ghostty', 'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
+    return _open_app(app) if app else False
+
+
+def _open_app(name):
+    # 앞으로 가져오기는 open -a 가 가장 잘 먹힌다 (macOS 가 다른 프로그램의 activate 요청은 무시할 때가 있다)
+    try:
+        return subprocess.run(['open', '-a', name], capture_output=True, timeout=8).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def attach_procs(terms):
     """오르카 창마다 그 창에서 돌고 있는 AI 프로그램과 (찾았으면) 대화 기록을 붙인다."""
     try:
@@ -894,7 +971,7 @@ def attach_procs(terms):
     codex_all = [x for x in procs.values() if x['kind'] == 'codex']
     todo = []
     for t in terms:  # 1차: 확실한 증거(프로그램이 연 파일, 창 제목의 스레드 이름, resume 인자)
-        a = by_pane.get('%s:%s' % (t.get('tabId'), t.get('leafId')))
+        a = t.get('_proc') or by_pane.get('%s:%s' % (t.get('tabId'), t.get('leafId')))
         if not a:
             continue
         t['_proc'], t['_pkind'] = a, a['kind']
@@ -928,23 +1005,47 @@ def attach_procs(terms):
             why(t, 'process', how=how)
         else:
             todo.append((t, a, names_thread))
-    for t, a, names_thread in todo:  # 2차: 시작 시각. 제목이 다른 스레드를 가리키면 하지 않는다
-        cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
-        fresh = []
-        for r in ([] if names_thread else cands):
-            ts = meta[r]['ts']
-            # 같은 폴더에 아직 짝 없는 다른 Codex 가 이 스레드보다 먼저 떠 있으면, 시각만으로는 누구 것인지 모른다
-            if any(x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and not (x.get('log') or x.get('bound')) and x['start'] <= ts
-                   for x in codex_all):
+    for t, a, names_thread in todo:  # 오르카 밖 Codex 는 창 제목이 없다: 그 폴더에 Codex 가 하나뿐이면 가장 최근에 쓰인 스레드가 지금 보는 것이다(/new·/resume 포함)
+        if t['handle'].startswith('proc_') and not t.get('_plog'):
+            alone = [x for x in codex_all if x.get('cwd') == a.get('cwd')]
+            cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+            if len(alone) == 1 and cands:
+                try:
+                    pick = max(cands, key=os.path.getmtime)
+                except OSError:
+                    continue
+                t['_plog'], a['bound'] = pick, pick
+                claimed.add(pick)
+                why(t, 'process', how='codex:only-codex-in-folder-latest-thread')
+    todo.sort(key=lambda x: x[1]['start'])  # 먼저 뜬 프로그램부터 (그래야 뒤에 뜬 것의 후보가 줄어든다)
+    for _ in range(2):  # 앞에서 하나가 정해지면 뒤의 것이 풀릴 수 있어 한 번 더 돈다
+        for t, a, names_thread in todo:
+            if t.get('_plog'):
                 continue
-            if 0 <= ts - a['start'] <= 15:
-                fresh.append(r)
-        if len(fresh) == 1:
-            t['_plog'], a['bound'] = fresh[0], fresh[0]
-            claimed.add(fresh[0])
-            why(t, 'process', how='codex:started-together')
-        else:
+            resolve_by_start(t, a, names_thread, meta, claimed, codex_all)
+    for t, a, names_thread in todo:
+        if not t.get('_plog'):
+            cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
             why(t, 'process-unresolved', kind='codex', candidates=len(cands), title_names_thread=names_thread)
+
+
+def resolve_by_start(t, a, names_thread, meta, claimed, codex_all):
+    """2차: 시작 시각. 이 프로그램이 뜬 직후(15초 안) 만들어진 스레드이고, 같은 폴더에 아직 짝 없는 다른 Codex 가
+    그보다 먼저 떠 있지 않을 때만. 제목이 다른 스레드를 가리키면 하지 않는다."""
+    cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+    fresh = []
+    for r in ([] if names_thread else cands):
+        ts = meta[r]['ts']
+        # 같은 폴더에 아직 짝 없는 다른 Codex 가 이 스레드보다 먼저 떠 있으면, 시각만으로는 누구 것인지 모른다
+        if any(x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and not (x.get('log') or x.get('bound')) and x['start'] <= ts
+               for x in codex_all):
+            continue
+        if 0 <= ts - a['start'] <= 15:
+            fresh.append(r)
+    if len(fresh) == 1:
+        t['_plog'], a['bound'] = fresh[0], fresh[0]
+        claimed.add(fresh[0])
+        why(t, 'process', how='codex:started-together')
 
 
 def is_codex_log(path):
@@ -1679,6 +1780,8 @@ def render(t, steps, ws):
         for h, sst, who, what, res in subs)) if subs else ''
     sidchip = ('<button class="sid" title="Click to copy: %s" onclick="cp(this,\'%s\')">ID %s</button>' % (escape(resume), sid, sid[:8])) if sid else ''
     chip = '<i class="model">%s</i>' % escape(model) if model else ''
+    if t.get('_ext'):
+        chip = '<i class="model ext">%s</i>' % escape(t['_ext']) + chip
     card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
             '<h3>%s</h3>%s%s%s'
             '</a>'
@@ -1760,6 +1863,9 @@ def _build():
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
     spy = {w for w, v in worktrees.items() if v.get('path') == os.path.expanduser('~/.spyhop')}
     raw = LIST_CACHE['list']['terminals']
+    ext, ext_wts = outside_terms()
+    raw = raw + ext
+    worktrees.update(ext_wts)
     attach_procs([t for t in raw if not t.get('orphaned')])
     for t in raw:
         sp = (t.get('ptyId') or '').split('@@')[0]
@@ -2038,6 +2144,9 @@ def serve():
                 known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
                 if h not in known:  # 지금 목록에 있는 창만 이동시킨다
                     return self.send(404, b'unknown')
+                if h.startswith('proc_'):
+                    focus_outside(int(h[5:]))
+                    return self.send(204)
                 subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
                 subprocess.run(['osascript', '-e', 'tell application "Orca" to activate'], capture_output=True, timeout=5)
                 return self.send(204)
@@ -2088,6 +2197,8 @@ def serve():
             if urlparse(self.path).path != '/close':
                 return self.send(404, b'not found')
             h = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode().strip()
+            if h.startswith('proc_'):
+                return self.send(409, b'This session runs outside Orca. End it in its terminal.')
             known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
             if h not in known:
                 return self.send(404, b'unknown')
@@ -2114,6 +2225,8 @@ def serve():
             return self.send(200, 'Moved'.encode())
         if not info:
             return self.send(404, 'Unknown session'.encode())
+        if info['handle'].startswith('proc_'):
+            return self.send(409, 'This session runs outside Orca, so it cannot be moved.'.encode())
         if info['status'] != 'wait':
             return self.send(409, 'Cannot move a working session. Wait until it stops.'.encode())
         if req.get('wid') == info['wid']:
