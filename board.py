@@ -623,7 +623,8 @@ def match_sessions(terms, worktrees):
         paths.setdefault(worktrees.get(t['worktreeId'], {}).get('path') or t['worktreePath'], []).append(t)
     for path, panes in paths.items():
         cidx = claude_index(path)
-        cfiles = set(cidx.values())
+        live = live_claude_sessions(path)
+        cfiles = set(cidx.values()) | set(live)
         known = load_matches()
         rest = []
         for t in panes:
@@ -634,6 +635,11 @@ def match_sessions(terms, worktrees):
                 t['log'] = f
             elif pane_state(t['title']) == 'unknown':
                 rest.append(t)
+        # 아직 제목이 없는 클로드 창(예: "Claude Code")은, 이 폴더의 떠 있는 세션 중 다른 창이 안 가져간 게 딱 하나 남으면 그것이다
+        left_panes = [t for t in panes if not t.get('log') and pane_state(t['title']) != 'unknown']
+        left_files = [f for f in live if f not in {t.get('log') for t in panes}]
+        if len(left_panes) == 1 and len(left_files) == 1:
+            left_panes[0]['log'] = left_files[0]
         save_matches({t['handle']: t['log'] for t in panes if t.get('log') in cfiles})
         if not rest:
             continue
