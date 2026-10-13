@@ -1854,8 +1854,8 @@ def render(t, steps, ws):
         for h, sst, who, what, res in subs)) if subs else ''
     sidchip = ('<button class="sid" title="Click to copy: %s" onclick="cp(this,\'%s\')">ID %s</button>' % (escape(resume), sid, sid[:8])) if sid else ''
     chip = '<i class="model">%s</i>' % escape(model) if model else ''
-    if t.get('_ext'):
-        chip = '<i class="model ext">%s</i>' % escape(t['_ext']) + chip
+    # 어느 터미널에서 도는지는 상세 창에만 (카드는 짧게)
+    mchip = '<i class="model ext">%s</i>' % escape(t.get('_ext') or 'Orca') + chip
     card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
             '<h3>%s</h3>%s%s%s'
             '</a>'
@@ -1867,7 +1867,7 @@ def render(t, steps, ws):
              '<button class="go" onclick="go(\'%s\')">Go to session ↗</button>'
              '<button class="end" onclick="askEnd(\'%s\', this)">End session</button></div></div>'
              '<div class="cols"><div class="c1"><h4>Steps</h4>%s</div><div class="c2">%s%s</div></div>%s</div></div>'
-             % (st, cid, LABEL[st], escape(ws), chip, sidchip, stale, ring(sum(1 for f in flow if f['state'] in ('done', 'side')), len(flow)), title, summary, t['handle'], t['handle'],
+             % (st, cid, LABEL[st], escape(ws), mchip, sidchip, stale, ring(sum(1 for f in flow if f['state'] in ('done', 'side')), len(flow)), title, summary, t['handle'], t['handle'],
                 render_flow(flow, st == 'busy', newest_first=False) if flow else '<p class="none">No steps yet</p>',
                 render_reply(reply, dg),
                 sub_modal + render_todo(items, t.get('log')), ''))
