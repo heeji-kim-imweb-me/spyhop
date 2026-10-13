@@ -1825,7 +1825,7 @@ def render(t, steps, ws):
         sst = 'busy' if busy else 'done'  # 작업 창은 일하는 중이 아니면 끝난 것이다 (대기로 보이지 않게)
         who = agent_kind(s)
         if kind == 'worker_done':
-            res = subj + (' — ' + short if short else '')
+            res = subj + (': ' + short if short else '')
         else:  # 보고 메시지가 오르카 기록에서 밀려났으면 대화 기록의 마지막 답에서 한두 문장
             res = gist(last_turn(log)[1]) if log and not busy else ''
         try:
@@ -2149,7 +2149,7 @@ def assign_groups(items):
             used = [x for x in g['groups'] if any(v.get('g') == x for k, v in g['assign'].items() if k in live)]
             ids = {'s%d' % i: k for i, (k, _, _) in enumerate(todo, 1)}
             body = ('기존 그룹: %s\n\n배정할 세션:\n%s' % (json.dumps(used, ensure_ascii=False) if used else '(없음)',
-                    '\n'.join('%s: %s — %s' % (sid, t, (sm or '')[:120]) for sid, (k, t, sm) in zip(ids, todo))))
+                    '\n'.join('%s: %s: %s' % (sid, t, (sm or '')[:120]) for sid, (k, t, sm) in zip(ids, todo))))
             out = llm(GROUP_PROMPT, body)
             res = json.JSONDecoder().raw_decode(out[out.index('{'):])[0].get('assign') or {}
             cur = load_groups()
