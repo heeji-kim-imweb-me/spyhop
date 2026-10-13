@@ -1678,15 +1678,18 @@ def md(text):
     return ''.join(out)
 
 
-OVERRIDES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overrides.json')  # 내가 직접 체크한 기록 (재부팅해도 남게 /tmp 밖)
+OVERRIDES = os.path.expanduser('~/.spyhop/overrides.json')  # 내가 직접 체크한 TODO (재부팅·brew 업그레이드에도 남게 설치 폴더 밖)
+OLD_OVERRIDES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overrides.json')  # 예전 위치(코드 옆). brew 업그레이드 때 지워졌다
 
 
 def load_overrides():
-    try:
-        with open(OVERRIDES, encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    for path in (OVERRIDES, OLD_OVERRIDES):
+        try:
+            with open(path, encoding='utf-8') as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            continue
+    return {}
 
 
 def save_override(log, label, done):
