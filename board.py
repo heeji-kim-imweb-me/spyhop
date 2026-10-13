@@ -300,27 +300,50 @@ def per_file(fn):
 
 @per_file
 def ai_title(f):
-    title = None
+    """창 제목으로 쓰이는 이름들: /rename 으로 붙인 이름(custom-title)과 자동 제목(ai-title)."""
+    custom = auto = None
     with open(f, encoding='utf-8', errors='ignore') as fh:
         for line in fh:
-            if '"ai-title"' in line:
+            if '"custom-title"' in line or '"ai-title"' in line:
                 try:
-                    title = json.loads(line).get('aiTitle') or title
+                    d = json.loads(line)
                 except ValueError:
-                    pass
-    return title
+                    continue
+                custom = d.get('customTitle') or custom
+                auto = d.get('aiTitle') or auto
+    return custom, auto
+
+
+def live_claude_sessions(worktree_path):
+    """지금 떠 있는 클로드 세션의 기록 파일. 클로드 코드는 실행 중인 세션마다 ~/.claude/sessions/<pid>.json 을 둔다."""
+    proj = os.path.expanduser('~/.claude/projects/' + re.sub(r'[^A-Za-z0-9]', '-', worktree_path))
+    out = []
+    for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):
+        try:
+            with open(f, encoding='utf-8') as fh:
+                d = json.load(fh)
+            os.kill(int(d['pid']), 0)  # 프로세스가 살아 있는 것만
+        except (OSError, ValueError, KeyError):
+            continue
+        if d.get('cwd') == worktree_path and d.get('sessionId'):
+            out.append(os.path.join(proj, d['sessionId'] + '.jsonl'))
+    return [f for f in out if os.path.exists(f)]
 
 
 def claude_index(worktree_path):
-    """워크스페이스 경로의 Claude 기록을 제목(ai-title) → 파일로 묶는다. 최근 3일 것만."""
+    """워크스페이스 경로의 Claude 기록을 창 제목 → 파일로 묶는다.
+    최근 3일 기록 + 지금 떠 있는 세션의 기록(오래 쉬어도). /rename 한 이름과 자동 제목 둘 다로 찾는다."""
     proj = os.path.expanduser('~/.claude/projects/' + re.sub(r'[^A-Za-z0-9]', '-', worktree_path))
-    idx = {}
-    for f in sorted(glob.glob(proj + '/*.jsonl'), key=os.path.getmtime):
-        if time.time() - os.path.getmtime(f) > 3 * 86400:
-            continue
-        title = ai_title(f)
-        if title:
-            idx[title] = f
+    files = {f for f in glob.glob(proj + '/*.jsonl') if time.time() - os.path.getmtime(f) <= 3 * 86400}
+    files.update(live_claude_sessions(worktree_path))
+    idx, named = {}, {}
+    for f in sorted(files, key=os.path.getmtime):
+        custom, auto = ai_title(f)
+        if auto:
+            idx[auto] = f
+        if custom:
+            named[custom] = f
+    idx.update(named)  # 직접 붙인 이름이 자동 제목보다 우선
     return idx
 
 
@@ -1765,6 +1788,7 @@ def main(argv):
         return
     write_loader()
     if not watching():
+        os.makedirs(BASE, exist_ok=True)  # 맥을 막 켜면 /tmp 가 비어 있다 (로그 파일을 열기 전에 폴더부터)
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'],
                          stdout=subprocess.DEVNULL, stderr=open(os.path.join(BASE, 'watch.log'), 'a'),
                          start_new_session=True)
