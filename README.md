@@ -9,6 +9,8 @@
   <sub>See all your Claude Code and Codex sessions at once, and how far each one has come: done, now, next.</sub>
 </p>
 
+<p align="center"><a href="https://leeleelee3264.github.io/spyhop/"><b>Tour the features →</b></a></p>
+
 <p align="center">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-only-1e293b?logo=apple&logoColor=white">
   <img alt="Homebrew" src="https://img.shields.io/badge/brew-leeleelee3264%2Ftap-1e293b?logo=homebrew&logoColor=white">
