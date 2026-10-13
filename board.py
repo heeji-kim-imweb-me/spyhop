@@ -314,9 +314,9 @@ def ai_title(f):
     return custom, auto
 
 
-def live_claude_sessions(worktree_path):
-    """지금 떠 있는 클로드 세션의 기록 파일. 클로드 코드는 실행 중인 세션마다 ~/.claude/sessions/<pid>.json 을 둔다."""
-    proj = os.path.expanduser('~/.claude/projects/' + re.sub(r'[^A-Za-z0-9]', '-', worktree_path))
+def live_claude_sessions(worktree_path=None):
+    """지금 떠 있는 클로드 세션의 기록 파일. 클로드 코드는 실행 중인 세션마다 ~/.claude/sessions/<pid>.json 을 둔다.
+    worktree_path 를 주면 그 폴더에서 도는 것만."""
     out = []
     for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):
         try:
@@ -325,9 +325,23 @@ def live_claude_sessions(worktree_path):
             os.kill(int(d['pid']), 0)  # 프로세스가 살아 있는 것만
         except (OSError, ValueError, KeyError):
             continue
-        if d.get('cwd') == worktree_path and d.get('sessionId'):
+        cwd = d.get('cwd')
+        if cwd and d.get('sessionId') and (worktree_path is None or cwd == worktree_path):
+            proj = os.path.expanduser('~/.claude/projects/' + re.sub(r'[^A-Za-z0-9]', '-', cwd))
             out.append(os.path.join(proj, d['sessionId'] + '.jsonl'))
     return [f for f in out if os.path.exists(f)]
+
+
+def live_title_index():
+    """떠 있는 모든 클로드 세션을 창 제목 → 기록으로. 다른 폴더 워크스페이스로 옮긴 창은
+    창이 속한 폴더와 세션이 일하는 폴더가 달라서, 폴더 기준 색인으로는 못 찾는다."""
+    idx = {}
+    for f in live_claude_sessions():
+        custom, auto = ai_title(f)
+        for t in (auto, custom):
+            if t:
+                idx[t] = f
+    return idx
 
 
 def claude_index(worktree_path):
@@ -627,8 +641,14 @@ def match_sessions(terms, worktrees):
         cfiles = set(cidx.values()) | set(live)
         known = load_matches()
         rest = []
+        anywhere = None
         for t in panes:
             f = cidx.get(clean_title(t['title']))
+            if not f and pane_state(t['title']) != 'unknown':
+                anywhere = anywhere if anywhere is not None else live_title_index()
+                f = anywhere.get(clean_title(t['title']))
+                if f:
+                    cfiles.add(f)
             if not f and known.get(t['handle']) in cfiles:
                 f = known[t['handle']]
             if f:
@@ -646,7 +666,9 @@ def match_sessions(terms, worktrees):
         files = [(f, codex_user_msgs(f)) for f in sorted(codex_files(path), key=os.path.getmtime, reverse=True)]
         used = set()
         names = codex_thread_names()
-        by_id = {re.sub(r'.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', r'\1', f): f for f, _ in files}
+        # 이름(스레드) 짝은 폴더를 가리지 않는다: 다른 폴더 칸으로 옮긴 Codex 창은 원래 폴더의 기록을 쓴다
+        codex_files(path)
+        by_id = {re.sub(r'.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', r'\1', f): f for f in _CODEX_LIST['files']}
         heads = [t['title'].split(' | ')[0].strip() for t in rest]
         for t in rest:
             # 1순위: 창 제목(Codex 스레드 이름) → session_index 의 id → 기록 파일. 같은 이름 창이 여럿이면 못 가린다
@@ -1270,7 +1292,7 @@ def render(t, steps, ws):
     t['_info'] = {'ws': ws, 'fail': bool(t.get('_fail')), 'stuck': bool(t.get('_stuck')), 'wid': t['worktreeId'], 'log': t.get('log') or '', 'cwd': t.get('worktreePath') or '', 'status': st, 'title': steps.get('title') or clean_title(t['title']),
                   'step': cur_step['label'] if cur_step else '',
                   'done': sum(1 for f in flow if f['state'] in ('done', 'side')), 'total': len(flow),
-                  'model': model, 'since': since, 'handle': t['handle'], 'order': order, 'helpers': helpers,
+                  'model': model, 'since': since, 'handle': t['handle'], 'pane': t['paneKey'], 'order': order, 'helpers': helpers,
                   'summary': steps.get('summary') or '',
                   'note': '' if flow else ('Summarizing…' if t.get('log') else 'Transcript not found'), 'steps': [{'label': f['label'], 'state': f['state']} for f in flow]}
     return order, card, modal
@@ -1634,19 +1656,31 @@ def serve():
         sid = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$', log)
         if not sid:
             return self.send(409, 'Transcript not found, cannot resume'.encode())
-        tool = 'codex resume' if '/.codex/' in log else 'claude --resume'
-        cmd = 'cd %s && %s %s' % (shlex.quote(info['cwd'] or os.path.expanduser('~')), tool, sid.group(1))
-        # 대상 워크스페이스에 살아 있는 창을 하나 찾아 그 옆을 나눈다. 없으면 새 탭을 만든다
-        # 지금 화면 배치에 올라와 있는 창 옆만 나눈다. 띄워 두지 않은 워크스페이스(배치 정보 없음)나
-        # 탭은 닫혔는데 뒤에서 살아 있는 창 옆을 나누면 보이지 않는 곳에 열리므로, 그때는 새 탭을 만든다
+        is_codex = '/.codex/' in log
+        # 세션이 실제로 일하는 폴더 (이미 한 번 다른 폴더 칸으로 옮겼으면 창이 속한 폴더와 다르다)
+        home = session_cwd(log) or info['cwd'] or os.path.expanduser('~')
+        resume = '%s %s' % ('codex resume' if is_codex else 'claude --resume', sid.group(1))
+        # 옮겨도 AI 는 원래 폴더에서 계속 일한다 (칸마다 폴더가 다른 사람: 대화가 보던 파일이 원래 폴더에 있다)
+        # 새 창은 원래 세션 프로그램이 끝날 때까지 기다렸다가 이어서 연다 → 같은 대화가 두 곳에서 동시에 돌지 않는다
+        pid = claude_pid(sid.group(1)) if not is_codex else None
+        go = 'cd %s && %s' % (shlex.quote(home), resume)
+        if pid:  # 원래 프로그램이 30초 안에 안 끝나면 이어 열지 않는다 (같은 대화를 두 곳에서 돌리지 않게)
+            cmd = ('n=0; while kill -0 %d 2>/dev/null && [ $n -lt 100 ]; do sleep 0.3; n=$((n+1)); done; '
+                   'if kill -0 %d 2>/dev/null; then echo "Spyhop: the old pane is still running. Close it, then run: %s"; '
+                   'else %s; fi' % (pid, pid, go.replace('"', '\\"'), go))
+        else:
+            cmd = 'sleep 3; ' + go
+        wts = {w['id']: w for w in orca('worktree', 'list').get('worktrees', [])}
+        if req.get('wid') not in wts:
+            return self.send(404, 'That workspace is gone. Nothing was moved.'.encode())
+        dest = wts[req['wid']]
         terms = orca('terminal', 'list').get('terminals', [])
         LIST_CACHE.clear()
         shown = layout_handles()
+        # 대상 워크스페이스에 화면에 떠 있는 창이 있으면 그 옆을 나누고, 없으면 새 탭을 만든다
         target = next((x for x in terms if (x.get('ptyId') or '').split('@@')[0] == req['wid']
                        and not x.get('orphaned') and x['handle'] in shown), None)
-        # 같은 세션을 두 곳에서 동시에 열지 않도록 기존 창을 먼저 닫는다 (분할 창 하나만, --tab 금지)
-        subprocess.run(['orca', 'terminal', 'close', '--terminal', info['handle'], '--json'], capture_output=True, timeout=15)
-        time.sleep(1.5)
+        # 1) 새 창부터 연다. 실패하면 원래 창은 그대로 둔다
         if target:
             r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
                                 '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
@@ -1655,8 +1689,22 @@ def serve():
                                capture_output=True, text=True, timeout=20)
         sys.stderr.write('move %s -> %s: %s | %s\n' % (info['handle'], req['wid'], cmd, (r.stdout or r.stderr)[:200]))
         if r.returncode != 0:
-            return self.send(500, ('Closed the old pane but could not open a new one. Run manually: ' + cmd).encode())
-        return self.send(200, 'Moved'.encode())
+            return self.send(500, 'Could not open a pane there. The session was not touched.'.encode())
+        # 2) 그다음 원래 창을 닫는다 (분할 창 하나만, --tab 금지). 새 창은 원래 프로그램이 끝나는 대로 이어서 연다
+        # 창 번호(handle)는 오르카가 다시 매길 수 있어서, 창 위치(탭·칸)로 지금 번호를 다시 찾는다
+        old = next((x['handle'] for x in terms if '%s:%s' % (x.get('tabId'), x.get('leafId')) == info.get('pane')), info['handle'])
+        c = subprocess.run(['orca', 'terminal', 'close', '--terminal', old, '--json'],
+                           capture_output=True, text=True, timeout=15)
+        gone = c.returncode == 0 or not any(x['handle'] == old for x in orca('terminal', 'list').get('terminals', [])
+                                              if not x.get('orphaned'))
+        if not gone:
+            return self.send(500, ('Opened a new pane but could not close the old one. Close it yourself, '
+                                   'then the new pane continues the session.').encode())
+        name = dest.get('displayName') or os.path.basename(dest.get('path') or '')
+        msg = 'Moved to %s' % name
+        if dest.get('path') and os.path.realpath(dest['path']) != os.path.realpath(home):
+            msg += ' · still working in %s' % home.replace(os.path.expanduser('~'), '~')
+        return self.send(200, msg.encode())
 
     H.move = _move
     try:
@@ -1665,6 +1713,33 @@ def serve():
         sys.stderr.write('server: %s\n' % e)
         return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+
+def session_cwd(log):
+    """그 대화가 실제로 일하는 폴더. Codex 는 기록 첫 줄, 클로드는 기록 안의 마지막 "cwd"."""
+    if '/.codex/' in log:
+        return codex_cwd(log)
+    try:
+        with open(log, 'rb') as fh:
+            fh.seek(max(0, fh.seek(0, 2) - 300000))
+            found = re.findall(rb'"cwd":"([^"]+)"', fh.read())
+        return found[-1].decode() if found else None
+    except OSError:
+        return None
+
+
+def claude_pid(session_id):
+    """이 대화를 지금 돌리고 있는 클로드 프로그램 번호 (~/.claude/sessions/<pid>.json)."""
+    for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):
+        try:
+            with open(f, encoding='utf-8') as fh:
+                d = json.load(fh)
+            if d.get('sessionId') == session_id:
+                os.kill(int(d['pid']), 0)
+                return int(d['pid'])
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
 
 
 def watching():
