@@ -932,11 +932,13 @@ def outside_terms():
     return out, wts
 
 
-def _osa(script):
+def _osa(script, want=None):
+    """want 를 주면 스크립트가 그 글자를 돌려줬을 때만 성공 (찾지 못하고 그냥 끝난 경우를 가른다)"""
     try:
-        return subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=8).returncode == 0
+        r = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=8)
     except (OSError, subprocess.SubprocessError):
         return False
+    return r.returncode == 0 and (want is None or r.stdout.strip() == want)
 
 
 def focus_outside(pid):
@@ -952,12 +954,12 @@ def focus_outside(pid):
     tp = a.get('term_program') or ''
     if tp == 'Apple_Terminal':
         return _osa('tell application "Terminal"\nrepeat with w in windows\nrepeat with t in tabs of w\n'
-                    'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn\nend if\n'
-                    'end repeat\nend repeat\nend tell' % tty) and _open_app('Terminal') and 'tab' or app('Terminal')
+                    'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn "ok"\nend if\n'
+                    'end repeat\nend repeat\nend tell' % tty, 'ok') and _open_app('Terminal') and 'tab' or app('Terminal')
     if tp == 'iTerm.app':
         return _osa('tell application "iTerm2"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
-                    'if tty of s is "%s" then\nselect w\ntell t to select\ntell s to select\nactivate\nreturn\nend if\n'
-                    'end repeat\nend repeat\nend repeat\nend tell' % tty) and 'tab' or app('iTerm')
+                    'if tty of s is "%s" then\nselect w\ntell t to select\ntell s to select\nactivate\nreturn "ok"\nend if\n'
+                    'end repeat\nend repeat\nend repeat\nend tell' % tty, 'ok') and 'tab' or app('iTerm')
     if tp == 'WezTerm':
         wz = find_bin('wezterm') or '/Applications/WezTerm.app/Contents/MacOS/wezterm'
         try:
@@ -1003,7 +1005,7 @@ def _ghostty_focus(a):
     if not pick:
         return False
     return _osa('tell application "Ghostty"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in terminals of t\n'
-                'if id of s is "%s" then\nfocus s\nreturn\nend if\nend repeat\nend repeat\nend repeat\nend tell' % pick[0])
+                'if id of s is "%s" then\nfocus s\nreturn "ok"\nend if\nend repeat\nend repeat\nend repeat\nend tell' % pick[0], 'ok')
 
 
 def _open_app(name):
@@ -1136,14 +1138,15 @@ def match_sessions(terms, worktrees):
     paths = {}
     for t in terms:
         paths.setdefault(worktrees.get(t['worktreeId'], {}).get('path') or t['worktreePath'], []).append(t)
+    taken = {x['_plog'] for x in terms if x.get('_plog')}  # 모든 폴더에 걸쳐 한 기록은 한 카드에만
     for path, panes in paths.items():
+        taken |= {x['log'] for x in terms if x.get('log')}
         cidx = claude_index(path)
         live = live_claude_sessions(path)
         cfiles = set(cidx.values()) | set(live)
         known = load_matches()
         rest = []
         anywhere = None
-        taken = {x['_plog'] for x in terms if x.get('_plog')}
         for t in panes:
             if t.get('_plog'):  # 살아 있는 프로그램으로 이미 정확히 찾았다
                 t['log'] = t['_plog']
@@ -3256,7 +3259,8 @@ function live(){
   }).catch(function(){if(window.top===window)location.href='__LOADER__'})}
 var RT=setInterval(function(){if(!document.hidden)live()},__REFRESH_MS__),GEN=null;
 setInterval(function(){if(document.hidden||drag||press)return;  // 새 세션·끝난 세션은 서버가 2초 안에 다시 그리니, 그걸 바로 따라간다
-  fetch('http://127.0.0.1:47613/gen',{cache:'no-store'}).then(function(r){return r.text()}).then(function(g){if(GEN!==null&&g!==GEN)live();GEN=g}).catch(function(){})},2000);
+  fetch('http://127.0.0.1:47613/gen',{cache:'no-store'}).then(function(r){return r.text()}).then(function(g){if(g===GEN)return;
+    return live().then(function(){if(!drag&&!press)GEN=g})}).catch(function(){})},2000);  // 끄는 중이라 못 그렸으면 GEN 을 두고 다음에 다시
 document.addEventListener('visibilitychange',function(){if(!document.hidden)live()});
 if(document.getElementById('grouping'))setTimeout(live,2500);
 </script>
