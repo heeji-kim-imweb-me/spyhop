@@ -252,6 +252,17 @@ def orca(*args):
     return json.loads(out.stdout)['result']
 
 
+def agent_kind(t):
+    """클로드 창인지 Codex 창인지. 오르카가 알려 주는 agentType 을 먼저 믿는다.
+    제목의 진행 기호로는 못 가린다: Codex 도 일하는 동안 제목 앞에 ⠹ 같은 기호를 붙인다."""
+    kind = (t.get('agent') or {}).get('agentType')
+    if kind in ('claude', 'codex'):
+        return kind
+    if ' | ' in t['title']:  # 오르카가 종류를 안 알려 주면: Codex 창 제목은 「스레드 이름 | 폴더」 꼴이다
+        return 'codex'
+    return 'claude' if pane_state(t['title']) != 'unknown' else 'codex'
+
+
 def pane_state(title):
     head = title[:1]
     if head == IDLE_MARK:
@@ -403,10 +414,14 @@ def transcript(path, start=0):
     msgs = []
     with open(path, 'rb') as fh:
         fh.seek(start)
-        data = fh.read()
-        for line in data[:data.rfind(b'\n') + 1].decode('utf-8', 'ignore').splitlines():
+        # 한 줄씩 읽는다. 통째로 읽으면 큰 기록(수십 MB)에서 순간 수백 MB 를 잡고, 그 메모리가 프로세스에 그대로 남는다
+        for raw in fh:
+            if not raw.endswith(b'\n'):
+                break  # 끝이 안 난 마지막 줄은 다음 번에 읽는다
+            if b'"user"' not in raw and b'"assistant"' not in raw and b'"message"' not in raw:
+                continue  # 도구 결과·메타 줄은 풀어 보지 않는다
             try:
-                d = json.loads(line)
+                d = json.loads(raw)
             except ValueError:
                 continue
             if d.get('type') in ('user', 'assistant') and not d.get('isMeta'):       # Claude
@@ -653,7 +668,7 @@ def match_sessions(terms, worktrees):
                 f = prev  # 같은 제목 세션이 여럿이면 지난번 짝을 그대로 둔다 (갱신마다 카드 내용이 뒤바뀌지 않게)
             if f in taken:  # 같은 제목 창이 둘이면 두 번째는 제목으로 못 가린다 → 아래 '남은 세션' 짝에 맡긴다
                 f = None
-            if not f and pane_state(t['title']) != 'unknown':
+            if not f and agent_kind(t) == 'claude':
                 anywhere = anywhere if anywhere is not None else live_title_index()
                 f = anywhere.get(clean_title(t['title']))
                 if f:
@@ -663,10 +678,10 @@ def match_sessions(terms, worktrees):
             if f:
                 t['log'] = f
                 taken.add(f)
-            elif pane_state(t['title']) == 'unknown':
+            elif agent_kind(t) == 'codex':
                 rest.append(t)
         # 아직 제목이 없는 클로드 창(예: "Claude Code")은, 이 폴더의 떠 있는 세션 중 다른 창이 안 가져간 게 딱 하나 남으면 그것이다
-        left_panes = [t for t in panes if not t.get('log') and pane_state(t['title']) != 'unknown']
+        left_panes = [t for t in panes if not t.get('log') and agent_kind(t) == 'claude']
         left_files = [f for f in live if f not in {t.get('log') for t in panes}]
         if len(left_panes) == 1 and len(left_files) == 1:
             left_panes[0]['log'] = left_files[0]
@@ -679,10 +694,10 @@ def match_sessions(terms, worktrees):
         # 이름(스레드) 짝은 폴더를 가리지 않는다: 다른 폴더 칸으로 옮긴 Codex 창은 원래 폴더의 기록을 쓴다
         codex_files(path)
         by_id = {re.sub(r'.*-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', r'\1', f): f for f in _CODEX_LIST['files']}
-        heads = [t['title'].split(' | ')[0].strip() for t in rest]
+        heads = [clean_title(t['title']).split(' | ')[0].strip() for t in rest]
         for t in rest:
             # 1순위: 창 제목(Codex 스레드 이름) → session_index 의 id → 기록 파일. 같은 이름 창이 여럿이면 못 가린다
-            head = t['title'].split(' | ')[0].strip()
+            head = clean_title(t['title']).split(' | ')[0].strip()  # 일하는 중이면 앞에 붙는 진행 기호는 뗀다
             tid = names.get(head) if heads.count(head) == 1 else None
             if tid and tid in by_id and by_id[tid] not in used:
                 t['log'] = by_id[tid]
@@ -1268,7 +1283,7 @@ def render(t, steps, ws):
         else:
             busy = a.get('state') == 'working' if a.get('state') else status_of(s) == 'busy'
         sst = 'busy' if busy else 'done'  # 작업 창은 일하는 중이 아니면 끝난 것이다 (대기로 보이지 않게)
-        who = a.get('agentType') or ('claude' if pane_state(s['title']) != 'unknown' else 'codex')
+        who = agent_kind(s)
         if kind == 'worker_done':
             res = subj + (' — ' + short if short else '')
         else:  # 보고 메시지가 오르카 기록에서 밀려났으면 대화 기록의 마지막 답에서 한두 문장
