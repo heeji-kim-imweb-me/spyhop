@@ -1675,14 +1675,21 @@ def serve():
         # 세션이 실제로 일하는 폴더 (이미 한 번 다른 폴더 칸으로 옮겼으면 창이 속한 폴더와 다르다)
         home = session_cwd(log) or info['cwd'] or os.path.expanduser('~')
         resume = '%s %s' % ('codex resume' if is_codex else 'claude --resume', sid.group(1))
+        if not is_codex and model_of(log).startswith('DeepSeek'):
+            # DeepSeek 를 클로드 코드로 감싸 쓰는 세션(cs)은 같은 설정으로 다시 연다. 키는 그때 키체인에서 읽는다(명령에 안 남김)
+            resume = ("env -u ANTHROPIC_API_KEY ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic "
+                      "ANTHROPIC_AUTH_TOKEN=\"$(security find-generic-password -s deepseek-api -w)\" "
+                      "ANTHROPIC_MODEL='deepseek-flash[1m]' ANTHROPIC_DEFAULT_OPUS_MODEL='deepseek-flash[1m]' "
+                      "ANTHROPIC_DEFAULT_SONNET_MODEL='deepseek-flash[1m]' ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-flash "
+                      "CLAUDE_CODE_SUBAGENT_MODEL=deepseek-flash CLAUDE_CODE_AUTO_COMPACT_WINDOW=786432 ") + resume
         # 옮겨도 AI 는 원래 폴더에서 계속 일한다 (칸마다 폴더가 다른 사람: 대화가 보던 파일이 원래 폴더에 있다)
         # 새 창은 원래 세션 프로그램이 끝날 때까지 기다렸다가 이어서 연다 → 같은 대화가 두 곳에서 동시에 돌지 않는다
         pid = claude_pid(sid.group(1)) if not is_codex else None
         go = 'cd %s && %s' % (shlex.quote(home), resume)
         if pid:  # 원래 프로그램이 30초 안에 안 끝나면 이어 열지 않는다 (같은 대화를 두 곳에서 돌리지 않게)
             cmd = ('n=0; while kill -0 %d 2>/dev/null && [ $n -lt 100 ]; do sleep 0.3; n=$((n+1)); done; '
-                   'if kill -0 %d 2>/dev/null; then echo "Spyhop: the old pane is still running. Close it, then run: %s"; '
-                   'else %s; fi' % (pid, pid, go.replace('"', '\\"'), go))
+                   'if kill -0 %d 2>/dev/null; then echo "Spyhop: the old pane is still running. Close it and move the card again."; '
+                   'else %s; fi' % (pid, pid, go))
         else:
             cmd = 'sleep 3; ' + go
         wts = {w['id']: w for w in orca('worktree', 'list').get('worktrees', [])}
