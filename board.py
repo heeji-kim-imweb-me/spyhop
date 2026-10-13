@@ -1924,6 +1924,9 @@ def check_board(terms):
     _CHECK['last'] = fixed
 
 
+WAKE = threading.Event()  # 세션을 끝내는 등 보드가 바로 다시 그려야 할 때 감시 루프를 깨운다
+
+
 def build():
     """보드 한 장을 그린다. 감시 루프와 설정 저장이 동시에 부를 수 있어 한 번에 하나만 돌게 한다."""
     with BUILD_LOCK:
@@ -2306,6 +2309,7 @@ def serve():
                         os.kill(pid, 0)
                 except ProcessLookupError:
                     _PROC_CACHE['at'] = 0
+                    WAKE.set()
                     sys.stderr.write('close %s: ended\n' % h)
                     return self.send(200, b'ok')
                 except OSError as e:
@@ -2315,6 +2319,8 @@ def serve():
             r = subprocess.run(['orca', 'terminal', 'close', '--terminal', h, '--json'],
                                capture_output=True, text=True, timeout=15)
             sys.stderr.write('close %s: %s\n' % (h, (r.stdout or r.stderr)[:200]))
+            if r.returncode == 0:
+                WAKE.set()
             return self.send(200 if r.returncode == 0 else 500, b'ok' if r.returncode == 0 else b'fail')
 
     def _move(self):
@@ -2593,9 +2599,10 @@ def watch():
         # 다음 갱신까지 기다리되, AI 프로그램이 새로 뜨거나 끝나면 바로 다시 그린다 (새 세션이 1~2초 안에 뜬다)
         pids, until = agent_pids(), time.time() + refresh_sec()
         while time.time() < until:
-            time.sleep(2)
-            now = agent_pids()
-            if now != pids:
+            if WAKE.wait(1):  # 1초마다 프로그램 목록을 보거나, 깨우면 바로
+                WAKE.clear()
+                break
+            if agent_pids() != pids:
                 break
 
 
@@ -3106,8 +3113,9 @@ function cancelEnd(){endTarget=null;document.getElementById('confirm').className
 function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;  // 끝났으면 상세 창과 카드를 바로 치운다
-    location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){c.style.transition='opacity .2s';c.style.opacity='0'}
-    toast('Session ended');setTimeout(function(){live().then(stop)},800)})})
+    location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){var col=c.closest('.col');c.style.transition='opacity .18s';c.style.opacity='0';
+      setTimeout(function(){c.remove();if(col&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();grid();recount()},180)}else recount()},180)}
+    toast('Session ended');setTimeout(function(){live().then(stop)},1200)})})
   .catch(function(t){stop();toast(typeof t==='string'&&t?t:'Could not end the session')})}
 
 // 열기는 :target CSS 효과 하나만 사용한다. hashchange 이후 효과를 시작하면 첫 프레임이 먼저 보인다.
