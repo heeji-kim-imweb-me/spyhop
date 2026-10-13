@@ -14,7 +14,7 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1012;--soft:#17191c;--card:#1d2024;--ink:#f2f4f6;--ink2:#c3c9d0;--ink3:#8b95a1;--line:#2a2e34;--blue:#5a9cff;--blue-soft:#16263d;--green:#3fc79c;--pink:#f27aa8;--amber:#f2b84b;--violet:#a98bea;--shadow:0 20px 60px rgba(0,0,0,.45)}}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
-body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 "Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 "Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.01em;word-break:keep-all;overflow-wrap:break-word}
 a{color:inherit}
 code{font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:2px 7px;border-radius:6px}
 
@@ -52,10 +52,11 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 .cap{font-size:14px;color:var(--ink3);margin-top:14px}
 
 /* 숫자 */
-.nums{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:56px auto 0;max-width:620px}
-.num{background:var(--card);border-radius:22px;padding:28px 24px;text-align:left;border:1px solid var(--line)}
-.num b{display:block;font-size:40px;line-height:1.1;font-weight:800;color:var(--blue);letter-spacing:-.03em}
-.num span{display:block;font-size:15px;color:var(--ink2);margin-top:10px;line-height:1.45}
+.hls{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:56px}
+.hl{display:block;background:var(--card);border-radius:22px;padding:24px 22px;text-align:left;border:1px solid var(--line);text-decoration:none;transition:transform .25s ease,box-shadow .25s ease,border-color .25s}
+.hl:hover{transform:translateY(-4px);box-shadow:var(--shadow);border-color:var(--blue)}
+.hl .ic{margin-bottom:16px}.hl b{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em;line-height:1.35}
+.hl span{display:block;font-size:14.5px;color:var(--ink2);margin-top:6px;line-height:1.5}
 
 /* 두 칸 장면 */
 .row{display:grid;grid-template-columns:1fr 1.35fr;gap:64px;align-items:center}
@@ -185,7 +186,7 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 @media print{.themetgl{display:none}}
 
 @media (prefers-reduced-motion:reduce){.flow{animation:none;stroke-dasharray:none}.mk{animation:none}.js .rv,.js .rv.tilt{opacity:1;transform:none;transition:none;filter:none}.js .lines .ln>span,.js .anat .mk{transform:none;transition:none}.hlogo .bob,.hlogo .wv,.lightup.on .n,.term pre .cur{animation:none}html{scroll-behavior:auto}}
-@media (max-width:900px){section{padding:84px 20px}.nums,.legend{grid-template-columns:1fr 1fr}.row,.row.rev,.pair,.uses{grid-template-columns:1fr;gap:28px}.row.rev .txt{order:0}.feats{grid-template-columns:1fr}.nav .links{margin-right:96px}.nav .links a{padding:7px 8px}}
+@media (max-width:900px){section{padding:84px 20px}.hls,.legend{grid-template-columns:1fr 1fr}.row,.row.rev,.pair,.uses{grid-template-columns:1fr;gap:28px}.row.rev .txt{order:0}.feats{grid-template-columns:1fr}.nav .links{margin-right:150px}.nav .links a{padding:7px 8px}}
 </style>
 </head>
 <body>
@@ -228,9 +229,12 @@ document.documentElement.classList.add('js');
 </div>
 <div class="shot hero-shot rv tilt"><img class="crop" style="aspect-ratio:1600/560" src="{{board}}" alt="Spyhop 메인 보드. 워크스페이스별 칸에 세션 카드가 있고 카드마다 단계 진행이 보인다" data-en-alt="The Spyhop board: a column per workspace, a card per session, each showing its steps"></div>
 <p class="cap" data-en="Screens show demo data.">화면은 데모 데이터예요.</p>
-<div class="nums">
-<div class="num rv d1" data-en="&lt;b data-n=&quot;10&quot; data-u=&quot;s&quot;&gt;10s&lt;/b&gt;&lt;span&gt;between updates, no reloading needed&lt;/span&gt;"><b data-n="10" data-u="초">10초</b><span>마다 저절로 갱신, 새로고침은 필요 없어요</span></div>
-<div class="num rv d3" data-en="&lt;b data-n=&quot;1&quot; data-p=&quot;~&quot; data-u=&quot;%&quot;&gt;~1%&lt;/b&gt;&lt;span&gt;Mac CPU with 6 sessions, 70–80 MB of memory&lt;/span&gt;"><b data-n="1" data-p="약 " data-u="%">약 1%</b><span>세션 6개일 때 맥 CPU, 메모리는 70~80MB</span></div>
+<div class="hls">
+<a class="hl rv" href="#board"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><b data-en="Every session, one board">모든 세션을 한 보드에</b><span data-en="Claude Code or Codex, any model">Claude Code든 Codex든, 어떤 모델이든</span></a>
+<a class="hl rv d1" href="#steps"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6l2 2 4-4"/><path d="M4 14l2 2 4-4"/><path d="M14 7h6M14 15h6"/><circle cx="7" cy="20" r="1"/><path d="M14 20h6"/></svg></div><b data-en="Which step it’s on">지금 몇 단계인지</b><span data-en="Done, now, next, for every session">끝낸 일 · 지금 하는 일 · 다음 일</span></a>
+<a class="hl rv d2" href="#board"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></div><b data-en="Your turn comes first">내 차례부터 맨 위로</b><span data-en="Waiting sessions rise to the top, stuck ones get flagged">답을 기다리는 세션이 위로, 멈춘 세션은 따로 표시</span></a>
+<a class="hl rv d3" href="#detail"><div class="ic"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></div><b data-en="No pane-hopping">창을 열지 않아도</b><span data-en="The last reply and TODOs, right on the card">마지막 답과 할 일을 카드에서 바로</span></a>
+</div>
 </div>
 </div></section>
 <!-- 쓰임새 -->
@@ -306,7 +310,7 @@ document.documentElement.classList.add('js');
 <div class="eyebrow rv" data-en="And more">그 밖에도</div>
 <h2 class="rv d1" data-en="Features added&lt;br&gt;from daily use">매일 쓰면서<br>넣은 기능들</h2>
 <div class="feats">
-<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div><h3 data-en="Updates without reloads">새로고침 없는 갱신</h3><p data-en="Only changed cards are swapped, and cards that change place glide to their new spot. An open detail view stays open.">바뀐 카드만 바꿔 끼우고, 자리가 바뀐 카드는 미끄러지듯 옮겨 가요. 열어 둔 상세 창도 그대로예요.</p></div>
+<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div><h3 data-en="Updates without reloads">새로고침 없는 갱신</h3><p data-en="Every 10 seconds, only changed cards are swapped, and cards that change place glide to their new spot. An open detail view stays open.">10초마다 바뀐 카드만 바꿔 끼우고, 자리가 바뀐 카드는 미끄러지듯 옮겨 가요. 열어 둔 상세 창도 그대로예요.</p></div>
 <div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/></svg></div><h3 data-en="Helpers as one line">헬퍼는 한 줄로</h3><p data-en="Review and cross-check panes a session starts show up as “↳ Codex · Done” under it, not as cards of their own.">세션이 띄운 리뷰·교차검증 창은 카드를 따로 만들지 않고 그 세션 아래 「↳ Codex · Done」으로 붙어요.</p></div>
 <div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><h3 data-en="Group by AI topics">AI 주제로 묶기</h3><p data-en="Split columns by topic instead of workspace. Drag a card to pin it to another topic.">워크스페이스 대신 일의 주제로 칸을 나눠요. 끌어서 다른 주제에 고정할 수도 있어요.</p></div>
 <div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/></svg></div><h3 data-en="Pick the summarizer">요약 모델은 고르기</h3><p data-en="Uses the claude or codex CLI you are already logged in to. Switch it in Settings.">이미 로그인한 claude·codex CLI를 그대로 써요. 설정에서 바꿀 수 있어요.</p></div>
