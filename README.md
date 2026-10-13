@@ -84,6 +84,6 @@ How it works, privacy and file locations: [docs/details.md](docs/details.md).
 ## TODO
 
 - [ ] Work without Orca: find sessions from recent transcripts and group them by AI topics.
-- [ ] Many groups: sideways scroll and a "reset groups" button.
+- [ ] A "reset groups" button for AI topics.
 - [ ] Moving a session to another workspace, made safe end to end.
 - [ ] Notify when a session turns to "My turn".

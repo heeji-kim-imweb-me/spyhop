@@ -1413,7 +1413,7 @@ def _build():
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
     foot = '<div class="subbar">%s%s<small>updated %s</small></div>' % (grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s">' % current_theme(), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
-        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(0,1fr))">%s</main>%s' % (max(len(cols), 1), board or '<p class="none">The sea is calm · no sessions running.</p>', ''.join(modals) + render_settings()))
+        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or '<p class="none">The sea is calm · no sessions running.</p>', ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
         f.write(html)
@@ -1952,7 +1952,7 @@ background:color-mix(in srgb,var(--st) 10%,var(--card));border:1px solid color-m
 .tile.wait b,.tile.busy b{font-weight:800}
 .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;margin-right:4px;color:#fff}
 .pill.wait{background:var(--wait)}.pill.busy{background:var(--busy)}.pill.done{background:var(--done)}
-main{display:grid;gap:12px;align-items:start}
+main{display:grid;gap:12px;align-items:start;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.col{scroll-snap-align:start}
 .col{background:var(--col);border-radius:10px;padding:10px 8px;min-width:0}
 .col{container-type:inline-size}
 .row small{white-space:nowrap}
@@ -2193,11 +2193,11 @@ function live(){
     if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML}
     var nm=d.querySelector('main'),om=document.querySelector('main');
     if(nm&&om&&nm.innerHTML!==LAST.main){
-      var y=scrollY,old=cardHtml;cardHtml={};
+      var y=scrollY,x=om.scrollLeft,old=cardHtml;cardHtml={};
       om.setAttribute('style',nm.getAttribute('style')||'');om.innerHTML=nm.innerHTML;LAST.main=nm.innerHTML;
       om.querySelectorAll('.card').forEach(function(c){cardHtml[c.dataset.h]=c.outerHTML;
         if(old[c.dataset.h]===undefined)c.classList.add('fresh');else if(old[c.dataset.h]!==c.outerHTML)c.classList.add('changed')});
-      scrollTo(0,y);fit()}
+      scrollTo(0,y);om.scrollLeft=x;fit()}
     var open=location.hash.slice(1),seen={},anchor=document.getElementById('settings');
     d.querySelectorAll('.modal[id^="c"]').forEach(function(nmod){seen[nmod.id]=1;var cur=document.getElementById(nmod.id);
       if(!cur){anchor.parentNode.insertBefore(document.importNode(nmod,true),anchor);modalHtml[nmod.id]=nmod.innerHTML;return}
