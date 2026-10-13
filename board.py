@@ -1032,6 +1032,7 @@ def attach_procs(terms):
         # 창 제목의 이름을 열려 있는 후보들 사이에서만 찾는다 (옛 스레드에 같은 이름이 있어도 상관없다)
         by_title = [r for r in cands if head and latest.get(meta[r]['id']) == head]
         names_thread = bool(by_title) or head in latest.values()
+        a['_head'], a['_same_name'], a['_head_known'] = head, by_title, names_thread
         pick, how = None, ''
         if len(by_title) == 1:  # 창 제목이 보여 주는 스레드 (/new·/resume 으로 바뀌어도 제목이 따라간다)
             pick, how = by_title[0], 'codex:loaded-thread-by-title'
@@ -1077,11 +1078,17 @@ def resolve_by_start(t, a, names_thread, meta, claimed, codex_all):
     """2차: 시작 시각. 이 프로그램이 뜬 직후(15초 안) 만들어진 스레드이고, 같은 폴더에 아직 짝 없는 다른 Codex 가
     그보다 먼저 떠 있지 않을 때만. 제목이 다른 스레드를 가리키면 하지 않는다."""
     cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+    same = [r for r in a.get('_same_name') or [] if r not in claimed]
+    if names_thread:
+        # 제목이 가리키는 이름이 여러 스레드에 같이 붙어 있으면(예: 도우미가 쓰는 "Report task outcome") 그 이름의 스레드들 안에서만 시각으로 고른다.
+        # 이때 막는 쪽도 같은 이름을 띄운 Codex 또는 제목을 모르는 Codex 뿐이다 (다른 스레드를 띄운 Codex 는 이 후보의 주인이 아니다)
+        cands = same
     fresh = []
-    for r in ([] if names_thread else cands):
+    for r in cands:
         ts = meta[r]['ts']
         # 같은 폴더에 아직 짝 없는 다른 Codex 가 이 스레드보다 먼저 떠 있으면, 시각만으로는 누구 것인지 모른다
         if any(x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and not (x.get('log') or x.get('bound')) and x['start'] <= ts
+               and (not names_thread or not x.get('_head_known') or x.get('_head') == a.get('_head'))
                for x in codex_all):
             continue
         if 0 <= ts - a['start'] <= 15:
@@ -1089,7 +1096,7 @@ def resolve_by_start(t, a, names_thread, meta, claimed, codex_all):
     if len(fresh) == 1:
         t['_plog'], a['bound'] = fresh[0], fresh[0]
         claimed.add(fresh[0])
-        why(t, 'process', how='codex:started-together')
+        why(t, 'process', how='codex:same-name-started-together' if names_thread else 'codex:started-together')
 
 
 def is_codex_log(path):
@@ -1807,13 +1814,13 @@ def render(t, steps, ws):
             when = ts
         helpers.append(s['handle'])
         subs.append((when, (s['handle'], sst, who.capitalize(), a.get('taskTitle') or clean_title(s['title']) or '', res)))
-    # 교차검증을 여러 번 불렀으면 가장 최근 것 하나만 보여준다
+    # 교차검증을 여러 번 불렀으면 하나만 보여준다: 아직 일하는 도우미가 있으면 그중 최근 것, 없으면 가장 최근 것
     if subs:
-        newest = max(subs, key=lambda x: x[0])[1][0]
+        pick = max(subs, key=lambda x: (x[1][1] == 'busy', x[0]))[1]
         for s in t.get('subs') or []:
-            if s['handle'] != newest and isinstance(s.get('_tr'), dict):
+            if s['handle'] != pick[0] and isinstance(s.get('_tr'), dict):
                 s['_tr']['out'] = 'helper-older-hidden'
-    subs = [max(subs, key=lambda x: x[0])[1]] if subs else []
+        subs = [pick]
     sub_card = ('<div class="subs">%s</div>' % ''.join(
         '<span class="sub %s">↳ %s · <b>%s</b></span>' % (sst, escape(who), SUB_LABEL[sst]) for _, sst, who, _, _ in subs)) if subs else ''
     sub_modal = ('<h4>Helpers</h4><div class="helpers">%s</div>' % ''.join(
@@ -1977,6 +1984,21 @@ def _build():
             terms.remove(t)
             t['_tr']['out'] = 'helper'
             t['_tr']['parent'] = c['handle']
+    for t in terms:  # 도우미가 또 띄운 도우미(손주)도 맨 위 카드 아래 한 줄로 올린다 (안 올리면 어디에도 안 보인다)
+        flat, stack, seen = [], list(t.get('subs') or []), {t['handle']}
+        while stack:
+            s_ = stack.pop(0)
+            if s_['handle'] in seen:
+                continue
+            seen.add(s_['handle'])
+            flat.append(s_)
+            if s_ is not t and s_.get('subs'):
+                for g in s_.pop('subs'):
+                    g['_tr']['parent'] = t['handle']
+                    g['_tr']['via'] = s_['handle']
+                    stack.append(g)
+        if flat:
+            t['subs'] = flat
     alive = len(terms)
     # 대화 기록을 못 찾은 창은 보여줄 게 없다(빈 "Codex ready" 카드). 기록이 붙으면 그때 나온다
     # 단, AI 프로그램이 돌고 있는 창은 아직 대화 기록이 없어도(막 연 새 세션) 바로 카드로 띄운다
@@ -1987,6 +2009,7 @@ def _build():
     for t in terms:
         t['_tr']['out'] = 'card' if t.get('log') else 'card-new-session'
         t['_tr']['agent_tool'] = t.get('_pkind') or ('codex' if is_codex_log(t['log']) else 'claude')
+        t['_tr']['terminal'] = t.get('_ext') or 'Orca'
     on_board = {t['handle'] for t in terms}
     for t in raw:  # 작업 창은 부른 카드가 보드에 있어야 보인다
         if t['_tr'].get('out') == 'helper' and t['_tr'].get('parent') not in on_board:
@@ -2561,7 +2584,7 @@ WHY_TEXT = {
     'spyhop-workspace': "it is Spyhop's own workspace",
     'not-drawn-by-orca': 'Orca reports no on-screen layout and no agent for this pane (often a workspace not opened in Orca since it started; clicking it usually helps)',
     'helper': 'shown as a helper line under another card',
-    'helper-older-hidden': 'a helper under another card, hidden because only the newest helper of a card is shown',
+    'helper-older-hidden': 'a helper under another card, hidden because a card shows one helper (a working one first, else the newest)',
     'helper-parent-not-on-board': 'a helper of a session that is not on the board, so it is not shown either',
     'no-transcript-matched': 'no transcript could be matched to this pane',
     'card': 'on the board',
@@ -2677,7 +2700,7 @@ def doctor(argv):
     if panes:
         inp = trace.get('inputs', {})
         say('')
-        say('Panes in Orca: %d  (Orca reported %d drawn panes, %d agents)' % (inp.get('terminals', len(panes)), inp.get('drawn_panes', 0), inp.get('orca_agents', 0)))
+        say('Panes and sessions: %d  (Orca reported %d drawn panes, %d agents)' % (inp.get('terminals', len(panes)), inp.get('drawn_panes', 0), inp.get('orca_agents', 0)))
         titles = {}
         if show_titles and ob:
             try:
@@ -2702,8 +2725,13 @@ def doctor(argv):
                 how = next((w for w in e.get('why') or [] if w[0] not in ('kind',)), None)
                 if how:
                     say('        · found by: %s' % ((how[1] or {}).get('how') if how[0] == 'process' else WHY_TEXT.get(how[0], how[0])))
+            if o in ('card', 'card-new-session') and e.get('terminal'):
+                term = e['terminal']
+                say('        · runs in %s (Go to session: %s)' % (term, 'exact pane' if term == 'Orca' else
+                    'exact tab' if term in ('Terminal', 'iTerm2', 'Ghostty', 'WezTerm') else 'brings the app to the front only'))
             if o in ('helper', 'helper-older-hidden'):
-                say('        · under the card of %s (only the newest helper of a card is shown)' % (e.get('parent') or '?')[:13])
+                say('        · under the card of %s%s (a card shows one helper: a working one first, else the newest)' % ((e.get('parent') or '?')[:13],
+                    (', started by helper %s' % e['via'][:13]) if e.get('via') else ''))
             if o not in ('card', 'card-new-session', 'helper', 'helper-older-hidden', 'shell-title'):
                 for w in e.get('why') or []:
                     code, det = w[0], (w[1] if len(w) > 1 else {})
