@@ -47,13 +47,20 @@ brew upgrade spyhop && spyhop
 
 ## Terminals
 
-| Where the session runs | Shows on the board | Go to session |
-|---|---|---|
-| Orca | yes | the exact pane; cards can also be moved between workspaces |
-| Terminal, iTerm2, Ghostty, WezTerm | yes, grouped by folder and terminal | the exact tab |
-| Other terminals | yes | brings the app to the front |
+Spyhop finds sessions from the running `claude` and `codex` programs, so they show up wherever you start them. Orca adds a few extras.
 
-tmux and SSH sessions outside Orca are not supported.
+| | Orca | Terminal, iTerm2, Ghostty, WezTerm | Other terminals |
+|---|---|---|---|
+| Card, steps, summary, detail view | yes | yes | yes |
+| Columns | Orca workspaces | folder and terminal (e.g. `workspace · iTerm2`) | folder and terminal |
+| Go to session | the exact pane | the exact tab | brings the app to the front |
+| End session | closes that split pane | stops the AI program, the tab stays | stops the AI program, the tab stays |
+| Drag a card to move the session to another workspace | yes | no | no |
+| Helper line under a card (cross-check panes started through Orca) | yes | no | no |
+| AI topic grouping | yes | yes | yes |
+| `spyhop doctor` | yes | yes | yes |
+
+Without Orca installed, everything in the last two columns still works. tmux and SSH sessions outside Orca are not supported.
 
 If a session is missing or looks wrong, run `spyhop doctor`. It explains, card by card, how each session was found or why it was not, without printing titles or prompts (`--titles` to show them).
 
