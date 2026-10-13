@@ -51,14 +51,14 @@ Spyhop finds sessions from the running `claude` and `codex` programs, so they sh
 
 | | Orca | Terminal, iTerm2, Ghostty, WezTerm | Other terminals |
 |---|---|---|---|
-| Card, steps, summary, detail view | yes | yes | yes |
+| Card, steps, summary, detail view | ✅ | ✅ | ✅ |
 | Columns | Orca workspaces | folder and terminal (e.g. `workspace · iTerm2`) | folder and terminal |
 | Go to session | the exact pane | the exact tab | brings the app to the front |
 | End session | closes that split pane | stops the AI program, the tab stays | stops the AI program, the tab stays |
-| Drag a card to move the session to another workspace | yes | no | no |
-| Helper line under a card (cross-check panes started through Orca) | yes | no | no |
-| AI topic grouping | yes | yes | yes |
-| `spyhop doctor` | yes | yes | yes |
+| Drag a card to move the session to another workspace | ✅ | ❌ | ❌ |
+| Helper line under a card (cross-check panes started through Orca) | ✅ | ❌ | ❌ |
+| AI topic grouping | ✅ | ✅ | ✅ |
+| `spyhop doctor` | ✅ | ✅ | ✅ |
 
 Without Orca installed, everything in the last two columns still works. tmux and SSH sessions outside Orca are not supported.
 
