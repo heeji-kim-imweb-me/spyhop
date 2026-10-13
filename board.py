@@ -943,8 +943,42 @@ def focus_outside(pid):
         except (OSError, ValueError, subprocess.SubprocessError):
             pass
         return _open_app('WezTerm')
-    app = {'ghostty': 'Ghostty', 'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
+    if tp == 'ghostty':
+        return _ghostty_focus(a) or _open_app('Ghostty')
+    app = {'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
     return _open_app(app) if app else False
+
+
+def _session_title(a):
+    """창 제목에 보일 세션 이름: 클로드는 대화 제목(ai-title), Codex 는 스레드 이름."""
+    log = a.get('log') or a.get('bound')
+    if not log:
+        return ''
+    if is_codex_log(log):
+        m = re.search(r'([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', log)
+        return codex_latest_names(a.get('codex_home')).get(m.group(1), '') if m else ''
+    custom, auto = ai_title(log)
+    return custom or auto or ''
+
+
+def _ghostty_focus(a):
+    """Ghostty 는 tty 를 알려 주지 않는다. 같은 폴더에서 창 제목에 이 세션 이름이 보이는 칸을 찾아 그 칸으로 간다.
+    폴더가 같은 칸이 하나뿐이면 그것."""
+    try:
+        out = subprocess.run(['osascript', '-e', 'tell application "Ghostty"\nset out to ""\nrepeat with w in windows\nrepeat with t in tabs of w\n'
+                              'repeat with s in terminals of t\nset out to out & (id of s) & (character id 9) & (name of s) & (character id 9) & (working directory of s) & linefeed\n'
+                              'end repeat\nend repeat\nend repeat\nreturn out\nend tell'], capture_output=True, text=True, timeout=8).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    rows = [l.split('\t') for l in out.splitlines() if l.count('\t') == 2]
+    here = [r for r in rows if r[2].rstrip('/') == (a.get('cwd') or '').rstrip('/')]
+    title = _session_title(a)
+    named = [r for r in here if title and title in r[1]]
+    pick = named[0] if len(named) == 1 else (here[0] if len(here) == 1 else None)
+    if not pick:
+        return False
+    return _osa('tell application "Ghostty"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in terminals of t\n'
+                'if id of s is "%s" then\nfocus s\nreturn\nend if\nend repeat\nend repeat\nend repeat\nend tell' % pick[0])
 
 
 def _open_app(name):
