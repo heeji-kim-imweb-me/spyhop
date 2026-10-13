@@ -3,3 +3,6 @@ __pycache__/
 *.v[0-9]*
 *.bak
 .DS_Store
+site/share.html
+site/img/
+site/frames/

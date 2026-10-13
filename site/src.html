@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="share-skeleton" content="custom">
+<meta name="share-skeleton-note" content="도구 소개(제품 소개형) — 장면별 스크린샷과 기능 설명이 중심이라 13종 어디에도 딱 맞지 않음">
+<title>[devops] Spyhop 세션 보드</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--soft:#f6f7f9;--card:#fff;--ink:#191f28;--ink2:#4e5968;--ink3:#8b95a1;--line:#e9ecef;--blue:#3182f6;--blue-soft:#e8f3ff;--green:#16a37b;--pink:#e5508a;--amber:#e09b16;--violet:#8a63d2;--shadow:0 20px 60px rgba(25,31,40,.10)}
+:root[data-theme="light"]{color-scheme:light;--bg:#fff;--soft:#f6f7f9;--card:#fff;--ink:#191f28;--ink2:#4e5968;--ink3:#8b95a1;--line:#e9ecef;--blue:#3182f6;--blue-soft:#e8f3ff;--green:#16a37b;--pink:#e5508a;--amber:#e09b16;--violet:#8a63d2;--shadow:0 20px 60px rgba(25,31,40,.10)}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0f1012;--soft:#17191c;--card:#1d2024;--ink:#f2f4f6;--ink2:#c3c9d0;--ink3:#8b95a1;--line:#2a2e34;--blue:#5a9cff;--blue-soft:#16263d;--green:#3fc79c;--pink:#f27aa8;--amber:#f2b84b;--violet:#a98bea;--shadow:0 20px 60px rgba(0,0,0,.45)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1012;--soft:#17191c;--card:#1d2024;--ink:#f2f4f6;--ink2:#c3c9d0;--ink3:#8b95a1;--line:#2a2e34;--blue:#5a9cff;--blue-soft:#16263d;--green:#3fc79c;--pink:#f27aa8;--amber:#f2b84b;--violet:#a98bea;--shadow:0 20px 60px rgba(0,0,0,.45)}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 "Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+a{color:inherit}
+code{font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:2px 7px;border-radius:6px}
+
+/* 위 띠 메뉴 */
+.nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(14px);-webkit-backdrop-filter:saturate(180%) blur(14px);border-bottom:1px solid var(--line)}
+.nav .in{max-width:1120px;margin:0 auto;padding:0 24px;height:60px;display:flex;align-items:center;gap:22px}
+.nav b{font-size:18px;font-weight:800;letter-spacing:-.02em}
+.nav .links{display:flex;gap:4px;margin-left:auto;margin-right:200px;overflow-x:auto;scrollbar-width:none}
+.nav .links::-webkit-scrollbar{display:none}
+.nav .links a{font-size:14px;color:var(--ink2);text-decoration:none;padding:7px 12px;border-radius:9px;white-space:nowrap;transition:background-color .2s,color .2s}
+.nav .links a:hover{background:var(--soft);color:var(--ink)}
+
+section{padding:120px 24px}
+section.soft{background:var(--soft)}
+.in{max-width:1120px;margin:0 auto}
+.center{text-align:center}
+.eyebrow{display:inline-block;font-size:15px;font-weight:700;color:var(--blue);margin-bottom:14px}
+h1{font-size:clamp(36px,5.6vw,60px);line-height:1.22;font-weight:800;letter-spacing:-.035em;margin:0}
+h2{font-size:clamp(30px,4.2vw,44px);line-height:1.28;font-weight:800;letter-spacing:-.03em;margin:0}
+h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
+.sub{font-size:clamp(17px,1.9vw,20px);color:var(--ink2);margin:22px auto 0;max-width:680px;line-height:1.6}
+
+/* 첫 화면 */
+.hero{padding-top:110px;padding-bottom:40px}
+.btns{display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:36px}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:10px;font-size:16px;font-weight:700;padding:15px 24px;border-radius:14px;transition:transform .15s ease,background-color .2s,box-shadow .2s}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--blue);color:#fff;box-shadow:0 8px 22px color-mix(in srgb,var(--blue) 35%,transparent)}
+.btn.pri:hover{box-shadow:0 10px 28px color-mix(in srgb,var(--blue) 45%,transparent)}
+.btn.sec{background:var(--soft);color:var(--ink)}
+.btn.sec:hover{background:var(--line)}
+.btn code{background:rgba(255,255,255,.18);color:#fff;font-size:13px}
+.shot{margin:64px auto 0;max-width:1120px;border-radius:24px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line);background:var(--card)}
+.shot img{display:block;width:100%;height:auto}img.crop{object-fit:cover;object-position:top;height:auto}
+.cap{font-size:14px;color:var(--ink3);margin-top:14px}
+
+/* 숫자 */
+.nums{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:56px auto 0;max-width:620px}
+.num{background:var(--card);border-radius:22px;padding:28px 24px;text-align:left;border:1px solid var(--line)}
+.num b{display:block;font-size:40px;line-height:1.1;font-weight:800;color:var(--blue);letter-spacing:-.03em}
+.num span{display:block;font-size:15px;color:var(--ink2);margin-top:10px;line-height:1.45}
+
+/* 두 칸 장면 */
+.row{display:grid;grid-template-columns:1fr 1.35fr;gap:64px;align-items:center}
+.row.rev{grid-template-columns:1.35fr 1fr}
+.row.rev .txt{order:2}
+.row .sub{margin-left:0}
+.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.pill{font-size:14px;font-weight:600;padding:8px 14px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--ink2);display:inline-flex;align-items:center;gap:7px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.new{display:inline-block;font-size:13px;font-weight:700;color:var(--blue);background:var(--blue-soft);border-radius:8px;padding:3px 9px;vertical-align:middle;margin-left:8px;letter-spacing:0}
+
+/* 상세 보기 해부 */
+.anat{position:relative;margin-top:56px;border-radius:24px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line)}
+.anat img{display:block;width:100%;height:auto}
+.mk{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:var(--blue);color:#fff;font:800 14px/30px "Pretendard",-apple-system,sans-serif;text-align:center;box-shadow:0 0 0 5px color-mix(in srgb,var(--blue) 25%,transparent)}
+@keyframes pulse{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--blue) 0%,transparent)}}
+.legend{text-align:left;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:28px}
+.lg{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 18px 16px}
+.lg i{font-style:normal;display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--blue);color:#fff;font-size:12px;font-weight:800;align-items:center;justify-content:center;margin-bottom:10px}
+.lg b{display:block;font-size:16px;margin-bottom:4px}
+.lg p{margin:0;font-size:14px;color:var(--ink2);line-height:1.55}
+
+/* 기능 카드 */
+.feats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:56px;text-align:left}
+.feat{background:var(--card);border-radius:22px;padding:26px 24px;border:1px solid var(--line);transition:transform .25s ease,box-shadow .25s ease}
+.feat:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+.ic{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;background:var(--blue-soft);color:var(--blue)}
+.ic svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.feat p{margin:0;font-size:15px;color:var(--ink2);line-height:1.6}
+
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:56px}
+.pair .shot{margin:0;border-radius:20px}
+.pair .cap{text-align:left;padding:0 4px}.pair .side{text-align:left;align-self:center}.vid video{display:block;width:100%;height:auto}
+
+/* 쓰임새 */
+.uses{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:56px;text-align:left}
+.use{background:var(--card);border-radius:22px;padding:28px;border:1px solid var(--line)}
+.use .when{font-size:14px;font-weight:700;color:var(--blue);margin-bottom:8px}
+.use p{margin:0;color:var(--ink2);font-size:16px}
+
+/* 그림 */
+.dia{margin-top:56px;background:var(--card);border-radius:24px;padding:30px 26px;border:1px solid var(--line);overflow-x:auto}
+.dia svg{display:block;width:100%;min-width:680px;height:auto}
+.n{fill:var(--soft);stroke:var(--line);stroke-width:1.4}
+.n.hi{fill:var(--blue-soft);stroke:var(--blue);stroke-width:1.8}
+.t{fill:var(--ink);font:700 15px "Pretendard",-apple-system,sans-serif}
+.s{fill:var(--ink3);font:500 12.5px "Pretendard",-apple-system,sans-serif}
+.flow{stroke:var(--blue);stroke-width:2;fill:none;stroke-dasharray:6 5;animation:flow 1.2s linear infinite}
+.flow.d2{animation-delay:.3s}.flow.d3{animation-delay:.6s}
+.head{stroke:var(--blue);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+@keyframes flow{to{stroke-dashoffset:-11}}
+
+/* 설치 */
+.term{max-width:760px;margin:48px auto 0;background:#191f28;border-radius:20px;padding:22px 24px;text-align:left;position:relative;box-shadow:var(--shadow)}
+.term pre{margin:0;color:#e8ecf1;font:15px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-x:auto}
+.term .c{color:#7c8794}
+.term .cp{position:absolute;top:16px;right:16px;font-size:13px;padding:8px 13px;border-radius:10px;background:rgba(255,255,255,.1);color:#fff}
+.term .cp:hover{background:rgba(255,255,255,.18)}
+
+/* 자주 묻는 질문 */
+.faq{max-width:820px;margin:48px auto 0;text-align:left}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{list-style:none;cursor:pointer;padding:24px 4px;font-size:18px;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:20px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary:after{content:"";width:10px;height:10px;border-right:2px solid var(--ink3);border-bottom:2px solid var(--ink3);transform:rotate(45deg);transition:transform .25s ease;flex:none;margin-top:-6px}
+.faq details[open] summary:after{transform:rotate(-135deg);margin-top:4px}
+.faq details p{margin:0 4px 24px;color:var(--ink2)}
+.end{font-size:15px;color:var(--ink3);margin-top:36px}
+
+.brand{display:flex;align-items:center;gap:9px;text-decoration:none}
+.logo{width:28px;height:28px;border-radius:8px;display:block}
+.hlogo{width:84px;height:84px;display:block;margin:0 auto 22px;border-radius:22px;box-shadow:0 14px 34px rgba(49,130,246,.35)}
+.hlogo .bob{animation:bob 3.6s ease-in-out infinite}
+.hlogo .wv{animation:wave 2.4s linear infinite}
+@keyframes bob{0%,100%{transform:translateY(3px)}45%,60%{transform:translateY(-1.5px)}}
+@keyframes wave{50%{transform:translateX(-1.5px)}}
+.lines .ln{display:block;overflow:hidden;padding-bottom:.06em}
+.lines .ln>span{display:inline-block}
+.js .lines .ln>span{transform:translateY(105%);transition:transform 1s cubic-bezier(.16,1,.3,1)}
+.js .lines.on .ln>span{transform:none}
+.js .lines .ln:nth-child(2)>span{transition-delay:.12s}
+.hero-shot{transform-origin:50% 0}
+.js .rv.tilt{opacity:0;transform:perspective(1400px) rotateX(16deg) translateY(40px) scale(.94)}
+.js .rv.tilt.on{opacity:1;transform:perspective(1400px) rotateX(0) translateY(0) scale(1);transition-duration:1.2s}
+.demo{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--pink);border-radius:16px;padding:16px 18px;margin-top:26px;max-width:420px;text-align:left;box-shadow:0 10px 30px rgba(25,31,40,.06)}
+.demo .dh{display:flex;gap:8px;align-items:center;font-size:12.5px;font-weight:700}
+.demo .st{color:var(--pink)}.demo .md{background:var(--soft);color:var(--ink2);padding:1px 7px;border-radius:5px;font-weight:600}
+.demo .dt{font-weight:700;margin:6px 0 8px;font-size:15.5px}
+.demo ul{list-style:none;margin:0;padding:0}
+.demo li{position:relative;padding-left:20px;font-size:14px;color:var(--ink3);line-height:1.9;transition:color .35s}
+.demo li:before{content:"";position:absolute;left:2px;top:9px;width:9px;height:9px;border-radius:50%;border:2px solid var(--ink3);box-sizing:border-box;transition:all .35s}
+.demo li.d{color:var(--ink2)}.demo li.d:before{background:var(--green);border-color:var(--green)}
+.demo li.n{color:var(--ink);font-weight:700}.demo li.n:before{background:var(--amber);border-color:var(--amber);box-shadow:0 0 0 4px color-mix(in srgb,var(--amber) 25%,transparent)}
+.demo .bar{display:flex;gap:4px;margin-top:10px}.demo .bar i{flex:1;height:5px;border-radius:3px;background:var(--line);transition:background-color .4s}
+.demo .bar i.d{background:var(--green)}.demo .bar i.n{background:var(--amber)}
+.demo .cnt{font-size:12.5px;color:var(--ink3);margin-top:6px}.demo .cnt b{color:var(--ink)}
+.js .anat .mk{transform:scale(0);transition:transform .5s cubic-bezier(.34,1.56,.64,1)}
+.js .anat.on .mk{transform:scale(1)}
+.js .anat.on .mk:nth-of-type(2){transition-delay:.5s}.js .anat.on .mk:nth-of-type(3){transition-delay:.62s}.js .anat.on .mk:nth-of-type(4){transition-delay:.74s}
+.js .anat.on .mk:nth-of-type(5){transition-delay:.86s}.js .anat.on .mk:nth-of-type(6){transition-delay:.98s}.js .anat.on .mk:nth-of-type(7){transition-delay:1.1s}.js .anat.on .mk:nth-of-type(8){transition-delay:1.22s}
+.lightup.on .n{animation:lit 3.6s ease-in-out 1}
+.lightup.on rect:nth-of-type(2){animation-delay:.9s}.lightup.on rect:nth-of-type(3){animation-delay:1.8s}.lightup.on rect:nth-of-type(4){animation-delay:2.7s}
+@keyframes lit{0%,30%,100%{filter:none}10%,20%{filter:drop-shadow(0 0 10px color-mix(in srgb,var(--blue) 55%,transparent))}}
+.feat .ic svg{transition:transform .35s cubic-bezier(.34,1.56,.64,1)}
+.feat:hover .ic svg{transform:rotate(-10deg) scale(1.15)}
+.term pre .cur{display:inline-block;width:8px;height:17px;background:#e8ecf1;vertical-align:-3px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* 스크롤하며 나타나기 */
+.js .rv{opacity:0;transform:translateY(28px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+.js .rv.on{opacity:1;transform:none}
+.js .rv.l{transform:translateX(-48px)}.js .rv.r{transform:translateX(48px)}
+.js .rv.z{transform:scale(.92)}
+.js .rv.pop{transform:scale(.6);transition-timing-function:cubic-bezier(.34,1.56,.64,1)}
+.js .rv.blur{filter:blur(10px);transform:translateY(16px);transition-property:opacity,transform,filter}
+.js .rv.on.l,.js .rv.on.r,.js .rv.on.z,.js .rv.on.pop{transform:none}.js .rv.on.blur{filter:none;transform:none}
+.js .rv.d1{transition-delay:.08s}.js .rv.d2{transition-delay:.16s}.js .rv.d3{transition-delay:.24s}
+
+.toast{position:fixed;left:50%;bottom:32px;transform:translate(-50%,20px);background:#191f28;color:#fff;font-size:15px;font-weight:600;padding:13px 20px;border-radius:14px;opacity:0;transition:opacity .25s,transform .25s;z-index:70;pointer-events:none}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+.themetgl{position:fixed;top:14px;right:14px;z-index:60;font:600 13px -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",sans-serif;color:#16181d;background:#fff;border:1px solid rgba(16,18,29,.20);border-radius:999px;padding:7px 13px;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 2px rgba(0,0,0,.10),0 6px 18px rgba(0,0,0,.12)}
+:root[data-theme="dark"] .themetgl{color:#e8eaef;background:#1c1f27;border-color:rgba(232,234,239,.24)}
+.themetgl:hover{border-color:#3d5afe;color:#3d5afe}.langtgl{right:auto;left:auto;right:118px}html[lang="en"] .langtgl{right:112px}
+:root[data-theme="dark"] .themetgl:hover{border-color:#8ea2ff;color:#8ea2ff}
+.themetgl:focus-visible{outline:2px solid #3d5afe;outline-offset:2px}
+@media print{.themetgl{display:none}}
+
+@media (prefers-reduced-motion:reduce){.flow{animation:none;stroke-dasharray:none}.mk{animation:none}.js .rv,.js .rv.tilt{opacity:1;transform:none;transition:none;filter:none}.js .lines .ln>span,.js .anat .mk{transform:none;transition:none}.hlogo .bob,.hlogo .wv,.lightup.on .n,.term pre .cur{animation:none}html{scroll-behavior:auto}}
+@media (max-width:900px){section{padding:84px 20px}.nums,.legend{grid-template-columns:1fr 1fr}.row,.row.rev,.pair,.uses{grid-template-columns:1fr;gap:28px}.row.rev .txt{order:0}.feats{grid-template-columns:1fr}.nav .links{margin-right:96px}.nav .links a{padding:7px 8px}}
+</style>
+</head>
+<body>
+<button class="themetgl" id="themeBtn" type="button" aria-label="화면 밝기 전환"></button><button class="themetgl langtgl" id="langBtn" type="button" aria-label="Language">EN</button>
+<script>
+document.documentElement.classList.add('js');
+(function(){
+  var r=document.documentElement,q=window.matchMedia('(prefers-color-scheme: dark)');
+  function saved(){try{return localStorage.getItem('imwebShareTheme')}catch(e){return null}}
+  function label(t){var b=document.getElementById('themeBtn');
+    if(b){var en=document.documentElement.lang==='en';b.textContent=(t==='dark'?(en?'☀︎ Light':'☀︎ 밝게'):(en?'☾ Dark':'☾ 어둡게'));b.setAttribute('aria-pressed',t==='dark')}}
+  function apply(t){r.setAttribute('data-theme',t);label(t)}
+  apply(saved()||(q.matches?'dark':'light'));
+  document.addEventListener('DOMContentLoaded',function(){
+    label(r.getAttribute('data-theme'));
+    var b=document.getElementById('themeBtn');
+    b&&b.addEventListener('click',function(){
+      var t=r.getAttribute('data-theme')==='dark'?'light':'dark';
+      try{localStorage.setItem('imwebShareTheme',t)}catch(e){}
+      apply(t);
+    });
+  });
+  q.addEventListener('change',function(e){if(!saved())apply(e.matches?'dark':'light')});
+})();
+</script>
+
+<nav class="nav"><div class="in"><a class="brand" href="#top"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><clipPath id="lm1"><rect width="32" height="26.2"/></clipPath></defs><rect width="32" height="32" rx="8" fill="#3182f6"/><g clip-path="url(#lm1)"><g transform="translate(1.5 2) scale(.82)"><g stroke="#0b1220" stroke-width=".7" stroke-linejoin="round"><path fill="#10131a" d="M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z"/><path fill="#fff" stroke="none" d="M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z"/><path fill="#fff" stroke="none" d="M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z"/><path fill="#10131a" d="M24 29Q32 33 32 40Q27 39 22 33Z"/><circle cx="24" cy="16" r=".8" fill="#10131a" stroke="none"/></g></g></g><path d="M3 27.2 Q7 25.3 11 27.2 T19 27.2 T27 27.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg><b>Spyhop</b></a><div class="links">
+<a href="#board" data-en="Overview">한눈에</a><a href="#more" data-en="Features">기능</a><a href="#how" data-en="How it works">동작 방식</a><a href="#install" data-en="Install">설치</a><a href="#faq" data-en="FAQ">질문</a>
+</div></div></nav>
+
+<!-- 첫 화면 -->
+<section class="hero center" id="top"><div class="in">
+<div class="rv pop"><svg class="hlogo" viewBox="0 0 32 32" aria-hidden="true"><defs><clipPath id="lm2"><rect width="32" height="26.2"/></clipPath></defs><rect width="32" height="32" rx="8" fill="#3182f6"/><g clip-path="url(#lm2)"><g class="bob"><g transform="translate(1.5 2) scale(.82)"><g stroke="#0b1220" stroke-width=".7" stroke-linejoin="round"><path fill="#10131a" d="M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z"/><path fill="#fff" stroke="none" d="M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z"/><path fill="#fff" stroke="none" d="M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z"/><path fill="#10131a" d="M24 29Q32 33 32 40Q27 39 22 33Z"/><circle cx="24" cy="16" r=".8" fill="#10131a" stroke="none"/></g></g></g></g><path class="wv" d="M3 27.2 Q7 25.3 11 27.2 T19 27.2 T27 27.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></div>
+<div class="eyebrow rv" data-en="Spyhop · AI session board">Spyhop · AI 세션 보드</div>
+<h1 class="lines" data-en="&lt;span class=&quot;ln&quot;&gt;&lt;span&gt;Any number of AI sessions,&lt;/span&gt;&lt;/span&gt;&lt;span class=&quot;ln&quot;&gt;&lt;span&gt;see how far each one has come&lt;/span&gt;&lt;/span&gt;"><span class="ln"><span>AI 세션이 몇 개든</span></span><span class="ln"><span>어디까지 왔는지 한눈에</span></span></h1>
+<p class="sub rv d2" data-en="Spyhop puts every Claude Code and Codex session you have open in Orca on one board, and shows each one as steps: what is done and what it is doing now.">오르카에 띄운 Claude Code·Codex 세션을 보드 하나에 모으고, 세션마다 끝난 일과 지금 하는 일을 단계로 보여 드려요.</p>
+<div class="btns rv d3">
+<button class="btn pri" type="button" onclick="copyCmd()" data-en="Copy install command &lt;code&gt;brew install …&lt;/code&gt;">설치 명령 복사 <code>brew install …</code></button>
+<a class="btn sec" href="https://github.com/leeleelee3264/spyhop" target="_blank" rel="noopener" data-en="View on GitHub">GitHub 보기</a>
+</div>
+<div class="shot hero-shot rv tilt"><img class="crop" style="aspect-ratio:1600/560" src="{{board}}" alt="Spyhop 메인 보드. 워크스페이스별 칸에 세션 카드가 있고 카드마다 단계 진행이 보인다" data-en-alt="The Spyhop board: a column per workspace, a card per session, each showing its steps"></div>
+<p class="cap" data-en="Screens show demo data.">화면은 데모 데이터예요.</p>
+<div class="nums">
+<div class="num rv d1" data-en="&lt;b data-n=&quot;10&quot; data-u=&quot;s&quot;&gt;10s&lt;/b&gt;&lt;span&gt;between updates, no reloading needed&lt;/span&gt;"><b data-n="10" data-u="초">10초</b><span>마다 저절로 갱신, 새로고침은 필요 없어요</span></div>
+<div class="num rv d3" data-en="&lt;b data-n=&quot;1&quot; data-p=&quot;~&quot; data-u=&quot;%&quot;&gt;~1%&lt;/b&gt;&lt;span&gt;Mac CPU with 6 sessions, 70–80 MB of memory&lt;/span&gt;"><b data-n="1" data-p="약 " data-u="%">약 1%</b><span>세션 6개일 때 맥 CPU, 메모리는 70~80MB</span></div>
+</div>
+</div></section>
+<!-- 쓰임새 -->
+<section class="soft"><div class="in center">
+<div class="eyebrow rv" data-en="When it helps">이럴 때 좋아요</div>
+<h2 class="rv d1" data-en="On days you hand&lt;br&gt;the AI many jobs">AI에게 일을 여러 개<br>맡기는 날이라면</h2>
+<div class="uses">
+<div class="use rv l"><div class="when" data-en="Many sessions at once">세션 여러 개를 동시에</div><p data-en="Hand off an incident analysis, a PR review and a doc cleanup together, then answer from the top of the board.">장애 분석, PR 리뷰, 문서 정리를 한꺼번에 맡겨 두고 보드 맨 위부터 하나씩 답해요.</p></div>
+<div class="use rv r d1"><div class="when" data-en="Back from a meeting">회의 다녀와서</div><p data-en="Away for an hour? The steps on each card tell you what finished and what got stuck.">한 시간 자리를 비운 사이 무엇이 끝났고 무엇이 막혔는지, 카드 단계만 보고 알 수 있어요.</p></div>
+<div class="use rv r d1"><div class="when" data-en="Picking up an old session">며칠 쉰 세션을 다시 잡을 때</div><p data-en="Sessions idle for days stay on the board. The steps and last reply put you right back where it stopped.">쉬어 둔 세션도 카드에 남아 있어요. 단계와 마지막 답을 보고 멈춘 곳에서 바로 이어 가요.</p></div>
+</div>
+</div></section>
+
+<!-- 한 판 -->
+<section id="board"><div class="in row">
+<div class="txt">
+<div class="eyebrow rv" data-en="All sessions in one place">모든 세션을 한 곳에</div>
+<h2 class="rv d1" data-en="No more flipping&lt;br&gt;through panes">창을 하나씩<br>열어 보지 않아도 돼요</h2>
+<p class="sub rv d2" data-en="Sessions waiting for you rise to the top of each column, longest-waiting first, so you just answer from the top down. A working session that writes nothing for 5 minutes gets a “No progress” badge.">내 답을 기다리는 세션이 칸 맨 위로 올라와요. 오래 기다린 순서대로라 위에서부터 답하면 끝이에요. 일하는 중인데 5분 넘게 대화 기록에 아무것도 안 쓰면 「No progress」 표시로 알려 드려요.</p>
+<div class="pills rv d3">
+<span class="pill" data-en="&lt;i class=&quot;dot&quot; style=&quot;background:var(--green)&quot;&gt;&lt;/i&gt;My turn · waiting for you"><i class="dot" style="background:var(--green)"></i>My turn · 내 차례</span>
+<span class="pill" data-en="&lt;i class=&quot;dot&quot; style=&quot;background:var(--pink)&quot;&gt;&lt;/i&gt;Working · the AI is on it"><i class="dot" style="background:var(--pink)"></i>Working · AI가 일하는 중</span>
+<span class="pill" data-en="&lt;i class=&quot;dot&quot; style=&quot;background:var(--amber)&quot;&gt;&lt;/i&gt;No progress · looks stuck"><i class="dot" style="background:var(--amber)"></i>No progress · 멈춘 듯</span>
+</div>
+</div>
+<div class="shot rv r d1" style="margin:0"><img class="crop" style="aspect-ratio:1600/560" src="{{ai-groups}}" alt="AI 주제로 묶은 보드" data-en-alt="The board grouped by AI topics"></div>
+</div></section>
+
+<!-- 단계 -->
+<section id="steps" class="soft"><div class="in row rev">
+<div class="txt">
+<div class="eyebrow rv" data-en="Progress for each session">세션마다 진행 단계</div>
+<h2 class="rv d1" data-en="What is done,&lt;br&gt;what it is doing now">무엇을 끝냈고<br>지금 무엇을 하는지</h2>
+<p class="sub rv d2" data-en="Spyhop reads the transcript and lays the work out as 4–6 steps. As the work moves, finished steps stay put and only the current step moves forward. A quick side task that cut in is marked in purple.">대화 기록을 읽어 그 세션의 일을 4~6단계로 나눠요. 일이 진행되면 끝난 단계는 그대로 두고 지금 단계만 앞으로 가요. 하다가 끼어든 급한 일은 보라색으로 따로 표시해요.</p>
+<div class="demo rv d3" aria-hidden="true"><div class="dh"><span class="st">Working</span><span class="md">Opus 5.5</span></div><div class="dt">Retry logic for failed card captures</div><ul><li>Reproduce failure</li><li>Idempotency key</li><li>Retry tests</li><li>Open PR</li></ul><div class="bar"><i></i><i></i><i></i><i></i></div><div class="cnt"><b>0</b>/4</div></div>
+<div class="pills rv d3">
+<span class="pill"><i class="dot" style="background:var(--green)"></i>Done</span>
+<span class="pill"><i class="dot" style="background:var(--amber)"></i>Now</span>
+<span class="pill"><i class="dot" style="border:2px solid var(--ink3);width:9px;height:9px"></i>Next</span>
+<span class="pill" data-en="&lt;i class=&quot;dot&quot; style=&quot;background:var(--violet)&quot;&gt;&lt;/i&gt;Intercept · side task"><i class="dot" style="background:var(--violet)"></i>Intercept · 끼어든 일</span>
+</div>
+</div>
+<div class="shot rv l d1" style="margin:0"><img src="{{bars}}" alt="좁은 화면에서 카드가 진행 막대로 줄어든 모습" data-en-alt="Cards shrunk to progress bars on a short screen"><p class="cap" style="margin:12px 16px 14px;text-align:left" data-en="When a column overflows, cards shrink to a single progress bar, readable even on half a portrait monitor.">칸이 넘치면 카드가 진행 막대 한 줄로 줄어요. 세로 모니터 절반에서도 읽혀요.</p></div>
+</div></section>
+
+<!-- 상세 보기 -->
+<section id="detail"><div class="in center">
+<div class="eyebrow rv" data-en="Detail view">상세 보기</div>
+<h2 class="rv d1" data-en="Click a card&lt;br&gt;to see the whole session">카드를 누르면<br>그 세션의 전부가 보여요</h2>
+<p class="sub rv d2" data-en="No need to open the pane and scroll back: what it is doing and where it stopped, on one screen.">창을 열어 대화를 거슬러 올라가지 않아도, 무엇을 하고 있고 어디서 멈췄는지 한 화면에서 알 수 있어요.</p>
+<div class="anat rv z">
+<img class="crop" style="aspect-ratio:1600/530" src="{{detail}}" alt="상세 보기 화면" data-en-alt="Detail view">
+<span class="mk" style="left:37%;top:34%">4</span>
+<span class="mk" style="left:13.4%;top:65.5%">1</span>
+<span class="mk" style="left:85.3%;top:52%">2</span>
+<span class="mk" style="left:56.6%;top:71.2%">3</span>
+</div>
+<div class="legend">
+<div class="lg rv"><i>1</i><b data-en="Step details">단계별 설명</b><p data-en="One line per step. The current step stands out, the next ones are dimmed.">단계마다 무엇을 했는지 한 줄씩. 지금 단계는 강조되고 다음 단계는 흐리게.</p></div>
+<div class="lg rv d1"><i>2</i><b data-en="Last reply">마지막 답</b><p data-en="The last line or two the AI said, so you know what it is waiting for without opening the pane.">AI가 마지막에 한 말 한두 줄. 창을 안 열어도 무슨 답을 기다리는지 알아요.</p></div>
+<div class="lg rv d2"><i>3</i><b data-en="TODO">할 일 목록</b><p data-en="Things this session should take care of. Click to check them off yourself.">이 세션이 챙길 일. 눌러서 직접 체크할 수 있어요.</p></div>
+<div class="lg rv d3"><i>4</i><b data-en="Go to pane · End">창으로 이동 · 끝내기</b><p data-en="Jump straight to its Orca pane, or close just that one split pane after confirming.">그 오르카 창으로 바로 넘어가거나, 확인 후 그 분할 창 하나만 닫아요.</p></div>
+</div>
+</div></section>
+
+
+
+
+
+
+<!-- 기능 -->
+<section id="more" class="soft"><div class="in center">
+<div class="eyebrow rv" data-en="And more">그 밖에도</div>
+<h2 class="rv d1" data-en="Features added&lt;br&gt;from daily use">매일 쓰면서<br>넣은 기능들</h2>
+<div class="feats">
+<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div><h3 data-en="Updates without reloads">새로고침 없는 갱신</h3><p data-en="Only changed cards are swapped, and cards that change place glide to their new spot. An open detail view stays open.">바뀐 카드만 바꿔 끼우고, 자리가 바뀐 카드는 미끄러지듯 옮겨 가요. 열어 둔 상세 창도 그대로예요.</p></div>
+<div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/></svg></div><h3 data-en="Helpers as one line">헬퍼는 한 줄로</h3><p data-en="Review and cross-check panes a session starts show up as “↳ Codex · Done” under it, not as cards of their own.">세션이 띄운 리뷰·교차검증 창은 카드를 따로 만들지 않고 그 세션 아래 「↳ Codex · Done」으로 붙어요.</p></div>
+<div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><h3 data-en="Group by AI topics">AI 주제로 묶기</h3><p data-en="Split columns by topic instead of workspace. Drag a card to pin it to another topic.">워크스페이스 대신 일의 주제로 칸을 나눠요. 끌어서 다른 주제에 고정할 수도 있어요.</p></div>
+<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/></svg></div><h3 data-en="Pick the summarizer">요약 모델은 고르기</h3><p data-en="Uses the claude or codex CLI you are already logged in to. Switch it in Settings.">이미 로그인한 claude·codex CLI를 그대로 써요. 설정에서 바꿀 수 있어요.</p></div>
+<div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg></div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="The menu bar icon shows how many sessions are waiting for you. Click one to jump there.">메뉴바 아이콘에 내 차례인 세션 수가 떠요. 누르면 그 창으로 바로 가요.</p></div>
+<div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><path d="M2 16c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M12 13V5a2 2 0 0 1 4 0"/></svg></div><h3 data-en="An orca when it finishes &lt;span class=&quot;new&quot;&gt;Next release&lt;/span&gt;">끝나면 범고래 <span class="new">다음 버전</span></h3><p data-en="When a session finishes, an orca pops its head out of the header wave. It never covers your cards, and you can turn it off in Settings.">세션이 일을 끝내면 헤더 물결에서 범고래가 고개를 내밀어요. 카드는 가리지 않고, 설정에서 끌 수 있어요.</p></div>
+</div>
+<div class="pair">
+<div class="rv l"><div class="shot"><img class="crop" style="aspect-ratio:1600/470" src="{{peek}}" alt="헤더 물결 위로 고개를 내민 범고래" data-en-alt="An orca peeking out of the header wave"></div><p class="cap" data-en="When a session finishes, an orca rises straight out of the header wave, looks around and sinks back.">세션이 일을 끝내면 헤더 물결에서 범고래가 똑바로 올라와 둘러보고 내려가요.</p></div>
+<div class="rv r d1"><div class="shot"><img src="{{settings}}" alt="설정 화면" data-en-alt="Settings"></div><p class="cap" data-en="Summarizer, theme, grouping, update interval, and the board’s own CPU and memory, all in Settings.">요약 모델, 테마, 묶는 방식, 갱신 주기, 보드가 쓰는 CPU·메모리까지 설정 한 곳에서.</p></div>
+</div>
+</div></section>
+
+<!-- 옮기기 -->
+<section id="move"><div class="in center">
+<div class="eyebrow rv" data-en="Move sessions &lt;span class=&quot;new&quot;&gt;Next release&lt;/span&gt;">세션 옮기기 <span class="new">다음 버전</span></div>
+<h2 class="rv d1" data-en="Drag it like a kanban card,&lt;br&gt;the conversation follows">칸반처럼 끌어다 놓으면<br>대화가 그대로 따라가요</h2>
+<p class="sub rv d2" data-en="The moment you drop a card in another column, it is already there. A thin bar runs under the card while Orca moves the pane.">카드를 다른 칸에 놓는 순간 카드는 이미 새 칸에 들어가 있어요. 오르카에서 창이 옮겨지는 동안에는 카드 아래 얇은 막대가 돌아요.</p>
+<div class="shot rv z vid"><video id="mv" autoplay muted loop playsinline preload="auto" src="{{move.mp4}}" aria-label="카드를 끌어 infra 칸에 놓으면 바로 들어가고 옮기는 동안 아래 막대가 돈다" data-en-aria-label="Dragging a card into the infra column: it lands right away and a bar runs while it moves"></video></div>
+<p class="cap" data-en="The real drag and drop (demo data). The card lands right away; when the bar finishes, the move is done.">카드를 끌어 놓는 실제 동작이에요(데모 데이터). 놓는 순간 새 칸에 들어가고, 아래 막대가 끝나면 이동 완료.</p>
+</div></section>
+
+<!-- 동작 -->
+<section id="how" class="soft"><div class="in center">
+<div class="eyebrow rv" data-en="How it works">어떻게 동작하나요</div>
+<h2 class="rv d1" data-en="Code decides the status,&lt;br&gt;AI writes the steps">상태는 코드가,<br>단계는 AI가 정해요</h2>
+<p class="sub rv d2" data-en="Working or your turn is read straight from Orca and the transcript, not guessed by the AI. The summarizer only writes steps and titles. The only thing that leaves your Mac is the transcript sent to the model you picked, with anything that looks like a key or token masked.">일하는 중인지 내 차례인지는 오르카와 대화 기록을 직접 읽어서 정해요. AI가 추측하지 않아요. 요약 모델은 단계와 제목만 써요. 밖으로 나가는 건 요약할 때 고른 모델에 보내는 대화 기록뿐이고, 키·토큰처럼 보이는 값은 가려서 보내요.</p>
+<div class="dia rv lightup">
+<svg viewBox="0 0 920 210" role="img" aria-label="오르카 창 목록과 대화 기록을 Spyhop 이 읽어 상태를 정하고, 요약 모델이 단계를 써서, 보드와 메뉴바에 보여 준다" data-en-aria-label="Spyhop reads Orca panes and transcripts to decide the status, the summarizer writes the steps, and the board and menu bar show them">
+<rect class="n" x="10" y="18" width="206" height="72" rx="18"/><text class="t" x="113" y="49" text-anchor="middle" data-en="Orca panes">오르카 창 목록</text><text class="s" x="113" y="71" text-anchor="middle" data-en="working · waiting">일하는 중 · 기다리는 중</text>
+<rect class="n" x="10" y="122" width="206" height="72" rx="18"/><text class="t" x="113" y="153" text-anchor="middle" data-en="Transcripts">대화 기록</text><text class="s" x="113" y="175" text-anchor="middle">Claude · Codex</text>
+<path class="flow" d="M220 54 C258 54 258 106 294 106"/><path class="flow" d="M220 158 C258 158 258 106 294 106"/><path class="head" d="M288 100 l7 6 -7 6"/>
+<rect class="n hi" x="300" y="64" width="206" height="84" rx="18"/><text class="t" x="403" y="100" text-anchor="middle" data-en="Spyhop · your Mac">Spyhop · 내 맥</text><text class="s" x="403" y="122" text-anchor="middle" data-en="status decided here">상태는 여기서 정해요</text>
+<path class="flow d2" d="M510 106 H566"/><path class="head" d="M560 100 l7 6 -7 6"/>
+<rect class="n" x="572" y="64" width="160" height="84" rx="18"/><text class="t" x="652" y="100" text-anchor="middle" data-en="Summarizer">요약 모델</text><text class="s" x="652" y="122" text-anchor="middle" data-en="title · steps · TODO">제목 · 단계 · 할 일</text>
+<path class="flow d3" d="M736 106 H792"/><path class="head" d="M786 100 l7 6 -7 6"/>
+<rect class="n hi" x="798" y="64" width="112" height="84" rx="18"/><text class="t" x="854" y="100" text-anchor="middle" data-en="Board">보드</text><text class="s" x="854" y="122" text-anchor="middle" data-en="menu bar">메뉴바</text>
+</svg>
+</div>
+</div></section>
+
+<!-- 설치 -->
+<section id="install"><div class="in center">
+<div class="eyebrow rv" data-en="Get started">시작하기</div>
+<h2 class="rv d1" data-en="Two commands and done">명령 두 줄이면 끝나요</h2>
+<p class="sub rv d2" data-en="You need Orca and a logged-in &lt;code&gt;claude&lt;/code&gt; or &lt;code&gt;codex&lt;/code&gt; CLI. Spyhop opens in Orca as a Spyhop workspace.">오르카와, 로그인된 <code>claude</code> 또는 <code>codex</code> CLI가 있으면 돼요. 설치하면 오르카에 Spyhop 워크스페이스로 열려요.</p>
+<div class="term rv z" id="term">
+<button class="btn cp" type="button" onclick="copyCmd()" data-en="Copy">복사</button>
+<pre><span class="c" data-en="# install"># 설치</span>
+brew install leeleelee3264/tap/spyhop
+spyhop
+
+<span class="c" data-en="# update"># 업데이트</span>
+brew upgrade spyhop &amp;&amp; spyhop
+
+<span class="c" data-en="# menu bar icon (optional)"># 메뉴바 아이콘 (선택)</span>
+brew install --cask swiftbar &amp;&amp; spyhop</pre>
+</div>
+</div></section>
+
+<!-- 질문 -->
+<section id="faq" class="soft"><div class="in center">
+<div class="eyebrow rv" data-en="Questions?">궁금한 게 있나요?</div>
+<h2 class="rv d1" data-en="FAQ">자주 묻는 질문</h2>
+<div class="faq rv">
+<details><summary data-en="Can I use it without Orca?">오르카 없이도 쓸 수 있나요?</summary><p data-en="Not yet; Spyhop finds sessions through Orca. A mode that finds sessions from recent transcripts and groups them by AI topics is on the way.">지금은 오르카가 있어야 세션을 찾아요. 오르카 없이 최근 대화 기록으로 세션을 찾아 AI 주제로 묶는 방식을 준비하고 있어요.</p></details>
+<details><summary data-en="Does my conversation leave my machine?">대화 내용이 회사 밖으로 나가나요?</summary><p data-en="Only to the summarizer you pick in Settings. Values that look like keys or tokens are masked first, but that filter is best effort, so pick a model your organization allows. The board itself only runs on your Mac.">요약할 때 설정에서 고른 모델로만 나가요. 키·토큰처럼 보이는 값은 가리고 보내지만 완벽한 필터는 아니라서, 회사가 허용한 모델을 골라 주세요. 보드 자체는 내 맥 안에서만 열려요.</p></details>
+<details><summary data-en="A session is missing from the board.">세션이 보드에 안 보여요.</summary><p data-en="First update with &lt;code&gt;brew upgrade spyhop &amp;amp;&amp;amp; spyhop&lt;/code&gt;. Renamed sessions, sessions idle for days and untitled ones are all found now. If it is still missing, let us know below.">먼저 <code>brew upgrade spyhop &amp;&amp; spyhop</code>으로 최신 버전인지 봐 주세요. 이름을 바꾼 세션, 며칠 쉰 세션, 제목이 아직 없는 세션도 찾도록 고쳐 두었어요. 그래도 안 보이면 아래로 알려 주세요.</p></details>
+<details><summary data-en="Does moving a card change the folder the AI works in?">카드를 옮기면 AI가 일하는 폴더도 바뀌나요?</summary><p data-en="No. Only the Orca pane moves; the AI keeps the same conversation in its original folder. If the folders differ, Spyhop tells you after the move.">아니요. 오르카 창만 그 워크스페이스로 옮겨 가고, AI는 원래 폴더에서 같은 대화를 이어 가요. 폴더가 다르면 옮긴 뒤 알려 드려요.</p></details>
+<details><summary data-en="Can I move a session while it is working?">일하는 중인 세션도 옮길 수 있나요?</summary><p data-en="No, it would cut the work off. Move it once it shows “My turn”.">안 돼요. 하던 일이 끊기니까 「My turn」이 된 뒤에 옮겨 주세요.</p></details>
+<details><summary data-en="Will it slow my Mac down?">맥이 느려지지 않나요?</summary><p data-en="With 6 sessions it uses about 1% of the Mac’s CPU and 70–80 MB of memory. Settings shows the live numbers, and a 30 or 60 second interval lowers them further.">세션 6개 기준 맥 CPU 약 1%, 메모리 70~80MB예요. 설정 맨 아래에서 실제 사용량을 볼 수 있고, 갱신 주기를 30·60초로 늘리면 더 줄어요.</p></details>
+</div>
+<p class="end" data-en="Anything else? Ask in &lt;a href=&quot;https://github.com/leeleelee3264/spyhop/issues&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot;&gt;GitHub issues&lt;/a&gt;. New questions will be added here.">여기 없는 질문은 <a href="https://github.com/leeleelee3264/spyhop/issues" target="_blank" rel="noopener">GitHub 이슈</a>에 남겨 주세요. 들어온 질문은 여기에 계속 추가할게요.</p>
+</div></section>
+
+<div class="toast" id="toast" data-en="Install command copied">설치 명령을 복사했어요</div>
+<script>
+// 언어: 저장한 값이 있으면 그것, 없으면 브라우저 언어(한국어면 한국어, 아니면 영어)
+(function(){
+  function saved(){try{return localStorage.getItem('spyhopLang')}catch(e){return null}}
+  window.applyLang=function(l){var r=document.documentElement;r.lang=l;
+    document.querySelectorAll('[data-en]').forEach(function(e){if(e.dataset.ko===undefined)e.dataset.ko=e.innerHTML;e.innerHTML=l==='en'?e.dataset.en:e.dataset.ko});
+    ['alt','aria-label'].forEach(function(a){document.querySelectorAll('[data-en-'+a+']').forEach(function(e){
+      if(!e.hasAttribute('data-ko-'+a))e.setAttribute('data-ko-'+a,e.getAttribute(a));e.setAttribute(a,l==='en'?e.getAttribute('data-en-'+a):e.getAttribute('data-ko-'+a))})});
+    var b=document.getElementById('langBtn');if(b)b.textContent=l==='en'?'한국어':'EN';
+    var t=document.getElementById('themeBtn'),dk=r.getAttribute('data-theme')==='dark';
+    if(t)t.textContent=dk?(l==='en'?'☀︎ Light':'☀︎ 밝게'):(l==='en'?'☾ Dark':'☾ 어둡게');
+    document.title=l==='en'?'Spyhop — every AI session on one board':'[devops] Spyhop 세션 보드'};
+  applyLang(saved()||(/^ko/i.test(navigator.language||'')?'ko':'en'));
+  document.getElementById('langBtn').addEventListener('click',function(){var l=document.documentElement.lang==='en'?'ko':'en';
+    try{localStorage.setItem('spyhopLang',l)}catch(e){}applyLang(l)});
+})();
+</script>
+<script>
+function copyCmd(){var t='brew install leeleelee3264/tap/spyhop && spyhop',e=document.getElementById('toast');
+  function done(){e.classList.add('on');setTimeout(function(){e.classList.remove('on')},1600)}
+  if(navigator.clipboard)navigator.clipboard.writeText(t).then(done,done);else done()}
+var calm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(calm){document.addEventListener('DOMContentLoaded',function(){var v=document.getElementById('mv');if(v){v.removeAttribute('autoplay');v.pause();v.controls=true}})}
+function onShow(el){
+  el.querySelectorAll('[data-n]').forEach(count);
+  if(el.classList.contains('demo'))demo(el);
+  if(el.id==='term')type(el)}
+function count(b){if(calm||b.done)return;b.done=1;var n=+b.dataset.n,d=+(b.dataset.d||0),p=b.dataset.p||'',u=b.dataset.u||'',t0=null;
+  function f(t){t0=t0||t;var k=Math.min(1,(t-t0)/1100),e=1-Math.pow(1-k,3);b.textContent=p+(n*e).toFixed(d)+u;if(k<1)requestAnimationFrame(f)}
+  requestAnimationFrame(f)}
+function demo(el){var li=el.querySelectorAll('li'),bar=el.querySelectorAll('.bar i'),c=el.querySelector('.cnt b'),i=0;
+  function step(){li.forEach(function(x,j){x.className=j<i?'d':(j===i?'n':'')});bar.forEach(function(x,j){x.className=j<i?'d':(j===i?'n':'')});
+    c.textContent=Math.min(i,4);i=(i+1)%6}
+  if(calm){i=2;step();return}step();setInterval(step,1300)}
+function type(el){var pre=el.querySelector('pre');if(calm||!pre)return;var full=pre.innerHTML,parts=full.split(/(<[^>]+>|&[a-z]+;)/),out='',k=0;
+  pre.innerHTML='<span class="cur"></span>';
+  (function next(){if(k>=parts.length){pre.innerHTML=full+'<span class="cur"></span>';return}
+    var p=parts[k];if(!p||p.charAt(0)==='<'||p.charAt(0)==='&'){out+=p||'';k++;return next()}
+    var ch=p.charAt(0);out+=ch;parts[k]=p.slice(1);if(!parts[k])k++;pre.innerHTML=out+'<span class="cur"></span>';setTimeout(next,ch==='\n'?160:16)})()}
+(function(){var els=[].slice.call(document.querySelectorAll('.rv,.lines'));
+  if(!('IntersectionObserver' in window)){els.forEach(function(x){x.classList.add('on')});return}
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('on');io.unobserve(e.target);onShow(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
+  els.forEach(function(x){io.observe(x)});
+  // 안전장치: 관찰이 늦게 와도 지금 화면에 있는 것은 반드시 보이게
+  setTimeout(function(){els.forEach(function(x){if(!x.classList.contains('on')&&x.getBoundingClientRect().top<innerHeight){x.classList.add('on');io.unobserve(x);onShow(x)}})},1200)})();
+</script>
+</body>
+</html>
