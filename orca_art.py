@@ -35,13 +35,19 @@ def favicon():
     return tile()
 
 
+MB_FIT = 'translate(-6 -3) scale(1.25)'  # 메뉴바(20pt)에서는 머리를 크게 채운다
+MB_WAVE = 'M1 28.6 Q6 26.4 11 28.6 T21 28.6 T31 28.6'
+
+
 def template():
     # 메뉴바용: 검은 실루엣 한 색, 흰 무늬는 뚫는다(macOS 가 다크/라이트에 맞춰 칠함)
+    # 작게 보이니 같은 그림을 크게 담고, 가는 무늬(턱)는 두껍게 뚫고, 지느러미는 뺀다(뭉개져서 얼룩처럼 보인다)
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-            '<mask id="m"><rect width="32" height="26.2" fill="#fff"/><g transform="%s" fill="#000"><path d="%s"/><path d="%s"/></g></mask>'
-            '<g mask="url(#m)"><g transform="%s" fill="#000"><path d="%s"/><path d="%s"/></g></g>'
-            '<path d="%s" fill="none" stroke="#000" stroke-width="2.2" stroke-linecap="round"/></svg>') % (
-            FIT, CHIN, EYE, FIT, BODY, FLIPPER, WAVE)
+            '<mask id="m"><rect width="32" height="27" fill="#fff"/><g transform="%s" fill="#000">'
+            '<path d="%s" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/><path d="%s"/></g></mask>'
+            '<g mask="url(#m)"><g transform="%s" fill="#000"><path d="%s"/></g></g>'
+            '<path d="%s" fill="none" stroke="#000" stroke-width="2.8" stroke-linecap="round"/></svg>') % (
+            MB_FIT, CHIN, EYE, MB_FIT, BODY, MB_WAVE)
 
 
 def mono(bg=BLUE, fg='#ffffff'):
