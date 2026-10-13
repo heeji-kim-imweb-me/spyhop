@@ -328,7 +328,10 @@ def live_claude_sessions(worktree_path=None):
         cwd = d.get('cwd')
         if cwd and d.get('sessionId') and (worktree_path is None or cwd == worktree_path):
             proj = os.path.expanduser('~/.claude/projects/' + re.sub(r'[^A-Za-z0-9]', '-', cwd))
-            out.append(os.path.join(proj, d['sessionId'] + '.jsonl'))
+            f = os.path.join(proj, d['sessionId'] + '.jsonl')
+            if not os.path.exists(f):  # 다른 폴더에서 이어 연(resume) 세션은 기록이 처음 시작한 폴더 쪽에 남는다
+                f = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % d['sessionId']))), f)
+            out.append(f)
     return [f for f in out if os.path.exists(f)]
 
 
@@ -642,8 +645,14 @@ def match_sessions(terms, worktrees):
         known = load_matches()
         rest = []
         anywhere = None
+        taken = set()
         for t in panes:
             f = cidx.get(clean_title(t['title']))
+            prev = known.get(t['handle'])
+            if prev and prev != f and prev in cfiles and prev not in taken and clean_title(t['title']) in ai_title(prev):
+                f = prev  # 같은 제목 세션이 여럿이면 지난번 짝을 그대로 둔다 (갱신마다 카드 내용이 뒤바뀌지 않게)
+            if f in taken:  # 같은 제목 창이 둘이면 두 번째는 제목으로 못 가린다 → 아래 '남은 세션' 짝에 맡긴다
+                f = None
             if not f and pane_state(t['title']) != 'unknown':
                 anywhere = anywhere if anywhere is not None else live_title_index()
                 f = anywhere.get(clean_title(t['title']))
@@ -653,6 +662,7 @@ def match_sessions(terms, worktrees):
                 f = known[t['handle']]
             if f:
                 t['log'] = f
+                taken.add(f)
             elif pane_state(t['title']) == 'unknown':
                 rest.append(t)
         # 아직 제목이 없는 클로드 창(예: "Claude Code")은, 이 폴더의 떠 있는 세션 중 다른 창이 안 가져간 게 딱 하나 남으면 그것이다
@@ -1657,6 +1667,11 @@ def serve():
         if not sid:
             return self.send(409, 'Transcript not found, cannot resume'.encode())
         is_codex = '/.codex/' in log
+        if not is_codex:  # 같은 이름의 클로드 세션이 둘 이상 떠 있으면 어느 창이 어느 세션인지 확실하지 않다 → 옮기지 않는다
+            names = [n for n in ai_title(log) if n]
+            twins = [f for f in live_claude_sessions() if f != log and any(n in ai_title(f) for n in names)]
+            if twins:
+                return self.send(409, 'Another open session has the same name. Rename one with /rename, then move it.'.encode())
         # 세션이 실제로 일하는 폴더 (이미 한 번 다른 폴더 칸으로 옮겼으면 창이 속한 폴더와 다르다)
         home = session_cwd(log) or info['cwd'] or os.path.expanduser('~')
         resume = '%s %s' % ('codex resume' if is_codex else 'claude --resume', sid.group(1))
@@ -1719,7 +1734,17 @@ def session_cwd(log):
     """그 대화가 실제로 일하는 폴더. Codex 는 기록 첫 줄, 클로드는 기록 안의 마지막 "cwd"."""
     if '/.codex/' in log:
         return codex_cwd(log)
-    try:
+    sid = os.path.basename(log)[:-6]
+    for f in glob.glob(os.path.expanduser('~/.claude/sessions/*.json')):  # 떠 있는 세션이면 그 프로그램의 실제 폴더가 가장 정확하다
+        try:
+            with open(f, encoding='utf-8') as fh:
+                d = json.load(fh)
+            if d.get('sessionId') == sid and d.get('cwd'):
+                os.kill(int(d['pid']), 0)
+                return d['cwd']
+        except (OSError, ValueError, KeyError):
+            continue
+    try:  # 아니면 기록 안의 마지막 "cwd" (다른 폴더에서 이어 연 세션은 처음 폴더가 남아 있을 수 있다)
         with open(log, 'rb') as fh:
             fh.seek(max(0, fh.seek(0, 2) - 300000))
             found = re.findall(rb'"cwd":"([^"]+)"', fh.read())
