@@ -1282,10 +1282,10 @@ def render(t, steps, ws):
         for h, sst, who, what, res in subs)) if subs else ''
     sidchip = ('<button class="sid" title="Click to copy: %s" onclick="cp(this,\'%s\')">ID %s</button>' % (escape(resume), sid, sid[:8])) if sid else ''
     chip = '<i class="model">%s</i>' % escape(model) if model else ''
-    card = ('<a class="card %s" href="#c%s" draggable="true" data-h="%s" data-st="%s" data-wid="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
+    card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
             '<h3>%s</h3>%s%s%s'
             '</a>'
-            % (st, cid, t['handle'], st, escape(t['worktreeId']), title, LABEL[st], chip, (lambda h: h if h == 'just now' else h + (' waiting' if st == 'wait' else ' working'))(for_how_long(since)), title, stale, (mini_steps(flow, st == 'busy') + seg_steps(flow)) if flow else '',
+            % (st, cid, t['handle'], st, escape(t['worktreeId']), escape(os.path.basename(t.get('log') or '')), title, LABEL[st], chip, (lambda h: h if h == 'just now' else h + (' waiting' if st == 'wait' else ' working'))(for_how_long(since)), title, stale, (mini_steps(flow, st == 'busy') + seg_steps(flow)) if flow else '',
                sub_card))  # 마지막 답은 카드에서 빼고 상세 창에서만 보여준다. 대신 부른 작업 창을 한 줄씩
     modal = ('<div class="modal %s" id="c%s"><a class="bg" href="#"></a><div class="box">'
              '<div class="row"><span class="meta2"><b class="badge">%s</b><b class="ws">%s</b>%s%s%s</span><a class="x" href="#">Close ✕</a></div>'
@@ -1410,7 +1410,7 @@ def _build():
         if waiting:
             grouping = ('<div id="grouping"><i class="donut"></i>Grouping %d session%s by topic…</div>'
                         % (waiting, '' if waiting == 1 else 's'))
-    cols, modals, count = {}, [], {'wait': 0, 'busy': 0}
+    cols, modals, count, colwid = {}, [], {'wait': 0, 'busy': 0}, {}
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
         w = worktrees.get(t['worktreeId'], {})
         if mode == 'ai':
@@ -1422,13 +1422,14 @@ def _build():
         order, card, modal = render(t, steps.get(t.get('log')), ws)
         count['wait' if order[0] == 0 else 'busy'] += 1
         cols.setdefault((rank, ws), []).append((order, card))
+        colwid[(rank, ws)] = ('group:' + ws) if mode == 'ai' else t['worktreeId']
         modals.append(modal)
 
     def col_head(ws, cards):
         return '<h2>%s <em>%d</em></h2>' % (escape(ws), len(cards))
-    board = ''.join('<section class="col">%s<p class="more"></p>%s</section>'
-                    % (col_head(ws, cards), ''.join(c for _, c in sorted(cards, key=lambda x: x[0])))
-                    for (_, ws), cards in sorted(cols.items(), key=lambda x: -x[0][0]))
+    board = ''.join('<section class="col" data-wid="%s" data-name="%s">%s<p class="more"></p>%s</section>'
+                    % (escape(colwid[key]), escape(key[1]), col_head(key[1], cards), ''.join(c for _, c in sorted(cards, key=lambda x: x[0])))
+                    for key, cards in sorted(cols.items(), key=lambda x: -x[0][0]))
     nfail = sum(1 for t in terms if t.get('_fail'))
     tiles = ''.join('<span class="cnt %s"><b>%d</b>%s</span>' % (k, count[k], LABEL[k]) for k in ('wait', 'busy'))
     if nfail:
@@ -2182,13 +2183,8 @@ dl{margin:6px 0 0}dt{font-size:11px;color:var(--ink3);margin-top:8px}dd{margin:2
 .ext{display:inline-block;margin-top:10px;font-size:12px}
 #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--card);font-size:12px;
 padding:6px 12px;border-radius:7px;opacity:0;transition:opacity .2s;z-index:20;pointer-events:none}#toast.on{opacity:.92}
-#dropbar{display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:25;background:var(--card);border:1px dashed var(--wait);
+.card.dragging{opacity:.25}.card.floating{position:fixed;left:0;top:0;z-index:40;margin:0;pointer-events:none;box-shadow:0 14px 34px rgba(15,23,42,.28);will-change:transform}body.dragging-on{cursor:grabbing;user-select:none}.card.moving{opacity:.7;animation:pulse 1.2s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}.col{transition:background-color .15s ease,box-shadow .15s ease}.col.drop{background:color-mix(in srgb,var(--wait) 12%,var(--col));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 55%,transparent)}.col.ghost{opacity:.75;min-height:140px;border:1px dashed var(--line)}body.dragging-on .card:not(.dragging):hover{transform:none;box-shadow:none}#dropbar-unused{display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:25;background:var(--card);border:1px dashed var(--wait);
 border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 6px 24px rgba(60,20,50,.18)}
-#dropbar.on{display:flex}#dropbar span{font-size:11.5px;color:var(--ink3);margin-right:4px}
-#dropbar b{font-size:12.5px;padding:8px 14px;border-radius:9px;background:var(--col);color:var(--ink);cursor:copy}
-#dropbar b.hot{background:color-mix(in srgb,var(--wait) 25%,var(--card));outline:2px solid var(--wait)}
-#mconfirm{display:none;position:fixed;inset:0;z-index:30;background:rgba(40,20,40,.45);align-items:center;justify-content:center}
-#mconfirm.on{display:flex}
 #confirm{display:none;position:fixed;inset:0;z-index:30;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #confirm.on{display:flex}#mconfirm .cb,#confirm .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}
 #mconfirm h3,#confirm h3{margin:0 0 6px;font-size:15px}#mconfirm p,#confirm p{margin:0 0 14px;color:var(--ink2);font-size:12.5px}
@@ -2205,10 +2201,6 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 
 header{position:relative;overflow:hidden}.brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px}.sea{position:absolute;left:0;right:0;bottom:0;height:44px;pointer-events:none;overflow:hidden}.sea:after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%226%22%20viewBox%3D%220%200%2032%206%22%3E%3Cpath%20d%3D%22M0%203%20Q4%200.5%208%203%20T16%203%20T24%203%20T32%203%22%20fill%3D%22none%22%20stroke%3D%22%23cbd5e1%22%20stroke-width%3D%221.4%22/%3E%3C/svg%3E") repeat-x;opacity:.7}.orca{position:absolute;bottom:-1px;width:36px;height:36px;transform:translateY(100%);animation:spy 3.4s ease-in-out forwards}@keyframes spy{0%{transform:translateY(100%) rotate(-8deg)}28%{transform:translateY(6%) rotate(0)}72%{transform:translateY(6%) rotate(4deg)}100%{transform:translateY(100%) rotate(-4deg)}}@media (prefers-reduced-motion:reduce){.orca{display:none}}
 .brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}__THEME_CSS__</style></head><body><div id="toast"></div>
-<div id="dropbar"></div>
-<div id="mconfirm"><div class="cb"><h3>Move to another workspace?</h3><p><b id="mvt"></b><br><br>
-Closes this pane and resumes the same conversation in a split next to the target workspace. The transcript is kept.</p>
-<div class="row2"><button onclick="cancelMove()">Cancel</button><button class="danger" onclick="doMove()">Move</button></div></div></div>
 <div id="confirm"><div class="cb"><h3>End this session?</h3><p><b id="cft"></b><br><br>
 Only this pane closes; other panes in the tab stay. The transcript is kept so you can resume later.</p>
 <div class="row2"><button onclick="cancelEnd()">Cancel</button><button class="danger" onclick="doEnd()">End</button></div></div></div><header>__HEAD__</header>__BODY__
@@ -2224,23 +2216,64 @@ function doEnd(){var h=endTarget;cancelEnd();
   .then(function(r){if(!r.ok)throw 0;toast('Session ended');location.hash='';setTimeout(live,1500)})
   .catch(function(){toast('Could not end the session')})}
 var WS=__WSLIST__,drag=null;
-document.addEventListener('dragstart',function(e){var c=e.target.closest&&e.target.closest('.card');if(!c)return;
-  drag={h:c.dataset.h,st:c.dataset.st,wid:c.dataset.wid,title:c.dataset.title};
-  var bar=document.getElementById('dropbar');bar.innerHTML='<span>Drop on a workspace</span>'+WS.filter(function(w){return w.id!==drag.wid})
-    .map(function(w){return '<b data-wid="'+w.id+'">'+w.name.replace(/</g,'&lt;')+'</b>'}).join('');bar.className='on'});
-document.addEventListener('dragend',function(){setTimeout(function(){document.getElementById('dropbar').className=''},50)});
-document.addEventListener('dragover',function(e){if(e.target.closest&&e.target.closest('#dropbar b')){e.preventDefault();
-  document.querySelectorAll('#dropbar b').forEach(function(b){b.classList.toggle('hot',b===e.target.closest('#dropbar b'))})}});
-document.addEventListener('drop',function(e){var b=e.target.closest&&e.target.closest('#dropbar b');if(!b||!drag)return;e.preventDefault();
-  if(b.dataset.wid.indexOf('group:')===0){moveTarget={h:drag.h,wid:b.dataset.wid};doMove();return}
-  if(drag.st!=='wait'){toast('Wait until the session stops to move it');return}
-  moveTarget={h:drag.h,wid:b.dataset.wid};document.getElementById('mvt').textContent=drag.title+'  →  '+b.textContent;
-  document.getElementById('mconfirm').className='on'});
-var moveTarget=null;
-function cancelMove(){moveTarget=null;document.getElementById('mconfirm').className=''}
-function doMove(){var m=moveTarget;cancelMove();toast('Moving…');
-  fetch('http://127.0.0.1:47613/move?k=__TOKEN__',{method:'POST',body:JSON.stringify(m)}).then(function(r){return r.text().then(function(t){toast(t);setTimeout(live,2500)})})
-  .catch(function(){toast('Board server is not running')})}
+// 카드 끌기: 지라 칸반처럼 카드가 손을 따라오고, 놓으면 그 칸으로 미끄러져 들어간다 (마우스 이벤트로 직접 구현)
+var press=null;
+document.addEventListener('pointerdown',function(e){if(e.button!==0)return;var c=e.target.closest&&e.target.closest('main .card');
+  if(!c||e.target.closest('button'))return;press={c:c,x:e.clientX,y:e.clientY,id:e.pointerId}});
+document.addEventListener('pointermove',function(e){
+  if(press&&!drag&&Math.abs(e.clientX-press.x)+Math.abs(e.clientY-press.y)>6)startDrag(press.c,e);
+  if(!drag)return;e.preventDefault();
+  drag.float.style.transform='translate('+(e.clientX-drag.dx)+'px,'+(e.clientY-drag.dy)+'px) rotate(1.5deg)';
+  var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.col.drop').forEach(function(x){if(x!==col)x.classList.remove('drop')});
+  if(col&&col!==drag.from)col.classList.add('drop');edgeScroll(e.clientX)});
+document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var d=drag;drag=null;
+  var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.col.drop').forEach(function(x){x.classList.remove('drop')});
+  d.el.classList.remove('dragging');document.body.classList.remove('dragging-on');
+  var to=(col&&col!==d.from)?col:null,r=(to?d.el:d.el).getBoundingClientRect();
+  d.float.style.transition='transform .2s cubic-bezier(.2,.8,.2,1),opacity .2s';
+  if(!to){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},200);return}
+  d.float.remove();dropOn(d,to);unghost()});
+document.addEventListener('click',function(e){if(justDragged&&e.target.closest('main .card')){e.preventDefault();e.stopPropagation()}},true);
+var justDragged=false;
+function startDrag(c,e){var r=c.getBoundingClientRect(),f=c.cloneNode(true);
+  drag={h:c.dataset.h,st:c.dataset.st,wid:c.dataset.wid,log:c.dataset.log,el:c,from:c.closest('.col'),float:f,dx:e.clientX-r.left,dy:e.clientY-r.top};
+  f.classList.add('floating');f.style.width=r.width+'px';f.style.transform='translate('+r.left+'px,'+r.top+'px)';document.body.appendChild(f);
+  c.classList.add('dragging');document.body.classList.add('dragging-on');ghosts();justDragged=true;setTimeout(function(){justDragged=false},400)}
+function colAt(x,y){var el=document.elementFromPoint(x,y);return el&&el.closest?el.closest('main .col'):null}
+function edgeScroll(x){var m=document.querySelector('main'),r=m.getBoundingClientRect();if(x>r.right-60)m.scrollLeft+=18;else if(x<r.left+60)m.scrollLeft-=18}
+function ghosts(){  // 아직 세션이 없는 워크스페이스도 끄는 동안엔 빈 칸으로 보여 준다
+  var m=document.querySelector('main'),have={};m.querySelectorAll('.col').forEach(function(c){have[c.dataset.wid]=1});
+  WS.forEach(function(w){if(have[w.id])return;var g=document.createElement('section');g.className='col ghost';g.dataset.wid=w.id;g.dataset.name=w.name;
+    g.innerHTML='<h2></h2><p class="more"></p>';g.querySelector('h2').textContent=w.name;m.appendChild(g)});
+  m.style.gridTemplateColumns='repeat('+m.querySelectorAll('.col').length+',minmax(240px,1fr))'}
+function unghost(){document.querySelectorAll('.col.ghost').forEach(function(g){if(!g.querySelector('.card'))g.remove()});
+  var m=document.querySelector('main');m.style.gridTemplateColumns='repeat('+m.querySelectorAll('.col').length+',minmax(240px,1fr))'}
+function dropOn(d,col){var ai=col.dataset.wid.indexOf('group:')===0;col.classList.remove('ghost');
+  if(!ai&&d.st!=='wait'){toast('This session is working. Move it after it stops.');return}
+  flipTo(d.el,col);d.el.classList.add('moving');pending[d.log]={wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
+  if(ai)toast('Moved in Spyhop only. The Orca pane stays where it is.');
+  fetch('http://127.0.0.1:47613/move?k=__TOKEN__',{method:'POST',body:JSON.stringify({h:d.h,wid:col.dataset.wid})})
+  .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;if(!ai)toast(t);else d.el.classList.remove('moving')})})
+  .catch(function(t){delete pending[d.log];d.el.classList.remove('moving');if(d.from&&document.body.contains(d.from))flipTo(d.el,d.from);
+    toast(typeof t==='string'&&t?t:'Could not move it')})}
+var pending={};
+function flipTo(el,col){  // 카드를 다른 칸으로 옮기며 원래 자리에서 미끄러져 가게 (FLIP)
+  var a=el.getBoundingClientRect(),more=col.querySelector('.more');col.insertBefore(el,more?more.nextSibling:col.firstChild.nextSibling);
+  var b=el.getBoundingClientRect();if(el.animate)el.animate([{transform:'translate('+(a.left-b.left)+'px,'+(a.top-b.top)+'px)'},{transform:'none'}],
+    {duration:260,easing:'cubic-bezier(.2,.8,.2,1)'});recount()}
+function recount(){document.querySelectorAll('main .col').forEach(function(c){var em=c.querySelector('h2 em');if(em)em.textContent=c.querySelectorAll('.card').length})}
+function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 칸에 둔다 (새로 그려도 원래 칸으로 튀지 않게)
+  var m=document.querySelector('main');Object.keys(pending).forEach(function(log){var p=pending[log];
+    if(Date.now()>p.until){delete pending[log];return}
+    var card=m.querySelector('.card[data-log="'+log+'"]'),col=m.querySelector('.col[data-wid="'+p.wid+'"]');
+    if(card&&card.closest('.col')===col&&card.dataset.h!==p.from){delete pending[log];return}  // 새 창으로 자리 잡음
+    if(card&&card.closest('.col')===col&&p.wid.indexOf('group:')===0){delete pending[log];return}
+    if(!col){col=document.createElement('section');col.className='col';col.dataset.wid=p.wid;
+      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';col.querySelector('h2').textContent=w?w.name:'';m.appendChild(col);
+      m.style.gridTemplateColumns='repeat('+m.querySelectorAll('.col').length+',minmax(240px,1fr))'}
+    if(!card){var t=document.createElement('div');t.innerHTML=p.html;card=t.firstChild}
+    card.classList.add('moving');var more=col.querySelector('.more');col.insertBefore(card,more?more.nextSibling:null)});
+  recount()}
 function cp(b,t){var d=function(){b.classList.add('ok');var o=b.textContent;b.textContent='Copied';setTimeout(function(){b.textContent=o;b.classList.remove('ok')},1200)};
   if(navigator.clipboard){navigator.clipboard.writeText(t).then(d,function(){prompt('Copy',t)})}else{prompt('Copy',t)}}
 function tog(li){var done=!li.classList.contains('done');
@@ -2291,6 +2324,7 @@ function snap(){document.querySelectorAll('main .card').forEach(function(c){card
   LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
 snap();
 function live(){
+  if(drag)return;
   fetch('http://127.0.0.1:47613/?auto=1',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(txt){
     var d=new DOMParser().parseFromString(txt,'text/html');
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
@@ -2304,7 +2338,7 @@ function live(){
       om.setAttribute('style',nm.getAttribute('style')||'');om.innerHTML=nm.innerHTML;LAST.main=nm.innerHTML;
       om.querySelectorAll('.card').forEach(function(c){cardHtml[c.dataset.h]=c.outerHTML;
         if(old[c.dataset.h]===undefined)c.classList.add('fresh');else if(old[c.dataset.h]!==c.outerHTML)c.classList.add('changed')});
-      scrollTo(0,y);om.scrollLeft=x;fit()}
+      holdMoves();scrollTo(0,y);om.scrollLeft=x;fit()}
     var open=location.hash.slice(1),seen={},anchor=document.getElementById('settings');
     d.querySelectorAll('.modal[id^="c"]').forEach(function(nmod){seen[nmod.id]=1;var cur=document.getElementById(nmod.id);
       if(!cur){anchor.parentNode.insertBefore(document.importNode(nmod,true),anchor);modalHtml[nmod.id]=nmod.innerHTML;return}
