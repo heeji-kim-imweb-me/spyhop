@@ -831,6 +831,8 @@ def agent_procs():
         if len(p) < 2 or int(p[0]) not in agents:
             continue
         a = agents[int(p[0])]
+        if a['kind'] == 'claude' and re.search(r'(?:^| )CLAUDE_CODE_CHILD_SESSION=1(?: |$)', p[1]):
+            a['child'] = True
         for key in ('ORCA_PANE_KEY', 'CODEX_HOME', 'TERM_PROGRAM'):  # CODEX_HOME 이 다르면 그 폴더의 색인을 읽는다
             m = re.search(r'(?:^| )%s=(\S+)' % key, p[1])
             a[key.lower()] = m.group(1) if m else None
@@ -847,7 +849,7 @@ def agent_procs():
             with open(os.path.expanduser('~/.claude/sessions/%d.json' % a['pid']), encoding='utf-8') as f:
                 d = json.load(f)
         except (OSError, ValueError):
-            a['why'] = 'claude:no-session-registration'
+            a['why'] = 'claude:child-session-no-transcript' if a.get('child') else 'claude:no-session-registration'
             continue
         try:  # 프로그램 번호가 재사용된 옛 기록이면 안 믿는다 (procStart 는 UTC)
             ps = calendar.timegm(time.strptime(d.get('procStart', ''), '%a %b %d %H:%M:%S %Y'))
@@ -1676,15 +1678,18 @@ def md(text):
     return ''.join(out)
 
 
-OVERRIDES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overrides.json')  # 내가 직접 체크한 기록 (재부팅해도 남게 /tmp 밖)
+OVERRIDES = os.path.expanduser('~/.spyhop/overrides.json')  # 내가 직접 체크한 TODO (재부팅·brew 업그레이드에도 남게 설치 폴더 밖)
+OLD_OVERRIDES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'overrides.json')  # 예전 위치(코드 옆). brew 업그레이드 때 지워졌다
 
 
 def load_overrides():
-    try:
-        with open(OVERRIDES, encoding='utf-8') as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    for path in (OVERRIDES, OLD_OVERRIDES):
+        try:
+            with open(path, encoding='utf-8') as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            continue
+    return {}
 
 
 def save_override(log, label, done):
@@ -1854,20 +1859,21 @@ def render(t, steps, ws):
         for h, sst, who, what, res in subs)) if subs else ''
     sidchip = ('<button class="sid" title="Click to copy: %s" onclick="cp(this,\'%s\')">ID %s</button>' % (escape(resume), sid, sid[:8])) if sid else ''
     chip = '<i class="model">%s</i>' % escape(model) if model else ''
-    if t.get('_ext'):
-        chip = '<i class="model ext">%s</i>' % escape(t['_ext']) + chip
+    # 상세 창: 어디서 도는지는 이동 버튼 이름에, 모델·세션 ID 는 버튼 옆 흐린 한 줄에 (위쪽 줄은 상태·칸 이름만)
+    where = t.get('_ext') or 'Orca'
+    meta = '<span class="mline">%s%s</span>' % (escape(model) + (' · ' if sid else '') if model else '', sidchip)
     card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
             '<h3>%s</h3>%s%s%s'
             '</a>'
             % (st, cid, t['handle'], st, escape(t['worktreeId']), escape(os.path.basename(t.get('log') or '')), title, LABEL[st], chip, (lambda h: h if h == 'just now' else h + (' waiting' if st == 'wait' else ' working'))(for_how_long(since)), title, stale, (mini_steps(flow, st == 'busy') + seg_steps(flow)) if flow else '',
                sub_card))  # 마지막 답은 카드에서 빼고 상세 창에서만 보여준다. 대신 부른 작업 창을 한 줄씩
     modal = ('<div class="modal %s" id="c%s"><a class="bg" href="#"></a><div class="box">'
-             '<div class="row"><span class="meta2"><b class="badge">%s</b><b class="ws">%s</b>%s%s%s</span><a class="x" href="#">Close ✕</a></div>'
+             '<div class="row"><span class="meta2"><b class="badge">%s</b><b class="ws">%s</b><span class="where">%s</span>%s</span><a class="x" href="#">Close ✕</a></div>'
              '<div class="hero">%s<div><h2>%s</h2><p class="sum">%s</p>'
-             '<button class="go" onclick="go(\'%s\')">Go to session ↗</button>'
-             '<button class="end" onclick="askEnd(\'%s\', this)">End session</button></div></div>'
+             '<div class="acts"><button class="go" onclick="go(\'%s\')">Go to session ↗</button>'
+             '<button class="end" onclick="askEnd(\'%s\', this)">End session</button>%s</div></div></div>'
              '<div class="cols"><div class="c1"><h4>Steps</h4>%s</div><div class="c2">%s%s</div></div>%s</div></div>'
-             % (st, cid, LABEL[st], escape(ws), chip, sidchip, stale, ring(sum(1 for f in flow if f['state'] in ('done', 'side')), len(flow)), title, summary, t['handle'], t['handle'],
+             % (st, cid, LABEL[st], escape(ws), escape(where), stale, ring(sum(1 for f in flow if f['state'] in ('done', 'side')), len(flow)), title, summary, t['handle'], t['handle'], meta,
                 render_flow(flow, st == 'busy', newest_first=False) if flow else '<p class="none">No steps yet</p>',
                 render_reply(reply, dg),
                 sub_modal + render_todo(items, t.get('log')), ''))
@@ -1919,6 +1925,9 @@ def check_board(terms):
         sys.stderr.write('%s check: 내 차례인데 요약에 now 로 남은 단계 %d개를 done 으로 표시: %s\n'
                          % (time.strftime('%H:%M:%S'), len(fixed), ' | '.join(fixed)))
     _CHECK['last'] = fixed
+
+
+WAKE = threading.Event()  # 세션을 끝내는 등 보드가 바로 다시 그려야 할 때 감시 루프를 깨운다
 
 
 def build():
@@ -2303,6 +2312,7 @@ def serve():
                         os.kill(pid, 0)
                 except ProcessLookupError:
                     _PROC_CACHE['at'] = 0
+                    WAKE.set()
                     sys.stderr.write('close %s: ended\n' % h)
                     return self.send(200, b'ok')
                 except OSError as e:
@@ -2312,6 +2322,8 @@ def serve():
             r = subprocess.run(['orca', 'terminal', 'close', '--terminal', h, '--json'],
                                capture_output=True, text=True, timeout=15)
             sys.stderr.write('close %s: %s\n' % (h, (r.stdout or r.stderr)[:200]))
+            if r.returncode == 0:
+                WAKE.set()
             return self.send(200 if r.returncode == 0 else 500, b'ok' if r.returncode == 0 else b'fail')
 
     def _move(self):
@@ -2590,9 +2602,10 @@ def watch():
         # 다음 갱신까지 기다리되, AI 프로그램이 새로 뜨거나 끝나면 바로 다시 그린다 (새 세션이 1~2초 안에 뜬다)
         pids, until = agent_pids(), time.time() + refresh_sec()
         while time.time() < until:
-            time.sleep(2)
-            now = agent_pids()
-            if now != pids:
+            if WAKE.wait(1):  # 1초마다 프로그램 목록을 보거나, 깨우면 바로
+                WAKE.clear()
+                break
+            if agent_pids() != pids:
                 break
 
 
@@ -2767,6 +2780,13 @@ def doctor(argv):
                 how = next((w for w in e.get('why') or [] if w[0] not in ('kind',)), None)
                 if how:
                     say('        · found by: %s' % ((how[1] or {}).get('how') if how[0] == 'process' else WHY_TEXT.get(how[0], how[0])))
+            if o == 'card-new-session':
+                rs = [(w[1] or {}).get('reason') for w in e.get('why') or [] if w[0] == 'process-unresolved' and len(w) > 1]
+                note = {'claude:child-session-no-transcript': 'started from inside another Claude session (CLAUDE_CODE_CHILD_SESSION=1), so it saves no transcript. Quit the terminal app fully and open it again, then start claude',
+                        'claude:no-session-registration': 'claude has not registered this session yet (~/.claude/sessions/<pid>.json missing)',
+                        'claude:transcript-not-written-yet': 'no message has been sent yet'}.get(rs[0] if rs else '')
+                if note:
+                    say('        · why no steps: %s' % note)
             if o in ('card', 'card-new-session') and e.get('terminal'):
                 term = e['terminal']
                 say('        · runs in %s (Go to session: %s)' % (term, 'exact pane' if term == 'Orca' else
@@ -3076,7 +3096,7 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 ::-webkit-scrollbar-corner{background:transparent}
 
 header{position:relative;overflow:hidden}.brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px}.sea{position:absolute;left:0;right:0;bottom:0;height:44px;pointer-events:none;overflow:hidden}.sea:after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%226%22%20viewBox%3D%220%200%2032%206%22%3E%3Cpath%20d%3D%22M0%203%20Q4%200.5%208%203%20T16%203%20T24%203%20T32%203%22%20fill%3D%22none%22%20stroke%3D%22%23cbd5e1%22%20stroke-width%3D%221.4%22/%3E%3C/svg%3E") repeat-x;opacity:.7}.orca{position:absolute;bottom:-1px;width:30px;height:52px;color:var(--ink3);transform:translateY(110%);transform-origin:50% 45%;animation:spyhop 3.2s linear forwards;pointer-events:none}.orca svg{display:block}@keyframes spyhop{0%,5%{transform:translateY(110%) rotate(0)}30%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}42%{transform:translateY(45%) rotate(-1.5deg);animation-timing-function:ease-in-out}56%{transform:translateY(45%) rotate(1.5deg);animation-timing-function:ease-in-out}68%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}100%{transform:translateY(110%) rotate(0)}}@media (prefers-reduced-motion:reduce){.orca{display:none}}
-.brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}.drawer{position:fixed;left:0;bottom:12px;z-index:35;width:210px;padding:10px 12px 12px 10px;box-sizing:border-box;overflow:auto;background:var(--card);border:1px solid var(--line);border-left:0;border-radius:0 14px 14px 0;box-shadow:0 12px 32px rgba(15,23,42,.18);transform:translateX(-100%);transition:transform .32s cubic-bezier(.16,1,.3,1)}.drawer.peek{transform:translateX(calc(-100% + 30px))}.drawer.open{transform:none}.drawer .tab{position:absolute;right:0;top:0;bottom:0;width:30px;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;font-size:11px;font-weight:800;color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transition:opacity .2s}.drawer.open .tab{opacity:0;pointer-events:none}.drawer h2{margin:0 0 4px;font-size:11px;color:var(--ink3);white-space:nowrap}.drawer .slot{animation:none;opacity:0;transform:translateX(-8px);transition:opacity .2s ease,transform .25s cubic-bezier(.16,1,.3,1),background-color .15s,border-color .15s,box-shadow .15s}.drawer.open .slot{opacity:1;transform:none}.drawer.open .slot.drop{transform:translateX(3px) scale(1.03)}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
+.brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}.drawer{position:fixed;left:0;bottom:12px;z-index:35;width:210px;padding:10px 12px 12px 10px;box-sizing:border-box;overflow:auto;background:var(--card);border:1px solid var(--line);border-left:0;border-radius:0 14px 14px 0;box-shadow:0 12px 32px rgba(15,23,42,.18);transform:translateX(-100%);transition:transform .32s cubic-bezier(.16,1,.3,1)}.drawer.peek{transform:translateX(calc(-100% + 30px))}.drawer.open{transform:none}.drawer .tab{position:absolute;right:0;top:0;bottom:0;width:30px;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;font-size:11px;font-weight:800;color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transition:opacity .2s}.drawer.open .tab{opacity:0;pointer-events:none}.drawer h2{margin:0 0 4px;font-size:11px;color:var(--ink3);white-space:nowrap}.drawer .slot{animation:none;opacity:0;transform:translateX(-8px);transition:opacity .2s ease,transform .25s cubic-bezier(.16,1,.3,1),background-color .15s,border-color .15s,box-shadow .15s}.drawer.open .slot{opacity:1;transform:none}.drawer.open .slot.drop{transform:translateX(3px) scale(1.03)}.acts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.acts .go,.acts .end{margin:0}.mline{margin-left:8px;font-size:11.5px;color:var(--ink3);display:inline-flex;align-items:center;gap:4px}.mline .sid{background:transparent;padding:0;color:var(--ink3);font-weight:500}.mline .sid:hover{color:var(--ink)}.where{font-size:11.5px;color:var(--ink3)}.where:before{content:'· ';}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
 <div id="confirm"><div class="cb"><h3>End this session?</h3><p><b id="cft"></b><br><br>
 <span id="cfx">Only this pane closes; other panes in the tab stay.</span> The transcript is kept so you can resume later.</p>
 <div class="row2"><button onclick="cancelEnd()">Cancel</button><button class="danger" onclick="doEnd()">End</button></div></div></div><header>__HEAD__</header>__BODY__
@@ -3096,8 +3116,9 @@ function cancelEnd(){endTarget=null;document.getElementById('confirm').className
 function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;  // 끝났으면 상세 창과 카드를 바로 치운다
-    location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){c.style.transition='opacity .2s';c.style.opacity='0'}
-    toast('Session ended');setTimeout(function(){live().then(stop)},800)})})
+    location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){var col=c.closest('.col');c.style.transition='opacity .18s';c.style.opacity='0';
+      setTimeout(function(){c.remove();if(col&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();grid();recount()},180)}else recount()},180)}
+    toast('Session ended');setTimeout(function(){live().then(stop)},1200)})})
   .catch(function(t){stop();toast(typeof t==='string'&&t?t:'Could not end the session')})}
 
 // 열기는 :target CSS 효과 하나만 사용한다. hashchange 이후 효과를 시작하면 첫 프레임이 먼저 보인다.
