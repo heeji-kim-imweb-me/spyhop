@@ -253,6 +253,16 @@ def orca(*args):
     return json.loads(out.stdout)['result']
 
 
+def orca_or(default, *args):
+    """오르카가 없거나(설치 안 함·꺼짐) 답이 이상하면 빈 결과. 그래도 오르카 밖 터미널 세션은 보드에 뜬다."""
+    if not find_bin('orca'):
+        return default
+    try:
+        return orca(*args)
+    except Exception:
+        return default
+
+
 def agent_kind(t):
     """클로드 창인지 Codex 창인지. 오르카가 알려 주는 agentType 을 먼저 믿는다.
     제목의 진행 기호로는 못 가린다: Codex 도 일하는 동안 제목 앞에 ⠹ 같은 기호를 붙인다."""
@@ -1890,8 +1900,9 @@ def build():
 def _build():
     # 오르카 조회 셋은 서로 기다릴 필요가 없어 한꺼번에 묻는다 (갱신 시간의 대부분이 이 대기다)
     with ThreadPoolExecutor(3) as ex:
-        f_wt, f_term, f_agents = ex.submit(orca, 'worktree', 'list'), ex.submit(orca, 'terminal', 'list'), ex.submit(orca_agents)
-        worktrees = {w['id']: w for w in f_wt.result()['worktrees']}
+        f_wt, f_term, f_agents = ex.submit(orca_or, {'worktrees': []}, 'worktree', 'list'), \
+            ex.submit(orca_or, {'terminals': [], 'visualLayouts': []}, 'terminal', 'list'), ex.submit(orca_agents)
+        worktrees = {w['id']: w for w in f_wt.result().get('worktrees', [])}
         LIST_CACHE['list'] = f_term.result()
         agents = f_agents.result()
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
@@ -2063,12 +2074,8 @@ _GROUPING = {'busy': False, 'at': 0}
 
 
 def group_mode():
-    m = load_config().get('group_by')
-    if m == 'orca' and find_bin('orca'):
-        return 'orca'
-    if m == 'ai':
-        return 'ai'
-    return 'orca' if find_bin('orca') else 'ai'
+    # 'orca' = 자리(오르카 워크스페이스, 오르카 밖이면 "폴더 · 터미널")로 묶기. 모델 없이 되니 기본값이다
+    return 'ai' if load_config().get('group_by') == 'ai' else 'orca'
 
 
 def load_groups():
@@ -2817,11 +2824,11 @@ def render_settings():
             + sec('Summarizer', 'Model that writes titles, steps and TODOs',
                   '<select class="sel" onchange="setSum(this.value)">%s</select>' % groups)
             + sec('Theme', '', '<div class="thl">Light</div><div class="ths">%s</div><div class="thl">Dark</div><div class="ths">%s</div>' % cards)
-            + sec('Group by', 'Orca workspaces, or topics the AI picks' if find_bin('orca') else 'Topics the AI picks (Orca not found)',
+            + sec('Group by', 'Where each session runs, or topics the AI picks',
                   '<div class="pills">%s</div>' % ''.join(
-                      '<button class="%s"%s onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
-                      % ('on' if group_mode() == k else '', '' if (k == 'ai' or find_bin('orca')) else ' disabled', k, label)
-                      for k, label in (('orca', 'Orca workspace'), ('ai', 'AI topics'))))
+                      '<button class="%s" onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
+                      % ('on' if group_mode() == k else '', k, label)
+                      for k, label in (('orca', 'Orca workspace' if find_bin('orca') else 'Folder · terminal'), ('ai', 'AI topics'))))
             + sec('Orca animation', 'Orcas spyhop in the header',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({orcas:this.checked})"><i></i></label>' % (' checked' if orcas_on() else ''))
             + sec('Start at login', 'Run the board when you log in to this Mac',
