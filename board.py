@@ -892,7 +892,8 @@ def attach_procs(terms):
     meta = _PROC_CACHE.get('codex_meta') or {}
     claimed = {a['log'] for a in procs.values() if a.get('log')}
     codex_all = [x for x in procs.values() if x['kind'] == 'codex']
-    for t in terms:
+    todo = []
+    for t in terms:  # 1차: 확실한 증거(프로그램이 연 파일, 창 제목의 스레드 이름, resume 인자)
         a = by_pane.get('%s:%s' % (t.get('tabId'), t.get('leafId')))
         if not a:
             continue
@@ -909,34 +910,42 @@ def attach_procs(terms):
         latest = codex_latest_names(a.get('codex_home'))
         # 창 제목의 이름을 열려 있는 후보들 사이에서만 찾는다 (옛 스레드에 같은 이름이 있어도 상관없다)
         by_title = [r for r in cands if head and latest.get(meta[r]['id']) == head]
-        tid = head if (by_title or head in latest.values()) else None
+        names_thread = bool(by_title) or head in latest.values()
         pick, how = None, ''
-        if len(by_title) == 1:  # 1) 창 제목이 보여 주는 스레드 (/new·/resume 으로 바뀌어도 제목이 따라간다)
+        if len(by_title) == 1:  # 창 제목이 보여 주는 스레드 (/new·/resume 으로 바뀌어도 제목이 따라간다)
             pick, how = by_title[0], 'codex:loaded-thread-by-title'
-        elif not tid:  # 제목이 다른 스레드를 가리키면 아래 짐작은 하지 않는다
-            hit = [r for r in cands if a.get('resume') and meta[r]['id'] == a['resume']]
+        elif not names_thread and a.get('resume'):  # codex resume <id> 로 연 스레드. 처음 연 것일 뿐이라 이 폴더에서 가장 최근에 쓰인 후보일 때만
+            hit = [r for r in cands if meta[r]['id'] == a['resume']]
             try:
                 newest = max(cands, key=os.path.getmtime) if cands else None
             except OSError:
                 newest = None
-            if len(hit) == 1 and hit[0] == newest:  # 2) codex resume <id> 로 연 스레드 (처음 연 것일 뿐이라 제목이 생기면 제목을 따른다)
+            if len(hit) == 1 and hit[0] == newest:
                 pick, how = hit[0], 'codex:resume-arg'
-            else:  # 3) 이 프로그램이 뜬 직후 만들어진 스레드. 같은 폴더의 Codex 중 그 시각에 가장 가까이 뜬 것이 이 프로그램일 때만
-                fresh = []
-                crowd = [x for x in codex_all if x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and abs(x['start'] - a['start']) <= 15]
-                for r in ([] if crowd else cands):
-                    ts = meta[r]['ts']
-                    near = [x for x in codex_all if x.get('cwd') == a.get('cwd') and 0 <= ts - x['start'] <= 15]
-                    if near and min(near, key=lambda x: ts - x['start'])['pid'] == a['pid']:
-                        fresh.append(r)
-                if len(fresh) == 1:
-                    pick, how = fresh[0], 'codex:started-together'
         if pick:
-            t['_plog'] = pick
+            t['_plog'], a['bound'] = pick, pick
             claimed.add(pick)
             why(t, 'process', how=how)
         else:
-            why(t, 'process-unresolved', kind='codex', candidates=len(cands), title_names_thread=bool(tid))
+            todo.append((t, a, names_thread))
+    for t, a, names_thread in todo:  # 2차: 시작 시각. 제목이 다른 스레드를 가리키면 하지 않는다
+        cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
+        fresh = []
+        for r in ([] if names_thread else cands):
+            ts = meta[r]['ts']
+            # 같은 폴더에 아직 짝 없는 다른 Codex 가 이 스레드보다 먼저 떠 있으면, 시각만으로는 누구 것인지 모른다
+            if any(x['pid'] != a['pid'] and x.get('cwd') == a.get('cwd') and not (x.get('log') or x.get('bound')) and x['start'] <= ts
+                   for x in codex_all):
+                continue
+            if 0 <= ts - a['start'] <= 15:
+                fresh.append(r)
+        if len(fresh) == 1:
+            t['_plog'], a['bound'] = fresh[0], fresh[0]
+            claimed.add(fresh[0])
+            why(t, 'process', how='codex:started-together')
+        else:
+            why(t, 'process-unresolved', kind='codex', candidates=len(cands), title_names_thread=names_thread)
+
 
 def is_codex_log(path):
     return bool(path) and os.path.basename(path).startswith('rollout-')
