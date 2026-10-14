@@ -110,6 +110,8 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 @keyframes flow{to{stroke-dashoffset:-11}}
 
 /* 설치 */
+.mbar{max-width:760px;margin:28px auto 0;display:flex;gap:28px;align-items:center;text-align:left}.mbar .shot{margin:0;width:220px;flex:none;border-radius:18px}.mbar h3{font-size:19px;margin:0 0 8px}.mbar p{margin:0;color:var(--ink2);line-height:1.6}
+@media (max-width:640px){.mbar{flex-direction:column;text-align:center}.mbar .shot{width:min(240px,70%)}}
 .term{max-width:760px;margin:48px auto 0;background:#191f28;border-radius:20px;padding:22px 24px;text-align:left;position:relative;box-shadow:var(--shadow)}
 .term pre{margin:0;color:#e8ecf1;font:15px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-x:auto}
 .term .c{color:#7c8794}
@@ -187,7 +189,7 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 
 @media (prefers-reduced-motion:reduce){.flow{animation:none;stroke-dasharray:none}.mk{animation:none}.js .rv,.js .rv.tilt{opacity:1;transform:none;transition:none;filter:none}.js .lines .ln>span,.js .anat .mk{transform:none;transition:none}.hlogo .bob,.hlogo .wv,.lightup.on .n,.term pre .cur{animation:none}html{scroll-behavior:auto}}
 @media (max-width:900px){section{padding:84px 20px}.hls,.legend{grid-template-columns:1fr 1fr}.row,.row.rev,.pair,.uses{grid-template-columns:1fr;gap:28px}.row.rev .txt{order:0}.feats{grid-template-columns:1fr}.nav .links{margin-right:150px}.nav .links a{padding:7px 8px}}
-</style>
+.tbl{max-width:880px;margin:28px auto 0;overflow-x:auto;border-radius:16px;border:1px solid var(--line,rgba(127,127,127,.2))}.tbl table{width:100%;border-collapse:collapse;font-size:14px;text-align:left}.tbl th,.tbl td{padding:12px 14px;border-top:1px solid var(--line,rgba(127,127,127,.15))}.tbl thead th{border-top:0;font-size:12.5px;opacity:.7;font-weight:600}.tbl td:not(:first-child){text-align:center}.tbl th:not(:first-child){text-align:center}</style>
 </head>
 <body>
 <button class="themetgl" id="themeBtn" type="button" aria-label="화면 밝기 전환"></button><button class="themetgl langtgl" id="langBtn" type="button" aria-label="Language">EN</button>
@@ -214,7 +216,7 @@ document.documentElement.classList.add('js');
 </script>
 
 <nav class="nav"><div class="in"><a class="brand" href="#top"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><clipPath id="lm1"><rect width="32" height="26.2"/></clipPath></defs><rect width="32" height="32" rx="8" fill="#3182f6"/><g clip-path="url(#lm1)"><g transform="translate(1.5 2) scale(.82)"><g stroke="#0b1220" stroke-width=".7" stroke-linejoin="round"><path fill="#10131a" d="M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z"/><path fill="#fff" stroke="none" d="M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z"/><path fill="#fff" stroke="none" d="M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z"/><path fill="#10131a" d="M24 29Q32 33 32 40Q27 39 22 33Z"/><circle cx="24" cy="16" r=".8" fill="#10131a" stroke="none"/></g></g></g><path d="M3 27.2 Q7 25.3 11 27.2 T19 27.2 T27 27.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg><b>Spyhop</b></a><div class="links">
-<a href="#board" data-en="Overview">한눈에</a><a href="#more" data-en="Features">기능</a><a href="#how" data-en="How it works">동작 방식</a><a href="#install" data-en="Install">설치</a><a href="#faq" data-en="FAQ">질문</a>
+<a href="#board" data-en="Overview">한눈에</a><a href="#how" data-en="How it works">동작 방식</a><a href="#install" data-en="Install">설치</a><a href="#faq" data-en="FAQ">질문</a>
 </div></div></nav>
 
 <!-- 첫 화면 -->
@@ -232,7 +234,7 @@ document.documentElement.classList.add('js');
 <div class="hls">
 <a class="hl rv" href="#board"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><b data-en="Every session, one board">모든 세션을 한 보드에</b><span data-en="Claude Code or Codex, any model">Claude Code든 Codex든, 어떤 모델이든</span></a>
 <a class="hl rv d1" href="#steps"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6l2 2 4-4"/><path d="M4 14l2 2 4-4"/><path d="M14 7h6M14 15h6"/><circle cx="7" cy="20" r="1"/><path d="M14 20h6"/></svg></div><b data-en="Which step it’s on">지금 몇 단계인지</b><span data-en="Done, now, next, for every session">끝낸 일 · 지금 하는 일 · 다음 일</span></a>
-<a class="hl rv d2" href="#board"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></div><b data-en="Your turn comes first">내 차례부터 맨 위로</b><span data-en="Waiting sessions rise to the top, stuck ones get flagged">답을 기다리는 세션이 위로, 멈춘 세션은 따로 표시</span></a>
+<a class="hl rv d2" href="#terminals"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><path d="M12 15h5"/></svg></div><b data-en="Any terminal">어느 터미널이든</b><span data-en="Orca, Terminal, iTerm2, Ghostty, WezTerm">오르카 · Terminal · iTerm2 · Ghostty · WezTerm</span></a>
 <a class="hl rv d3" href="#detail"><div class="ic"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></div><b data-en="No pane-hopping">창을 열지 않아도</b><span data-en="The last reply and TODOs, right on the card">마지막 답과 할 일을 카드에서 바로</span></a>
 </div>
 </div>
@@ -263,6 +265,25 @@ document.documentElement.classList.add('js');
 <div class="shot rv r d1" style="margin:0"><img class="crop" style="aspect-ratio:1600/560" src="{{ai-groups}}" alt="AI 주제로 묶은 보드" data-en-alt="The board grouped by AI topics"></div>
 </div></section>
 
+<!-- 터미널 -->
+<section id="terminals"><div class="in center">
+<div class="eyebrow rv" data-en="Any terminal">어느 터미널이든</div>
+<h2 class="rv d1" data-en="Wherever you start it,&lt;br&gt;it shows up">어디서 띄우든<br>보드에 떠요</h2>
+<p class="sub rv d2" data-en="Spyhop finds sessions from the running claude and codex programs, so sessions in Terminal, iTerm2, Ghostty and WezTerm show up too, in a column per folder and terminal. Orca adds a few extras.">실행 중인 claude·codex 프로그램에서 세션을 찾아요. 그래서 Terminal, iTerm2, Ghostty, WezTerm에서 띄운 세션도 폴더·터미널별 칸으로 떠요. 오르카에서는 몇 가지가 더 돼요.</p>
+<div class="tbl rv z"><table>
+<thead><tr><th></th><th>Orca</th><th>Terminal · iTerm2 · Ghostty · WezTerm</th><th data-en="Other terminals">다른 터미널</th></tr></thead>
+<tbody>
+<tr><td data-en="Cards, steps, summary, detail view">카드 · 단계 · 요약 · 상세 창</td><td>✅</td><td>✅</td><td>✅</td></tr>
+<tr><td data-en="Columns">칸</td><td data-en="Orca workspaces">오르카 워크스페이스</td><td data-en="folder · terminal">폴더 · 터미널</td><td data-en="folder · terminal">폴더 · 터미널</td></tr>
+<tr><td data-en="Go to session">세션으로 이동</td><td data-en="that pane">그 창</td><td data-en="that tab">그 탭</td><td data-en="brings the app forward">앱만 앞으로</td></tr>
+<tr><td data-en="End session">세션 끝내기</td><td data-en="closes that split pane">그 분할 창만 닫기</td><td data-en="stops the AI, the tab stays">AI만 끝내고 탭은 남김</td><td data-en="stops the AI, the tab stays">AI만 끝내고 탭은 남김</td></tr>
+<tr><td data-en="Drag to move to another workspace">끌어서 다른 워크스페이스로 옮기기</td><td>✅</td><td>❌</td><td>❌</td></tr>
+<tr><td data-en="Helper line under a card">카드 아래 도우미 한 줄</td><td>✅</td><td>❌</td><td>❌</td></tr>
+<tr><td data-en="AI topic grouping · spyhop doctor">AI 주제 묶기 · spyhop doctor</td><td>✅</td><td>✅</td><td>✅</td></tr>
+</tbody></table></div>
+<p class="cap" data-en="tmux and SSH sessions outside Orca are not supported.">오르카 밖의 tmux·SSH 세션은 지원하지 않아요.</p>
+</div></section>
+
 <!-- 단계 -->
 <section id="steps" class="soft"><div class="in row rev">
 <div class="txt">
@@ -287,16 +308,17 @@ document.documentElement.classList.add('js');
 <p class="sub rv d2" data-en="No need to open the pane and scroll back: what it is doing and where it stopped, on one screen.">창을 열어 대화를 거슬러 올라가지 않아도, 무엇을 하고 있고 어디서 멈췄는지 한 화면에서 알 수 있어요.</p>
 <div class="anat rv z">
 <img class="crop" style="aspect-ratio:1600/530" src="{{detail}}" alt="상세 보기 화면" data-en-alt="Detail view">
-<span class="mk" style="left:37%;top:34%">4</span>
-<span class="mk" style="left:13.4%;top:65.5%">1</span>
-<span class="mk" style="left:85.3%;top:52%">2</span>
-<span class="mk" style="left:56.6%;top:71.2%">3</span>
+<span class="mk" style="left:36.8%;top:24%">4</span>
+<span class="mk" style="left:28.5%;top:11.5%">5</span>
+<span class="mk" style="left:13.4%;top:56.5%">1</span>
+<span class="mk" style="left:85.3%;top:50%">2</span>
+<span class="mk" style="left:56.6%;top:71.3%">3</span>
 </div>
 <div class="legend">
 <div class="lg rv"><i>1</i><b data-en="Step details">단계별 설명</b><p data-en="One line per step. The current step stands out, the next ones are dimmed.">단계마다 무엇을 했는지 한 줄씩. 지금 단계는 강조되고 다음 단계는 흐리게.</p></div>
 <div class="lg rv d1"><i>2</i><b data-en="Last reply">마지막 답</b><p data-en="The last line or two the AI said, so you know what it is waiting for without opening the pane.">AI가 마지막에 한 말 한두 줄. 창을 안 열어도 무슨 답을 기다리는지 알아요.</p></div>
 <div class="lg rv d2"><i>3</i><b data-en="TODO">할 일 목록</b><p data-en="Things this session should take care of. Click to check them off yourself.">이 세션이 챙길 일. 눌러서 직접 체크할 수 있어요.</p></div>
-<div class="lg rv d3"><i>4</i><b data-en="Go to pane · End">창으로 이동 · 끝내기</b><p data-en="Jump straight to its Orca pane or terminal tab, or close just that one Orca split pane after confirming.">그 오르카 창이나 터미널 탭으로 바로 넘어가거나, 확인 후 오르카 분할 창 하나만 닫아요.</p></div>
+<div class="lg rv d3"><i>4</i><b data-en="Go to session · End">세션으로 이동 · 끝내기</b><p data-en="Jump to its Orca pane or terminal tab. Ending closes just that Orca split pane, or stops only the AI in a terminal; the card disappears right away.">그 오르카 창이나 터미널 탭으로 바로 넘어가요. 끝내면 오르카는 그 분할 창만 닫고, 터미널은 AI만 끝내요. 카드는 바로 사라져요.</p></div><div class="lg rv d3"><i>5</i><b data-en="Where it runs">어디서 도는지</b><p data-en="Next to the workspace name: Orca or the terminal. Model and session ID sit quietly beside the buttons.">칸 이름 옆에 오르카인지 어느 터미널인지. 모델과 세션 ID는 버튼 옆에 흐리게.</p></div>
 </div>
 </div></section>
 
@@ -304,32 +326,16 @@ document.documentElement.classList.add('js');
 
 
 
-
-<!-- 기능 -->
-<section id="more" class="soft"><div class="in center">
-<div class="eyebrow rv" data-en="And more">그 밖에도</div>
-<h2 class="rv d1" data-en="Features added&lt;br&gt;from daily use">매일 쓰면서<br>넣은 기능들</h2>
-<div class="feats">
-<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div><h3 data-en="Updates without reloads">새로고침 없는 갱신</h3><p data-en="Every 10 seconds, only changed cards are swapped, and cards that change place glide to their new spot. An open detail view stays open.">10초마다 바뀐 카드만 바꿔 끼우고, 자리가 바뀐 카드는 미끄러지듯 옮겨 가요. 열어 둔 상세 창도 그대로예요.</p></div>
-<div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/></svg></div><h3 data-en="Helpers as one line">헬퍼는 한 줄로</h3><p data-en="Review and cross-check panes a session starts show up as “↳ Codex · Done” under it, not as cards of their own.">세션이 띄운 리뷰·교차검증 창은 카드를 따로 만들지 않고 그 세션 아래 「↳ Codex · Done」으로 붙어요.</p></div>
-<div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><h3 data-en="Group by AI topics">AI 주제로 묶기</h3><p data-en="Split columns by topic instead of workspace. Drag a card to pin it to another topic.">워크스페이스 대신 일의 주제로 칸을 나눠요. 끌어서 다른 주제에 고정할 수도 있어요.</p></div>
-<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/></svg></div><h3 data-en="Pick the summarizer">요약 모델은 고르기</h3><p data-en="Uses the claude or codex CLI you are already logged in to. Switch it in Settings.">이미 로그인한 claude·codex CLI를 그대로 써요. 설정에서 바꿀 수 있어요.</p></div>
-<div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg></div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="The menu bar icon shows how many sessions are waiting for you. Click one to jump there.">메뉴바 아이콘에 내 차례인 세션 수가 떠요. 누르면 그 창으로 바로 가요.</p></div>
-<div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><path d="M2 16c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M12 13V5a2 2 0 0 1 4 0"/></svg></div><h3 data-en="An orca when it finishes &lt;span class=&quot;new&quot;&gt;Next release&lt;/span&gt;">끝나면 범고래 <span class="new">다음 버전</span></h3><p data-en="When a session finishes, an orca pops its head out of the header wave. It never covers your cards, and you can turn it off in Settings.">세션이 일을 끝내면 헤더 물결에서 범고래가 고개를 내밀어요. 카드는 가리지 않고, 설정에서 끌 수 있어요.</p></div>
-</div>
-<div class="pair">
-<div class="rv l"><div class="shot"><img class="crop" style="aspect-ratio:1600/470" src="{{peek}}" alt="헤더 물결 위로 고개를 내민 범고래" data-en-alt="An orca peeking out of the header wave"></div><p class="cap" data-en="When a session finishes, an orca rises straight out of the header wave, looks around and sinks back.">세션이 일을 끝내면 헤더 물결에서 범고래가 똑바로 올라와 둘러보고 내려가요.</p></div>
-<div class="rv r d1"><div class="shot"><img src="{{settings}}" alt="설정 화면" data-en-alt="Settings"></div><p class="cap" data-en="Summarizer, theme, grouping, update interval, and the board’s own CPU and memory, all in Settings.">요약 모델, 테마, 묶는 방식, 갱신 주기, 보드가 쓰는 CPU·메모리까지 설정 한 곳에서.</p></div>
-</div>
-</div></section>
 
 <!-- 옮기기 -->
 <section id="move"><div class="in center">
-<div class="eyebrow rv" data-en="Move sessions &lt;span class=&quot;new&quot;&gt;Next release&lt;/span&gt;">세션 옮기기 <span class="new">다음 버전</span></div>
+<div class="eyebrow rv" data-en="Move sessions">세션 옮기기</div>
 <h2 class="rv d1" data-en="Drag it like a kanban card,&lt;br&gt;the conversation follows">칸반처럼 끌어다 놓으면<br>대화가 그대로 따라가요</h2>
-<p class="sub rv d2" data-en="The moment you drop a card in another column, it is already there. A thin bar runs under the card while Orca moves the pane.">카드를 다른 칸에 놓는 순간 카드는 이미 새 칸에 들어가 있어요. 오르카에서 창이 옮겨지는 동안에는 카드 아래 얇은 막대가 돌아요.</p>
+<p class="sub rv d2" data-en="Drop a card in another column and it is already there; for Orca sessions the pane moves to that workspace and the conversation carries on (when it is your turn). Empty workspaces slide in from a drawer on the left while you drag.">카드를 다른 칸에 놓는 순간 이미 새 칸에 들어가 있어요. 오르카 세션은 오르카 창까지 그 워크스페이스로 옮겨 가고 대화가 그대로 이어져요(내 차례일 때). 세션이 없는 워크스페이스는 끄는 동안 왼쪽 서랍에서 골라요.</p>
 <div class="shot rv z vid"><video id="mv" autoplay muted loop playsinline preload="auto" src="{{move.mp4}}" aria-label="카드를 끌어 infra 칸에 놓으면 바로 들어가고 옮기는 동안 아래 막대가 돈다" data-en-aria-label="Dragging a card into the infra column: it lands right away and a bar runs while it moves"></video></div>
 <p class="cap" data-en="The real drag and drop (demo data). The card lands right away; when the bar finishes, the move is done.">카드를 끌어 놓는 실제 동작이에요(데모 데이터). 놓는 순간 새 칸에 들어가고, 아래 막대가 끝나면 이동 완료.</p>
+<div class="shot rv z" style="margin-top:22px"><img class="crop" style="aspect-ratio:1600/560" src="{{drag}}" alt="카드를 끄는 동안 왼쪽 서랍에 세션 없는 워크스페이스가 나온 모습" data-en-alt="While dragging, empty workspaces slide in from a drawer on the left"></div>
+<p class="cap" data-en="Empty workspaces wait in a drawer on the left; the board itself does not move.">세션이 없는 워크스페이스는 왼쪽 서랍에서 기다려요. 보드는 움직이지 않아요.</p>
 </div></section>
 
 <!-- 동작 -->
@@ -368,6 +374,7 @@ brew upgrade spyhop &amp;&amp; spyhop
 <span class="c" data-en="# menu bar icon (optional)"># 메뉴바 아이콘 (선택)</span>
 brew install --cask swiftbar &amp;&amp; spyhop</pre>
 </div>
+<div class="mbar rv z d1"><div class="shot"><img src="{{panel}}" alt="메뉴바 패널. 내 차례·작업 중 세션 수와 세션 목록" data-en-alt="The menu bar panel: sessions waiting on you and working, with the list"></div><div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="With SwiftBar installed, the orca icon shows how many sessions are waiting on you. Click a row to jump straight to that session.">SwiftBar를 깔면 메뉴바의 범고래 아이콘에 내 차례인 세션 수가 떠요. 줄을 누르면 그 세션으로 바로 가요.</p></div></div>
 </div></section>
 
 <!-- 질문 -->
@@ -377,7 +384,7 @@ brew install --cask swiftbar &amp;&amp; spyhop</pre>
 <div class="faq rv">
 <details><summary data-en="Can I use it without Orca?">오르카 없이도 쓸 수 있나요?</summary><p data-en="Yes. Spyhop finds sessions from the running claude and codex processes, so sessions in Terminal, iTerm2, Ghostty and WezTerm show up too, grouped by folder and terminal. Go to session jumps to the exact tab in those four; other terminals are only brought to the front. Moving cards between columns needs Orca.">네. 실행 중인 claude·codex 프로그램에서 세션을 찾기 때문에 Terminal, iTerm2, Ghostty, WezTerm에서 띄운 세션도 폴더·터미널별로 보여요. 이 네 터미널은 세션으로 이동하면 그 탭까지 가고, 다른 터미널은 앱만 앞으로 가져와요. 카드를 다른 칸으로 옮기는 건 오르카에서만 돼요.</p></details>
 <details><summary data-en="Does my conversation leave my machine?">대화 내용이 회사 밖으로 나가나요?</summary><p data-en="Only to the summarizer you pick in Settings. Values that look like keys or tokens are masked first, but that filter is best effort, so pick a model your organization allows. The board itself only runs on your Mac.">요약할 때 설정에서 고른 모델로만 나가요. 키·토큰처럼 보이는 값은 가리고 보내지만 완벽한 필터는 아니라서, 회사가 허용한 모델을 골라 주세요. 보드 자체는 내 맥 안에서만 열려요.</p></details>
-<details><summary data-en="A session is missing from the board.">세션이 보드에 안 보여요.</summary><p data-en="First update with &lt;code&gt;brew upgrade spyhop &amp;amp;&amp;amp; spyhop&lt;/code&gt;. Renamed sessions, sessions idle for days and untitled ones are all found now. If it is still missing, let us know below.">먼저 <code>brew upgrade spyhop &amp;&amp; spyhop</code>으로 최신 버전인지 봐 주세요. 이름을 바꾼 세션, 며칠 쉰 세션, 제목이 아직 없는 세션도 찾도록 고쳐 두었어요. 그래도 안 보이면 아래로 알려 주세요.</p></details>
+<details><summary data-en="A session is missing from the board.">세션이 보드에 안 보여요.</summary><p data-en="Run &lt;code&gt;spyhop doctor&lt;/code&gt;. It explains, card by card, how each session was found or why it was not, without printing titles. Also make sure you are up to date with &lt;code&gt;brew upgrade spyhop &amp;amp;&amp;amp; spyhop&lt;/code&gt;.">터미널에서 <code>spyhop doctor</code>를 실행해 보세요. 세션마다 어떻게 찾았는지, 못 찾았으면 왜인지 알려 줘요(제목은 기본으로 가려요). 최신 버전인지도 <code>brew upgrade spyhop &amp;&amp; spyhop</code>으로 확인해 주세요.</p></details>
 <details><summary data-en="Does moving a card change the folder the AI works in?">카드를 옮기면 AI가 일하는 폴더도 바뀌나요?</summary><p data-en="No. Only the Orca pane moves; the AI keeps the same conversation in its original folder. If the folders differ, Spyhop tells you after the move.">아니요. 오르카 창만 그 워크스페이스로 옮겨 가고, AI는 원래 폴더에서 같은 대화를 이어 가요. 폴더가 다르면 옮긴 뒤 알려 드려요.</p></details>
 <details><summary data-en="Can I move a session while it is working?">일하는 중인 세션도 옮길 수 있나요?</summary><p data-en="No, it would cut the work off. Move it once it shows “My turn”.">안 돼요. 하던 일이 끊기니까 「My turn」이 된 뒤에 옮겨 주세요.</p></details>
 <details><summary data-en="Will it slow my Mac down?">맥이 느려지지 않나요?</summary><p data-en="With 11 sessions it uses about 1% of the Mac’s CPU and about 60 MB of memory. Settings shows the live numbers, and a 30 or 60 second interval lowers them further.">세션 11개 기준 맥 CPU 약 1%, 메모리 약 60MB예요. 설정 맨 아래에서 실제 사용량을 볼 수 있고, 갱신 주기를 30·60초로 늘리면 더 줄어요.</p></details>

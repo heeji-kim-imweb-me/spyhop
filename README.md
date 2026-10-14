@@ -9,17 +9,20 @@
   <sub>See all your Claude Code and Codex sessions at once, and how far each one has come: done, now, next.</sub>
 </p>
 
-<p align="center"><a href="https://leeleelee3264.github.io/spyhop/"><b>Tour the features →</b></a></p>
+<p align="center"><a href="https://leeleelee3264.github.io/spyhop/"><b>Tour the features (intro page with demo video) →</b></a></p>
 
 <p align="center">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-only-1e293b?logo=apple&logoColor=white">
   <img alt="Homebrew" src="https://img.shields.io/badge/brew-leeleelee3264%2Ftap-1e293b?logo=homebrew&logoColor=white">
   <img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-supported-1e293b">
   <img alt="Codex" src="https://img.shields.io/badge/Codex-supported-1e293b">
-  <img alt="Orca" src="https://img.shields.io/badge/Orca-workspaces-1e293b">
+  <img alt="Orca" src="https://img.shields.io/badge/Orca-optional-1e293b">
+  <img alt="Terminals" src="https://img.shields.io/badge/Terminal%20%C2%B7%20iTerm2%20%C2%B7%20Ghostty%20%C2%B7%20WezTerm-supported-1e293b">
 </p>
 
 ![Board](docs/screenshots/board.png)
+
+<sub>Demo data. The last column is a session started in iTerm2, outside Orca.</sub>
 
 Spyhop does two things:
 
@@ -100,7 +103,8 @@ Turn off **Start at login** in Settings first, and remove the **.spyhop** projec
 
 ## More
 
-How it works, privacy and file locations: [docs/details.md](docs/details.md).
+- Feature tour with screenshots and a demo video (Korean and English): https://leeleelee3264.github.io/spyhop/
+- How it works, privacy and file locations: [docs/details.md](docs/details.md).
 
 ## TODO
 

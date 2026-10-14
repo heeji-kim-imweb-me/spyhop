@@ -20,7 +20,7 @@ def patch(mode):
 D.patch = patch
 D.patch('orca')
 D.B.build()
-base = open(D.B.OUT, encoding='utf-8').read().replace('location.reload()', '0')
+base = open(D.B.OUT, encoding='utf-8').read().replace('location.reload()', '0').replace("fetch('http://127.0.0.1:47613/gen'", "(function(){return new Promise(function(){})})(''")
 
 CSS = ('*{transition:none!important;animation:none!important}.sea .orca{display:none!important}'
        '.card.moving:after{background-position:var(--bp,0) 0,0 0!important}#toast{transition:none!important}')
@@ -32,7 +32,7 @@ var T=__T__,c=document.querySelector('main .card'),cols=document.querySelectorAl
 var r0=c.getBoundingClientRect(),tr=to.getBoundingClientRect();
 var gx=tr.left+20,gy=tr.top+60;
 if(T>=0.1&&T<0.6){var k=ease(Math.min(1,(T-0.1)/0.45));
-  startDrag(c,{clientX:r0.left+40,clientY:r0.top+20});
+  startDrag(c,{clientX:r0.left+40,clientY:r0.top+20},{x:r0.left+40,y:r0.top+20});
   drag.float.style.transform='translate('+lerp(r0.left,gx,k)+'px,'+lerp(r0.top,gy,k)+'px) rotate('+(1.5*Math.min(1,k*4))+'deg) scale('+(1+0.03*Math.min(1,k*4))+')';
   if(k>0.55)to.classList.add('drop')}
 if(T>=0.6){var more=to.querySelector('.more');to.insertBefore(c,more.nextSibling);recount();
