@@ -2381,6 +2381,9 @@ def serve():
                    'else %s; fi' % (pid, pid, go))
         else:
             cmd = 'sleep 3; ' + go
+        # 앞에 빈칸 하나: 셸 시작 파일이 키 하나로 답하는 질문(oh-my-zsh 의 "업데이트할까요? [Y/n]")을 띄우면
+        # 오르카가 친 명령의 첫 글자가 그 답으로 먹힌다. 빈칸은 "아니요"로 넘어가고, 질문이 없으면 아무 일도 안 한다
+        cmd = ' ' + cmd
         wts = {w['id']: w for w in orca('worktree', 'list').get('worktrees', [])}
         if req.get('wid') not in wts:
             return self.send(404, 'That workspace is gone. Nothing was moved.'.encode())
@@ -2401,7 +2404,7 @@ def serve():
         sys.stderr.write('move %s -> %s: %s | %s\n' % (info['handle'], req['wid'], cmd, (r.stdout or r.stderr)[:200]))
         if r.returncode != 0:
             return self.send(500, 'Could not open a pane there. The session was not touched.'.encode())
-        newh = None
+        newh = newkey = None
         try:
             res = json.loads(r.stdout).get('result') or {}
             new = res.get('split') or res.get('terminal') or res
@@ -2412,7 +2415,8 @@ def serve():
                 new = same[0] if len(same) == 1 else new
             newh = new.get('handle')
             if new.get('tabId') and new.get('leafId'):
-                save_json(MOVED_FILE, load_moved() + ['%s:%s' % (new['tabId'], new['leafId'])])
+                newkey = '%s:%s' % (new['tabId'], new['leafId'])
+                save_json(MOVED_FILE, load_moved() + [newkey])
         except (ValueError, AttributeError):
             pass
         # 2) 그다음 원래 창을 닫는다 (분할 창 하나만, --tab 금지). 새 창은 원래 프로그램이 끝나는 대로 이어서 연다
@@ -2425,6 +2429,8 @@ def serve():
         if not gone:
             return self.send(500, ('Opened a new pane but could not close the old one. Close it yourself, '
                                    'then the new pane continues the session.').encode())
+        if newh and newkey:
+            threading.Thread(target=rescue_resume, args=(newh, newkey, go, sid.group(1)), daemon=True).start()
         name = dest.get('displayName') or os.path.basename(dest.get('path') or '')
         msg = 'Moved to %s' % name
         if not target and newh:  # 아직 화면에 안 띄운 워크스페이스에 새 탭으로 열었으면, 안 보이니 그 창을 띄워 준다
@@ -2464,6 +2470,27 @@ def session_cwd(log):
         return found[-1].decode() if found else None
     except OSError:
         return None
+
+
+def rescue_resume(handle, key, go, sid, wait=20):
+    """옮긴 새 창에서 이어 열기가 안 됐으면 한 번 더 보낸다.
+    오르카는 셸이 준비됐다는 표시를 1.5초만 기다리고 명령을 쳐 넣는다. 그 사이 셸 시작 파일이 질문을 띄우면
+    명령 앞부분이 그 답으로 먹힌다. 키 하나짜리 질문은 명령 앞 빈칸이 막고, 줄 단위 질문 같은 나머지는 여기서 다시 보낸다."""
+    end = time.time() + wait
+    while time.time() < end:
+        time.sleep(1)
+        if any(a.get('orca_pane_key') == key for a in agent_procs().values()):
+            return
+    if claude_pid(sid):  # 이미 다른 곳에서 돌고 있으면 두 번 열지 않는다
+        return
+    def send(*args):
+        subprocess.run(['orca', 'terminal', 'send', '--terminal', handle, *args, '--json'], capture_output=True, text=True, timeout=15)
+    send('--text', '\x03')  # 줄에 남은 글자·질문을 Ctrl+C 로 끝낸다
+    time.sleep(2)
+    if any(a.get('orca_pane_key') == key for a in agent_procs().values()):
+        return  # 그 사이 원래 명령이 돌기 시작했으면 두 번 보내지 않는다
+    send('--text', ' ' + go, '--enter')
+    sys.stderr.write('move %s: resume did not start, sent it again\n' % handle)
 
 
 def claude_pid(session_id):
