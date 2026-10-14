@@ -110,6 +110,8 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 @keyframes flow{to{stroke-dashoffset:-11}}
 
 /* 설치 */
+.mbar{max-width:760px;margin:28px auto 0;display:flex;gap:28px;align-items:center;text-align:left}.mbar .shot{margin:0;width:220px;flex:none;border-radius:18px}.mbar h3{font-size:19px;margin:0 0 8px}.mbar p{margin:0;color:var(--ink2);line-height:1.6}
+@media (max-width:640px){.mbar{flex-direction:column;text-align:center}.mbar .shot{width:min(240px,70%)}}
 .term{max-width:760px;margin:48px auto 0;background:#191f28;border-radius:20px;padding:22px 24px;text-align:left;position:relative;box-shadow:var(--shadow)}
 .term pre{margin:0;color:#e8ecf1;font:15px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-x:auto}
 .term .c{color:#7c8794}
@@ -372,6 +374,7 @@ brew upgrade spyhop &amp;&amp; spyhop
 <span class="c" data-en="# menu bar icon (optional)"># 메뉴바 아이콘 (선택)</span>
 brew install --cask swiftbar &amp;&amp; spyhop</pre>
 </div>
+<div class="mbar rv z d1"><div class="shot"><img src="{{panel}}" alt="메뉴바 패널. 내 차례·작업 중 세션 수와 세션 목록" data-en-alt="The menu bar panel: sessions waiting on you and working, with the list"></div><div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="With SwiftBar installed, the orca icon shows how many sessions are waiting on you. Click a row to jump straight to that session.">SwiftBar를 깔면 메뉴바의 범고래 아이콘에 내 차례인 세션 수가 떠요. 줄을 누르면 그 세션으로 바로 가요.</p></div></div>
 </div></section>
 
 <!-- 질문 -->
