@@ -76,6 +76,8 @@ If a session is missing or looks wrong, run `spyhop doctor`. It explains, card b
 Spyhop uses the AI you already have: a logged-in `claude` or `codex` CLI. Switch models in **Settings → Summarizer**.
 Transcripts go to the model you pick (keys and passwords are masked first), so pick one your organization allows.
 
+How much it uses: only sessions whose transcript changed are summarized, at most once a minute each (once every 3 or 5 minutes at the 30 s or 60 s update interval), and only the new part of the transcript is sent. Idle sessions cost nothing. Measured on one Mac over 30 minutes with 6 sessions open, a few of them working: 53 summarizer calls, about 4,500 characters sent per call.
+
 ## What you get
 
 - **Step flow** on every card: `Done` · `Now` · `Next`, plus purple `Intercept` for a quick side task. When space runs out, cards shrink to progress bars (`3/4 · Review`).

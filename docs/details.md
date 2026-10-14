@@ -42,6 +42,7 @@ Typical cost on a Mac with ~11 sessions: about 60 MB of memory and around 1% of 
    - The first call reads the whole conversation. After that it only sends the previous summary plus the new part of the conversation, so titles and finished steps stay put.
    - When the new part contains a new request from you, the session is summarized from scratch instead, so the current step can't get stuck.
    - Each session is re-summarized at most once per 1–5 minutes, depending on the update interval.
+   - Measured on one Mac over 30 minutes (6 sessions open, a few working, 10 s interval): 53 calls, 2,900 to 5,800 characters each (median about 4,500), 51 of them sending only the new part of the transcript.
 4. Helper panes started through Orca orchestration are attached to the session that started them (via `parentPaneKey`, or the orchestration run's coordinator). Spyhop doesn't guess from names or content: any pane another session opened through Orca becomes a helper line, whether it is a cross-check, a review or a build.
    - A helper that reports done and then gets new work (more than 2 minutes later) becomes its own card.
    - Helpers are never closed automatically.
