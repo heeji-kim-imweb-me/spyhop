@@ -2068,7 +2068,9 @@ def _build():
             grouping = ('<div id="grouping"><i class="donut"></i>Grouping %d session%s by topic…</div>'
                         % (waiting, '' if waiting == 1 else 's'))
     cols, modals, count, colwid = {}, [], {'wait': 0, 'busy': 0}, {}
-    sort = load_config().get('sort', 'recent')  # recent: 최근에 내 차례가 된 칸부터 · wait: 오래 기다린 칸부터 · workspace: 워크스페이스(그룹) 순서
+    sort = load_config().get('sort', 'recent')  # recent: 최근에 내 차례가 된 칸부터 · wait: 오래 기다린 칸부터 (두 보기 모두 같은 규칙)
+    if sort not in ('recent', 'wait'):
+        sort = 'recent'
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
         w = worktrees.get(t['worktreeId'], {})
         if mode == 'ai':
@@ -2087,8 +2089,6 @@ def _build():
 
     def col_key(item):
         (rank, ws), cards = item
-        if sort == 'workspace':  # 오르카 워크스페이스 순서(오르카의 sortOrder) / AI 그룹이 생긴 순서
-            return (ws == UNSORTED, -rank)
         return (ws == UNSORTED, min(o for o, _ in cards))  # 칸의 맨 위 카드 기준. Unsorted 는 맨 뒤
 
     def col_head(ws, cards):
@@ -2116,11 +2116,7 @@ def _build():
                         % (' on' if k == cur else '', key, k, long, '<em>&#10003;</em>' if k == cur else '') for k, _, long in opts)
         return ('<div class="dd"><span class="tl">%s</span><button class="jc" onclick="ddOpen(event,this)">%s<span class="car">&#9662;</span></button>'
                 '<div class="dm">%s</div></div>' % (label, names.get(cur, cur), items))
-    sorter = '<div class="tb">%s%s</div>' % (
-        dropdown('Group by', 'group_by', mode, (('orca', 'Workspace', 'Orca workspace'), ('ai', 'AI topics', 'AI topics'))),
-        dropdown('Sort', 'sort', sort, (('recent', 'Newest', 'Newest first'), ('wait', 'Longest wait', 'Longest wait first'),
-                                        ('workspace', 'Group order' if mode == 'ai' else 'Workspace order',
-                                         'Group order' if mode == 'ai' else 'Workspace order'))))
+    sorter = '<div class="tb">%s</div>' % dropdown('Sort', 'sort', sort, (('recent', 'Newest', 'Newest first'), ('wait', 'Longest wait', 'Longest wait first')))
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or '<p class="none">The sea is calm · no sessions running.</p>', ''.join(modals) + render_settings()))
@@ -2287,7 +2283,7 @@ def serve():
                     set_autostart(bool(req['autostart']))
                 if req.get('group_by') == 'ai':
                     _GROUPING['at'] = 0
-                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('orca', 'ai')), ('sort', ('recent', 'wait', 'workspace'))):
+                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('orca', 'ai')), ('sort', ('recent', 'wait'))):
                     if key in req:
                         if req[key] not in allowed:
                             return self.send(400, b'bad value')
