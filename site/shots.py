@@ -23,7 +23,7 @@ D.patch = patch
 
 def shot(html, name, w, h, hash_='#x', css='', js=''):
     page = os.path.join(D.TMP, name + '.html')
-    s = open(html, encoding='utf-8').read().replace('location.reload()', '0')
+    s = open(html, encoding='utf-8').read().replace('location.reload()', '0').replace("fetch('http://127.0.0.1:47613/gen'", "(function(){return new Promise(function(){})})(''")
     s = s.replace('</head>', '<style>%s</style></head>' % css)
     if js:
         s = s.replace('</body>', '<script>setTimeout(function(){%s},300)</script></body>' % js)
@@ -47,8 +47,8 @@ shot(board, 'settings', 1280, 980, hash_='#settings', css=FROZEN + '#mcpu,#mmem{
 shot(board, 'bars', 1280, 400, css=FROZEN)
 # 끄는 중: 손을 따라오는 카드 + 세션 없는 워크스페이스 서랍
 drag_js = ("var c=document.querySelectorAll('main .card')[0],r=c.getBoundingClientRect();"
-           "startDrag(c,{clientX:r.left+40,clientY:r.top+20});"
-           "setTimeout(function(){var s=document.querySelector('main .slot');if(!s)return;s.classList.add('drop');var q=s.getBoundingClientRect();"
+           "startDrag(c,{clientX:r.left+40,clientY:r.top+20},{x:r.left+40,y:r.top+20});drawerAt(20);"
+           "setTimeout(function(){var s=document.querySelector('.drawer .slot');if(!s)return;s.classList.add('drop');var q=s.getBoundingClientRect();"
            "drag.float.style.transform='translate('+(q.left+120)+'px,'+(q.top+34)+'px) rotate(2deg) scale(1.03)'},600);")
 shot(board, 'drag', 1280, 600, css=FROZEN, js=drag_js)
 # 놓은 직후: 카드는 바로 새 칸에, 아래 막대로 '옮기는 중'

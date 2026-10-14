@@ -6,15 +6,16 @@ Reference for things the README doesn't need to say.
 
 | | |
 |---|---|
-| What | A local web board of every Claude Code / Codex session running in Orca, each shown as its own progress (done · now · next steps) |
+| What | A local web board of every Claude Code / Codex session running on this Mac (in Orca, Terminal, iTerm2, Ghostty, WezTerm or any terminal), each shown as its own progress (done · now · next steps) |
 | Platform | macOS, Python 3.9+ (standard library only, no `pip install`) |
-| Needs | `orca` CLI on `PATH` · one summarizer: `claude` or `codex` logged in, or a DeepSeek API key |
+| Needs | one summarizer: `claude` or `codex` logged in, or a DeepSeek API key. The `orca` CLI is optional (adds workspace columns, moving and helper lines) |
 | DeepSeek (optional) | Faster summaries (about 6 s per session). Store a key once: `security add-generic-password -s deepseek-api -a "$USER" -w '<key>'` |
 | Start | `./spyhop`, or turn on **Start at login** in Settings |
 | Stops | By itself after 30 minutes with no AI sessions open, and on logout |
 | Is it running? | `curl -s http://127.0.0.1:47613/state.json` returns JSON |
 | Logs | `/tmp/progress-board/watch.log` · `~/Library/Logs/spyhop.log` when started at login |
-| Settings / groups | `~/.spyhop/config.json` · `~/.spyhop/groups.json` |
+| Settings / groups | `~/.spyhop/config.json` · `~/.spyhop/groups.json` · TODO check marks in `~/.spyhop/overrides.json` |
+| Diagnose | `spyhop doctor` (`--titles` to include titles) |
 | Request key | `/tmp/progress-board/token` (changing requests must carry it; only the board page has it) |
 | Cached summaries | `/tmp/progress-board/auto/<transcript>.json` (delete one to re-summarize that session from scratch) |
 | Port | `127.0.0.1:47613` (local only) |
@@ -28,12 +29,15 @@ Reference for things the README doesn't need to say.
 
 Only one board process runs at a time. The Orca tab opens `~/.spyhop/open.html`, which shows "Starting the board…" while the board is down and loads it as soon as it is up.
 
-Typical cost on a Mac with ~6 sessions: about 70–80 MB of memory and around 1% of total CPU at the 10-second interval.
+Typical cost on a Mac with ~11 sessions: about 60 MB of memory and around 1% of total CPU at the 10-second interval.
 
 ## How it works
 
-1. Every update, Spyhop asks Orca which panes are running agents and whether each one is working or waiting.
-2. It matches each pane to its transcript (`~/.claude/projects/…` for Claude, `~/.codex/sessions/…` for Codex).
+1. Spyhop starts from the running `claude` and `codex` programs (`ps`), checked every second; a new or ended program redraws the board at once.
+   - Claude: `~/.claude/sessions/<pid>.json` gives the session id, so the transcript is found no matter which folder it started in.
+   - Codex: the rollout files the program (or the Codex app-server) has open, narrowed by the thread name in the pane title, a `resume` argument and start time.
+   - A program inside an Orca pane is tied to that pane through its `ORCA_PANE_KEY`. Anything else becomes a card in a "folder · terminal" column.
+2. Orca panes without a matched program fall back to matching by title (`~/.claude/projects/…` for Claude, `~/.codex/sessions/…` for Codex).
 3. For sessions whose transcript changed, it asks the summarizer for a title, summary, steps and TODOs as JSON.
    - The first call reads the whole conversation. After that it only sends the previous summary plus the new part of the conversation, so titles and finished steps stay put.
    - When the new part contains a new request from you, the session is summarized from scratch instead, so the current step can't get stuck.
@@ -44,15 +48,15 @@ Typical cost on a Mac with ~6 sessions: about 70–80 MB of memory and around 1%
    - A cross-check run without Orca (the `codex` or `claude` CLI called from a session, or an in-process subagent) opens no pane, so it only shows up as a step in the calling session.
 5. It renders the board right away with the summaries it already has and serves it on `127.0.0.1`. Summaries are refreshed in the background, and the board is redrawn as soon as they land. Reloading the page redraws it on the spot.
 
-Panes whose transcript can't be found are left off the board.
+Panes whose transcript can't be found are left off the board, except a freshly started program, which shows as a "New session" card until its first message. `spyhop doctor` explains each case.
 
-A Codex session counts as working until its last turn completes in the transcript; Claude sessions use Orca's agent state.
+A Codex session counts as working until its last turn completes in the transcript; Claude sessions use Orca's agent state, or the status in `~/.claude/sessions/<pid>.json` outside Orca.
 
 Claude models offered in Settings are the current ones plus any found in your recent transcripts. Codex models come from `~/.codex/models_cache.json`.
 
 ## Privacy
 
-- Transcripts are sent to the summarizer you pick. Before sending, Spyhop masks strings that look like AWS keys, API tokens, JWTs and `password=` values. This is a best-effort filter, not a guarantee.
+- Transcripts are sent to the summarizer you pick (and titles and summaries, for AI topic grouping). Before anything is sent, Spyhop masks strings that look like AWS keys, API tokens, JWTs and `password=`, `token:` or `api_key` values, quoted or not. This is a best-effort filter, not a guarantee.
 - Summaries and state are kept in `/tmp/progress-board/`. Settings and topic groups live in `~/.spyhop/`.
 - The server listens on `127.0.0.1` only and only acts on sessions currently shown on the board. Requests that change anything must carry a random key that only the board page contains, so other web pages can't call it.
 - Board files are readable only by you (`/tmp/progress-board` is 0700).

@@ -73,7 +73,16 @@ SESSIONS = [
      [('Cert rotation', 'now')]),
 ]
 
-GROUPS = {0: 'Payments', 1: 'Payments', 2: 'Frontend', 3: 'Frontend', 4: 'Infra', 5: 'Infra'}
+# 오르카 밖 터미널에서 돌리는 세션 하나 (칸 = 폴더 · 터미널)
+OUTSIDE = ('scripts', 'iTerm2', 'wait', 'GPT-6.1-Sol medium', 6, 'Nightly backup check script',
+           'Wrote a script that checks last night\'s backups and posts a summary.',
+           'The script is ready; asked whether to run it from cron or a CI schedule.',
+           [('Read backup logs', 'done', 'Backups land in one bucket per database.'),
+            ('Write checker', 'done', 'Flags any database without a backup in 26 hours.'),
+            ('Schedule', 'now', 'Waiting: cron on the bastion or a CI schedule.')],
+           [('Backup checker', 'done'), ('Schedule', 'open')])
+
+GROUPS = {0: 'Payments', 1: 'Payments', 2: 'Frontend', 3: 'Frontend', 4: 'Infra', 5: 'Infra', 6: 'Infra'}
 
 
 def setup():
@@ -91,12 +100,24 @@ def setup():
                       'last_reply': reply,
                       'steps': [{'label': a, 'state': b, 'detail': c} for a, b, c in flow],
                       'items': [{'label': a, 'state': b, 'detail': ''} for a, b in todo]}
-    return terms, agents, steps
+    folder, app, st, model, mins, title, summary, reply, flow, todo = OUTSIDE
+    log = os.path.join(TMP, 'session-%d.jsonl' % len(SESSIONS))
+    open(log, 'w').write('{}\n')
+    wid = 'term:%s:/demo/%s' % (app, folder)
+    outside = {'handle': 'proc_9001', 'tabId': 'proc', 'leafId': '9001', 'worktreeId': wid, 'worktreePath': '/demo/' + folder,
+               'title': title, 'ptyId': '', 'lastOutputAt': (NOW - mins * 60) * 1000, 'log': log, '_model': model, '_mins': mins,
+               '_ext': app, '_proc': {'pid': 9001, 'kind': 'codex', 'start': NOW - mins * 60}, '_pkind': 'codex',
+               'agent': {'state': 'done', 'stateStartedAt': (NOW - mins * 60) * 1000}}
+    steps[log] = {'size': 3, 'pos': 1, 'at': NOW, 'ok_at': NOW, 'title': title, 'summary': summary, 'last_reply': reply,
+                  'steps': [{'label': a, 'state': b, 'detail': c} for a, b, c in flow],
+                  'items': [{'label': a, 'state': b, 'detail': ''} for a, b in todo]}
+    owt = {wid: {'id': wid, 'displayName': '%s · %s' % (folder, app), 'path': '/demo/' + folder, 'sortOrder': -1}}
+    return terms, agents, steps, outside, owt
 
 
 def patch(mode):
-    terms, agents, steps = setup()
-    by_log = {t['log']: t for t in terms}
+    terms, agents, steps, outside, owt = setup()
+    by_log = {t['log']: t for t in terms + [outside]}
 
     def fake_orca(*args):
         if args[:2] == ('worktree', 'list'):
@@ -105,11 +126,15 @@ def patch(mode):
             return {'terminals': [dict(t) for t in terms]}
         return {}
     B.orca = fake_orca
+    B.agent_procs = lambda: {}             # 이 맥에서 실제로 도는 세션이 데모 화면에 섞이지 않게
+    B.outside_terms = lambda: ([dict(outside)], dict(owt))
     B.orca_agents = lambda: agents
     B.layout_handles = lambda: {t['handle'] for t in terms}
     B.match_sessions = lambda ts, ws: [t.update(log=by_log_title[t['title']]) for t in ts]
-    by_log_title = {t['title']: t['log'] for t in terms}
+    by_log_title = {t['title']: t['log'] for t in terms + [outside]}
     B.summarize = lambda log: steps[log]
+    B.cached_summary = lambda log: steps.get(log)  # 보드는 저장된 요약을 읽는다
+    B.summarize_later = lambda logs: None
     B.read_tail = lambda h: []
     B.model_of = lambda log: by_log[log]['_model'] if log in by_log else ''
     B.turn_times = lambda log: ((NOW - by_log[log]['_mins'] * 60), (NOW - by_log[log]['_mins'] * 60)) if log in by_log else (None, None)
@@ -127,6 +152,7 @@ def shot(html, name, w, h, hash_='#x', css=''):
     page = os.path.join(TMP, name + '.html')
     s = open(html, encoding='utf-8').read()
     s = s.replace('location.reload()', '0')   # 데모 화면은 새로고침하지 않는다
+    s = s.replace("fetch('http://127.0.0.1:47613/gen'", "(function(){return new Promise(function(){})})(''")  # 실제 보드에 묻지 않게
     s = s.replace('</head>', '<style>%s</style></head>' % css)
     open(page, 'w', encoding='utf-8').write(s)
     out = os.path.join(OUTDIR, name + '.png')
@@ -156,7 +182,8 @@ def main():
     B.build()
     shot(B.OUT, 'ai-groups', 1280, 560)
     # 메뉴바 패널: 데모 상태를 바로 그리게 한다
-    panel = open(os.path.join(ROOT, 'panel.html'), encoding='utf-8').read()
+    panel = open(os.path.join(ROOT, 'panel.html'), encoding='utf-8').read().replace(
+        '__LOGO__', B.orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1))
     state = open(os.path.join(TMP, 'state-orca.json'), encoding='utf-8').read()
     panel = panel.replace("function load(){fetch('/state.json',{cache:'no-store'}).then(function(r){return r.json()}).then(render).catch(function(){})}",
                           'function load(){render(%s)}' % state)
