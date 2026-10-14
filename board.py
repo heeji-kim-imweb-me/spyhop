@@ -2068,7 +2068,7 @@ def _build():
             grouping = ('<div id="grouping"><i class="donut"></i>Grouping %d session%s by topic…</div>'
                         % (waiting, '' if waiting == 1 else 's'))
     cols, modals, count, colwid = {}, [], {'wait': 0, 'busy': 0}, {}
-    sort = load_config().get('sort', 'recent')  # recent: 최근에 내 차례가 된 칸부터 · wait: 오래 기다린 칸부터 (두 보기 모두 같은 규칙)
+    sort = load_config().get('sort', 'recent')  # 칸 안 카드 순서. recent: 최근에 내 차례가 된 것부터 · wait: 오래 기다린 것부터. 칸 자리는 바꾸지 않는다
     if sort not in ('recent', 'wait'):
         sort = 'recent'
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
@@ -2089,7 +2089,7 @@ def _build():
 
     def col_key(item):
         (rank, ws), cards = item
-        return (ws == UNSORTED, min(o for o, _ in cards))  # 칸의 맨 위 카드 기준. Unsorted 는 맨 뒤
+        return (ws == UNSORTED, -rank)  # 칸 자리는 고정: 오르카 워크스페이스 순서 / AI 그룹이 생긴 순서. Unsorted 는 맨 뒤
 
     def col_head(ws, cards):
         return '<h2>%s <em>%d</em></h2>' % (escape(ws), len(cards))
@@ -2110,13 +2110,9 @@ def _build():
     # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
     head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em></div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % tiles
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
-    def dropdown(label, key, cur, opts):
-        names = dict((k, short) for k, short, _ in opts)
-        items = ''.join('<button class="it%s" onclick="setCfg({%s:\'%s\'})">%s%s</button>'
-                        % (' on' if k == cur else '', key, k, long, '<em>&#10003;</em>' if k == cur else '') for k, _, long in opts)
-        return ('<div class="dd"><span class="tl">%s</span><button class="jc" onclick="ddOpen(event,this)">%s<span class="car">&#9662;</span></button>'
-                '<div class="dm">%s</div></div>' % (label, names.get(cur, cur), items))
-    sorter = '<div class="tb">%s</div>' % dropdown('Sort', 'sort', sort, (('recent', 'Newest', 'Newest first'), ('wait', 'Longest wait', 'Longest wait first')))
+    sorter = ('<div class="tb"><span class="tl">Sort</span><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
+        '<button class="%s" onclick="pillGo(this,\'%s\')">%s</button>' % ('on' if sort == k else '', k, label)
+        for k, label in (('recent', 'Newest'), ('wait', 'Longest wait'))))
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or '<p class="none">The sea is calm · no sessions running.</p>', ''.join(modals) + render_settings()))
@@ -2993,7 +2989,7 @@ header{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:0 
 .brand{display:flex;align-items:center;gap:8px}.brand b{font-size:15px;letter-spacing:-.01em}.brand .logo{display:block;flex:none}
 .cnt{display:inline-flex;align-items:baseline;gap:4px;font-size:12px;font-weight:600;color:var(--st);margin-left:12px}.cnt b{font-size:16px;font-weight:800}
 .cnt.failt{--st:#dc2626}.tiles{align-items:center}
-.tb{display:flex;align-items:center;gap:14px}.dd{position:relative;display:inline-flex;align-items:center;gap:6px}.tl{font-size:11.5px;font-weight:600;color:var(--ink3)}.jc{display:inline-flex;align-items:center;gap:8px;font:600 12px/1 inherit;font-family:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 9px;cursor:pointer}.jc:hover{border-color:var(--ink3)}.car{color:var(--ink3);font-size:10px}.dm{display:none;position:absolute;left:0;top:calc(100% + 6px);z-index:30;min-width:190px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.18);padding:5px}.dd .tl+.jc+.dm{left:auto}.dd.open .dm{display:block}.it{display:flex;width:100%;justify-content:space-between;align-items:center;gap:12px;font:12.5px inherit;font-family:inherit;color:var(--ink);background:none;border:0;text-align:left;padding:8px 10px;border-radius:7px;cursor:pointer}.it:hover{background:var(--col)}.it.on{font-weight:700}.it em{font-style:normal;color:var(--wait)}
+.tb{display:flex;align-items:center;gap:8px}.tl{font-size:11.5px;font-weight:600;color:var(--ink3)}.pill{position:relative;display:inline-flex;background:var(--col);border:1px solid var(--line);border-radius:999px;padding:3px}.pill button{position:relative;z-index:1;font:600 12px/1 inherit;font-family:inherit;color:var(--ink2);background:none;border:0;padding:6px 13px;border-radius:999px;cursor:pointer;transition:color .3s}.pill button.on{color:var(--card)}.pill .knob{position:absolute;top:3px;bottom:3px;border-radius:999px;background:var(--ink);transition:left .35s cubic-bezier(.3,1.3,.5,1),width .35s cubic-bezier(.3,1.3,.5,1)}
 .subbar{display:flex;justify-content:flex-start;align-items:center;gap:12px;margin:-6px 4px 12px;font-size:10.5px;color:var(--ink3)}.subbar .legend{margin:0 0 0 auto}#grouping{margin-right:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--ink2)}.donut{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--left);border-top-color:var(--wait);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:2px}
 .tiles{display:flex;gap:6px}.tile{min-width:62px;text-align:center;border-radius:8px;padding:4px 8px;
@@ -3266,8 +3262,9 @@ function loadMetrics(){if(location.hash!=='#settings')return;fetch('http://127.0
   spark('scpu',s.map(function(x){return x[1]}));spark('smem',s.map(function(x){return x[2]}))})
   .catch(function(){})}
 loadMetrics();setInterval(loadMetrics,5000);addEventListener('hashchange',loadMetrics);document.addEventListener('mousedown',function(e){if(e.target.closest('.modal')&&!e.target.closest('.box')){e.preventDefault();closeModal()}});addEventListener('keydown',function(e){if(e.key==='Escape'&&location.hash&&location.hash!=='#')closeModal()});
-function ddOpen(e,b){e.stopPropagation();var d=b.parentNode,o=d.classList.contains('open');document.querySelectorAll('.dd.open').forEach(function(x){x.classList.remove('open')});if(!o)d.classList.add('open')}
-document.addEventListener('click',function(){document.querySelectorAll('.dd.open').forEach(function(x){x.classList.remove('open')})});
+function pillPlace(){var p=document.querySelector('.pill');if(!p)return;var b=p.querySelector('.on')||p.querySelector('button'),k=p.querySelector('.knob');k.style.left=b.offsetLeft+'px';k.style.width=b.offsetWidth+'px'}
+function pillGo(b,v){if(b.classList.contains('on'))return;setCfg({sort:v},b);pillPlace()}
+addEventListener('load',pillPlace);
 function setCfg(o,btn){if(btn){btn.parentNode.querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b===btn)})}
   var stop=busy();
   return fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify(o)})
@@ -3314,7 +3311,7 @@ function live(){
     var nt=d.querySelector('.tiles'),ot=document.querySelector('.tiles');
     if(nt&&ot&&nt.innerHTML!==LAST.tiles){ot.innerHTML=nt.innerHTML;LAST.tiles=nt.innerHTML}
     var nb=d.querySelector('.subbar'),ob=document.querySelector('.subbar');
-    if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML}
+    if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace()}
     var nm=d.querySelector('main'),om=document.querySelector('main');
     if(nm&&om&&nm.innerHTML!==LAST.main){
       var y=scrollY,x=om.scrollLeft,old=cardHtml,was={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
