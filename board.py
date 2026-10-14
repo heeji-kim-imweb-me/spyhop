@@ -1947,6 +1947,8 @@ def _build():
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
     spy = {w for w, v in worktrees.items() if v.get('path') == os.path.expanduser('~/.spyhop')}
     raw = LIST_CACHE['list']['terminals']
+    for t in raw:  # 옮긴 직후 오르카가 제목 없는(null) 창을 잠깐 돌려줄 때가 있다
+        t['title'] = t.get('title') or ''
     ext, ext_wts = outside_terms()
     raw = raw + ext
     worktrees.update(ext_wts)
