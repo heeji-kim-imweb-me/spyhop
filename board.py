@@ -2836,25 +2836,25 @@ THEMES = [
     ('classic', 'Classic', None),
     ('github-light', 'GitHub Light', dict(bg='#f6f8fa', col='#eaeef2', card='#ffffff', line='rgba(31,35,40,.15)', ink='#1f2328', ink2='#424a53', ink3='#59636e',
                                           done='#1a7f37', now='#bf8700', left='#d0d7de', wait='#0969da', busy='#8250df', side='#bf3989')),
-    ('latte', 'Catppuccin Latte', dict(bg='#e6e9ef', col='#dce0e8', card='#eff1f5', line='rgba(76,79,105,.15)', ink='#4c4f69', ink2='#5c5f77', ink3='#8c8fa1',
-                                       done='#40a02b', now='#df8e1d', left='#ccd0da', wait='#1e66f5', busy='#8839ef', side='#ea76cb')),
-    ('solarized-light', 'Solarized Light', dict(bg='#f5efdc', col='#eee8d5', card='#fdf6e3', line='rgba(88,110,117,.18)', ink='#073642', ink2='#586e75', ink3='#93a1a1',
-                                                done='#859900', now='#b58900', left='#d9d2bc', wait='#268bd2', busy='#6c71c4', side='#d33682')),
-    ('rose-pine-dawn', 'Rosé Pine Dawn', dict(bg='#faf4ed', col='#f2e9e1', card='#fffaf3', line='rgba(87,82,121,.14)', ink='#575279', ink2='#797593', ink3='#9893a5',
-                                              done='#286983', now='#ea9d34', left='#dfdad9', wait='#d7827e', busy='#907aa9', side='#b4637a')),
+    ('one-light', 'One Light', dict(bg='#f0f0f1', col='#e5e5e6', card='#ffffff', line='rgba(56,58,66,.14)', ink='#383a42', ink2='#4f525e', ink3='#80828c',
+                                    done='#50a14f', now='#c18401', left='#d4d4d8', wait='#4078f2', busy='#a626a4', side='#e45649')),
+    ('ayu-light', 'Ayu Light', dict(bg='#f3f4f5', col='#e8eaec', card='#fcfcfc', line='rgba(92,97,102,.14)', ink='#3a3f45', ink2='#5c6166', ink3='#8a9199',
+                                    done='#6c9a00', now='#e59400', left='#d8dbde', wait='#399ee6', busy='#a37acc', side='#f07171')),
+    ('vitesse-light', 'Vitesse Light', dict(bg='#f7f7f7', col='#eeeeee', card='#ffffff', line='rgba(57,58,52,.12)', ink='#393a34', ink2='#5e5f58', ink3='#999990',
+                                            done='#1e754f', now='#b07d00', left='#dadad5', wait='#296aa3', busy='#a65e2b', side='#ab5959')),
     ('github-dark', 'GitHub Dark', dict(bg='#0d1117', col='#161b22', card='#21262d', line='rgba(240,246,252,.1)', ink='#e6edf3', ink2='#c9d1d9', ink3='#8b949e',
                                         done='#3fb950', now='#d29922', left='#30363d', wait='#4493f8', busy='#a371f7', side='#db61a2')),
-    ('mocha', 'Catppuccin Mocha', dict(bg='#1e1e2e', col='#181825', card='#313244', line='rgba(205,214,244,.1)', ink='#cdd6f4', ink2='#bac2de', ink3='#7f849c',
-                                       done='#a6e3a1', now='#f9e2af', left='#45475a', wait='#89b4fa', busy='#cba6f7', side='#f5c2e7')),
-    ('tokyo', 'Tokyo Night', dict(bg='#1a1b26', col='#16161e', card='#24283b', line='rgba(192,202,245,.1)', ink='#c0caf5', ink2='#a9b1d6', ink3='#565f89',
-                                  done='#9ece6a', now='#e0af68', left='#414868', wait='#7aa2f7', busy='#bb9af7', side='#7dcfff')),
-    ('dracula', 'Dracula', dict(bg='#282a36', col='#21222c', card='#343746', line='rgba(248,248,242,.1)', ink='#f8f8f2', ink2='#d6d6d0', ink3='#6272a4',
-                                done='#50fa7b', now='#ffb86c', left='#44475a', wait='#bd93f9', busy='#ff79c6', side='#8be9fd')),
-    ('nord', 'Nord', dict(bg='#2e3440', col='#3b4252', card='#434c5e', line='rgba(236,239,244,.1)', ink='#eceff4', ink2='#d8dee9', ink3='#9aa5b8',
-                          done='#a3be8c', now='#ebcb8b', left='#4c566a', wait='#88c0d0', busy='#b48ead', side='#d08770')),
+    ('vscode-dark', 'VS Code Dark', dict(bg='#181818', col='#1f1f1f', card='#2b2b2b', line='rgba(255,255,255,.09)', ink='#e8e8e8', ink2='#cccccc', ink3='#9d9d9d',
+                                         done='#3fb950', now='#d7ba7d', left='#3c3c3c', wait='#4daafc', busy='#c586c0', side='#f14c4c')),
+    ('vitesse-dark', 'Vitesse Dark', dict(bg='#121212', col='#181818', card='#222222', line='rgba(222,220,213,.1)', ink='#e2ded3', ink2='#bfbaaa', ink3='#7c7c78',
+                                          done='#4d9375', now='#e6cc77', left='#333333', wait='#6394bf', busy='#d4976c', side='#cb7676')),
+    ('ayu-dark', 'Ayu Dark', dict(bg='#0b0e14', col='#0f131a', card='#171b24', line='rgba(191,189,182,.1)', ink='#e6e4dc', ink2='#bfbdb6', ink3='#6c7380',
+                                  done='#aad94c', now='#ffb454', left='#2d3640', wait='#59c2ff', busy='#d2a6ff', side='#f07178')),
 ]
-DARK_THEMES = {'github-dark', 'mocha', 'tokyo', 'dracula', 'nord'}
-OLD_THEMES = {'dark': 'github-dark', 'bluegrey': 'github-dark', 'indigo': 'github-light', 'teal': 'github-light', 'purple': 'latte'}  # 예전 머티리얼 테마를 고른 사람
+DARK_THEMES = {'github-dark', 'vscode-dark', 'vitesse-dark', 'ayu-dark'}
+OLD_THEMES = {'dark': 'github-dark', 'bluegrey': 'github-dark', 'indigo': 'github-light', 'teal': 'github-light', 'purple': 'one-light',  # 예전 머티리얼 테마를 고른 사람
+              'latte': 'one-light', 'solarized-light': 'ayu-light', 'rose-pine-dawn': 'vitesse-light',  # 2026-10 에 뺀 테마
+              'mocha': 'vscode-dark', 'tokyo': 'ayu-dark', 'dracula': 'vitesse-dark', 'nord': 'github-dark'}
 # 미리보기 카드에서만 쓰는 클래식 색 (실제 클래식은 :root 기본값 + 시스템 다크 모드)
 CLASSIC_PREVIEW = ('.thp[data-theme="classic"]{--bg:#f4f5f8;--col:#ebecf0;--card:#fff;--line:rgba(20,24,40,.12);--ink:#172b4d;--ink2:#44546f;'
                    '--ink3:#8590a2;--done:#5cb88f;--now:#d9a944;--left:#c9ced8;--wait:#3fa877;--busy:#e283b0}')
@@ -3056,7 +3056,7 @@ font-size:11px;font-weight:700;background:var(--col);color:var(--ink3);z-index:1
 .cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:22px;margin-top:4px}
 @media (max-width:760px){.cols{grid-template-columns:1fr}}
 .c2 .replybox{margin-bottom:14px}.meta2{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.stuck{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:1px 8px;margin:2px 0 4px}.stuck i{width:6px;height:6px;border-radius:50%;background:#f59e0b;animation:p 1.4s infinite}
+.stuck{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:color-mix(in srgb,var(--now) 70%,var(--ink));background:color-mix(in srgb,var(--now) 13%,var(--card));border:1px solid color-mix(in srgb,var(--now) 50%,transparent);border-radius:10px;padding:1px 8px;margin:2px 0 4px}.stuck i{width:6px;height:6px;border-radius:50%;background:var(--now);animation:p 1.4s infinite}
 .fail{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:#dc2626;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:1px 8px;margin:2px 0 4px}
 .fail i{width:7px;height:7px;border-radius:50%;background:#dc2626;animation:p 1.2s infinite}
 .tile.failt{--st:#dc2626}
