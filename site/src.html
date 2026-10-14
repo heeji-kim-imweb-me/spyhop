@@ -214,7 +214,7 @@ document.documentElement.classList.add('js');
 </script>
 
 <nav class="nav"><div class="in"><a class="brand" href="#top"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><defs><clipPath id="lm1"><rect width="32" height="26.2"/></clipPath></defs><rect width="32" height="32" rx="8" fill="#3182f6"/><g clip-path="url(#lm1)"><g transform="translate(1.5 2) scale(.82)"><g stroke="#0b1220" stroke-width=".7" stroke-linejoin="round"><path fill="#10131a" d="M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z"/><path fill="#fff" stroke="none" d="M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z"/><path fill="#fff" stroke="none" d="M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z"/><path fill="#10131a" d="M24 29Q32 33 32 40Q27 39 22 33Z"/><circle cx="24" cy="16" r=".8" fill="#10131a" stroke="none"/></g></g></g><path d="M3 27.2 Q7 25.3 11 27.2 T19 27.2 T27 27.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg><b>Spyhop</b></a><div class="links">
-<a href="#board" data-en="Overview">한눈에</a><a href="#more" data-en="Features">기능</a><a href="#how" data-en="How it works">동작 방식</a><a href="#install" data-en="Install">설치</a><a href="#faq" data-en="FAQ">질문</a>
+<a href="#board" data-en="Overview">한눈에</a><a href="#how" data-en="How it works">동작 방식</a><a href="#install" data-en="Install">설치</a><a href="#faq" data-en="FAQ">질문</a>
 </div></div></nav>
 
 <!-- 첫 화면 -->
@@ -324,24 +324,6 @@ document.documentElement.classList.add('js');
 
 
 
-
-<!-- 기능 -->
-<section id="more" class="soft"><div class="in center">
-<div class="eyebrow rv" data-en="And more">그 밖에도</div>
-<h2 class="rv d1" data-en="Features added&lt;br&gt;from daily use">매일 쓰면서<br>넣은 기능들</h2>
-<div class="feats">
-<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div><h3 data-en="Updates without reloads">새로고침 없는 갱신</h3><p data-en="New sessions show up in 2–3 seconds and ended ones disappear at once. Only changed cards are swapped, and an open detail view stays open.">새 세션은 2~3초 안에 뜨고, 끝낸 세션은 바로 사라져요. 바뀐 카드만 바꿔 끼우고, 열어 둔 상세 창도 그대로예요.</p></div>
-<div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"/></svg></div><h3 data-en="Helpers as one line">헬퍼는 한 줄로</h3><p data-en="Review and cross-check panes a session starts show up as “↳ Codex · Done” under it, not as cards of their own.">세션이 띄운 리뷰·교차검증 창은 카드를 따로 만들지 않고 그 세션 아래 「↳ Codex · Done」으로 붙어요.</p></div>
-<div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><h3 data-en="Group by AI topics">AI 주제로 묶기</h3><p data-en="Split columns by topic instead of workspace. Drag a card to pin it to another topic.">워크스페이스 대신 일의 주제로 칸을 나눠요. 끌어서 다른 주제에 고정할 수도 있어요.</p></div>
-<div class="feat rv z"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/></svg></div><h3 data-en="Pick the summarizer">요약 모델은 고르기</h3><p data-en="Uses the claude or codex CLI you are already logged in to. Switch it in Settings.">이미 로그인한 claude·codex CLI를 그대로 써요. 설정에서 바꿀 수 있어요.</p></div>
-<div class="feat rv z d1"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg></div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="The menu bar icon shows how many sessions are waiting for you. Click one to jump there.">메뉴바 아이콘에 내 차례인 세션 수가 떠요. 누르면 그 창으로 바로 가요.</p></div>
-<div class="feat rv z d2"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 11l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div><h3 data-en="spyhop doctor">spyhop doctor</h3><p data-en="One command checks the board: is it running, Orca and the summarizer, recent errors, and for every session how it was found or why not.">명령 하나로 보드를 점검해요. 보드가 도는지, 오르카·요약 모델 연결, 최근 오류, 그리고 세션마다 어떻게 찾았는지·왜 못 찾았는지.</p></div>
-</div>
-<div class="pair">
-<div class="rv l"><div class="shot"><img class="crop" style="aspect-ratio:1600/470" src="{{peek}}" alt="헤더 물결 위로 고개를 내민 범고래" data-en-alt="An orca peeking out of the header wave"></div><p class="cap" data-en="When a session finishes, an orca rises straight out of the header wave, looks around and sinks back.">세션이 일을 끝내면 헤더 물결에서 범고래가 똑바로 올라와 둘러보고 내려가요.</p></div>
-<div class="rv r d1"><div class="shot"><img src="{{settings}}" alt="설정 화면" data-en-alt="Settings"></div><p class="cap" data-en="Summarizer, theme, grouping, update interval, and the board’s own CPU and memory, all in Settings.">요약 모델, 테마, 묶는 방식, 갱신 주기, 보드가 쓰는 CPU·메모리까지 설정 한 곳에서.</p></div>
-</div>
-</div></section>
 
 <!-- 옮기기 -->
 <section id="move"><div class="in center">
