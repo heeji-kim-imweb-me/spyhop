@@ -91,7 +91,7 @@ How much it uses: only sessions whose transcript changed are summarized, at most
 
 ![AI groups](docs/screenshots/ai-groups.png)
 
-- **Settings**: summarizer, 10 themes (GitHub, Catppuccin, Solarized, Rosé Pine, Tokyo Night, Dracula, Nord…), start at login, update interval, live CPU and memory.
+- **Settings**: summarizer, 9 themes (Classic plus GitHub, One, Ayu, Vitesse and VS Code in light and dark), start at login, update interval, live CPU and memory.
 
 ![Settings](docs/screenshots/settings.png)
 
