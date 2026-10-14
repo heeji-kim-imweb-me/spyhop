@@ -2068,6 +2068,7 @@ def _build():
             grouping = ('<div id="grouping"><i class="donut"></i>Grouping %d session%s by topic…</div>'
                         % (waiting, '' if waiting == 1 else 's'))
     cols, modals, count, colwid = {}, [], {'wait': 0, 'busy': 0}, {}
+    sort = load_config().get('sort', 'wait')
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
         w = worktrees.get(t['worktreeId'], {})
         if mode == 'ai':
@@ -2078,15 +2079,24 @@ def _build():
             rank = w.get('sortOrder') or 0
         order, card, modal = render(t, steps.get(t.get('log')), ws)
         count['wait' if order[0] == 0 else 'busy'] += 1
+        if mode == 'ai' and sort == 'recent' and order[0] == 0:
+            order = (0, -order[1])  # 최근에 내 차례가 된 것부터
         cols.setdefault((rank, ws), []).append((order, card))
         colwid[(rank, ws)] = ('group:' + ws) if mode == 'ai' else t['worktreeId']
         modals.append(modal)
+
+    def col_key(item):
+        (rank, ws), cards = item
+        if mode != 'ai':
+            return (-rank,)  # 오르카 보기는 오르카 사이드바 순서 그대로
+        # AI 주제 보기는 칸의 맨 위 카드 기준(기본: 오래 기다린 내 차례부터). Unsorted 는 맨 뒤
+        return (ws == UNSORTED, min(o for o, _ in cards))
 
     def col_head(ws, cards):
         return '<h2>%s <em>%d</em></h2>' % (escape(ws), len(cards))
     board = ''.join('<section class="col" data-wid="%s" data-name="%s">%s<p class="more"></p>%s</section>'
                     % (escape(colwid[key]), escape(key[1]), col_head(key[1], cards), ''.join(c for _, c in sorted(cards, key=lambda x: x[0])))
-                    for key, cards in sorted(cols.items(), key=lambda x: -x[0][0]))
+                    for key, cards in sorted(cols.items(), key=col_key))
     nfail = sum(1 for t in terms if t.get('_fail'))
     tiles = ''.join('<span class="cnt %s"><b>%d</b>%s</span>' % (k, count[k], LABEL[k]) for k in ('wait', 'busy'))
     if nfail:
@@ -2101,7 +2111,12 @@ def _build():
     # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
     head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em></div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % tiles
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
-    foot = '<div class="subbar">%s%s<small>updated %s</small></div>' % (grouping, legend, time.strftime('%H:%M:%S'))
+    sorter = ''
+    if mode == 'ai':
+        sorter = '<span class="sorter">Sort%s</span>' % ''.join(
+            '<button class="%s" onclick="setCfg({sort:\'%s\'},this)">%s</button>' % ('on' if sort == k else '', k, label)
+            for k, label in (('wait', 'Longest wait'), ('recent', 'Newest')))
+    foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (grouping, sorter, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or '<p class="none">The sea is calm · no sessions running.</p>', ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
@@ -2267,7 +2282,7 @@ def serve():
                     set_autostart(bool(req['autostart']))
                 if req.get('group_by') == 'ai':
                     _GROUPING['at'] = 0
-                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('orca', 'ai'))):
+                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('orca', 'ai')), ('sort', ('wait', 'recent'))):
                     if key in req:
                         if req[key] not in allowed:
                             return self.send(400, b'bad value')
@@ -2977,6 +2992,7 @@ header{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:0 
 .brand{display:flex;align-items:center;gap:8px}.brand b{font-size:15px;letter-spacing:-.01em}.brand .logo{display:block;flex:none}
 .cnt{display:inline-flex;align-items:baseline;gap:4px;font-size:12px;font-weight:600;color:var(--st);margin-left:12px}.cnt b{font-size:16px;font-weight:800}
 .cnt.failt{--st:#dc2626}.tiles{align-items:center}
+.sorter{display:inline-flex;align-items:center;gap:2px;font-size:10.5px;color:var(--ink3)}.sorter button{font:inherit;color:var(--ink3);background:none;border:1px solid transparent;border-radius:8px;padding:1px 7px;cursor:pointer}.sorter button.on{color:var(--ink);border-color:var(--line);background:var(--card)}
 .subbar{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin:-12px 4px 10px;font-size:10.5px;color:var(--ink3)}.subbar .legend{margin:0}#grouping{margin-right:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--ink2)}.donut{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--left);border-top-color:var(--wait);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:2px}
 .tiles{display:flex;gap:6px}.tile{min-width:62px;text-align:center;border-radius:8px;padding:4px 8px;
@@ -3254,7 +3270,7 @@ function setCfg(o,btn){if(btn){btn.parentNode.querySelectorAll('button').forEach
   return fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify(o)})
   .then(function(r){toast(r.ok?'Saved':'Could not save');if(r.ok&&'orcas' in o){var s=document.querySelector('.sea');if(s)s.style.display=o.orcas?'':'none'}
     if(r.ok&&'refresh' in o){clearInterval(RT);RT=setInterval(function(){if(!document.hidden)live()},o.refresh*1000)}
-    if(r.ok&&'group_by' in o){location.hash='';return live()}})
+    if(r.ok&&'group_by' in o){location.hash='';return live()}if(r.ok&&'sort' in o)return live()})
   .catch(function(){toast('Board server is not running')}).then(stop)}
 function setTheme(t){document.documentElement.dataset.theme=t;
   document.querySelectorAll('.th').forEach(function(b){b.classList.toggle('on',b.dataset.id===t)});
