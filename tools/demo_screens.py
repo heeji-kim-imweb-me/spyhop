@@ -181,7 +181,8 @@ def main():
     shot(board, 'board', 1280, 560, css=FROZEN_ORCAS)
     shot(board, 'settings', 1280, 980, hash_='#settings', css=FROZEN_ORCAS + '#mcpu,#mmem{visibility:hidden}')
     first = html.split('class="modal ', 1)[1].split('id="', 1)[1].split('"', 1)[0]
-    shot(board, 'detail', 1280, 640, hash_='#' + first)
+    # 상세 창이 열리는 효과 중간에 찍히면 반투명하게 나온다. 효과를 끄고 다 열린 모습으로 찍는다
+    shot(board, 'detail', 1280, 640, hash_='#' + first, css=FROZEN_ORCAS + '.modal,.modal *{animation:none!important;transition:none!important}')
     patch('ai')
     B.build()
     shot(B.OUT, 'ai-groups', 1280, 560)
