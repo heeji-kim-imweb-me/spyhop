@@ -29,6 +29,10 @@ Spyhop does two things:
 - **All sessions in one place.** Every Claude Code and Codex session you have open becomes a card on one board, with the ones waiting for you on top. No more flipping through panes to find out which one finished or got stuck.
 - **Progress for each session.** Spyhop reads the transcript and lays the work out as steps (what's done, what it's on now, what's next), like a progress page for every session. As the work moves, finished steps stay put and the current step moves forward, so you can tell how far it has come at a glance.
 
+In Orca, drag a card to another workspace and the session moves there, conversation and all:
+
+![Moving a session](docs/screenshots/move.gif)
+
 ## Install
 
 ```bash
@@ -76,7 +80,7 @@ Transcripts go to the model you pick (keys and passwords are masked first), so p
 
 - **Step flow** on every card: `Done` · `Now` · `Next`, plus purple `Intercept` for a quick side task. When space runs out, cards shrink to progress bars (`3/4 · Review`).
 - **No progress** badge when a working session hasn't written anything for 5 minutes.
-- **Helpers**: panes a session starts through Orca orchestration (a cross-check, a review) appear as one line under that session, not as their own card.
+- **Helpers**: panes a session starts through Orca orchestration (a cross-check, a review) appear as one line under that session, not as their own card. If that session's pane is closed, the helper shows as its own card.
 - **Detail view**: every step explained, the last reply, a TODO checklist, the session ID, and buttons to jump to or end the session.
 
 ![Detail](docs/screenshots/detail.png)

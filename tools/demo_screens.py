@@ -139,6 +139,10 @@ def patch(mode):
     B.model_of = lambda log: by_log[log]['_model'] if log in by_log else ''
     B.turn_times = lambda log: ((NOW - by_log[log]['_mins'] * 60), (NOW - by_log[log]['_mins'] * 60)) if log in by_log else (None, None)
     B.current_theme = lambda: 'classic'
+    # 요약 모델은 누구나 고를 수 있는 Claude CLI 로 보여 준다 (이 맥의 설정이 사진에 찍히지 않게)
+    B.summarizers = lambda: [{'id': 'claude', 'label': 'Claude (claude CLI)', 'models': [{'id': 'claude:claude-haiku-4-5', 'name': 'Haiku 4.5'}, {'id': 'claude:claude-sonnet-5-5', 'name': 'Sonnet 5.5'}]},
+                             {'id': 'codex', 'label': 'Codex (codex CLI)', 'models': [{'id': 'codex:gpt-6.1-sol', 'name': 'GPT-6.1-Sol'}]}]
+    B.current_summarizer = lambda: 'claude:claude-haiku-4-5'
     B.orcas_on = lambda: True
     B.group_mode = lambda: mode
     B.assign_groups = lambda items: None

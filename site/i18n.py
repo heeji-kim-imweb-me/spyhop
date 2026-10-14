@@ -125,7 +125,7 @@ T = [
  ('세션 6개 기준 맥 CPU 약 1%, 메모리 70~80MB예요. 설정 맨 아래에서 실제 사용량을 볼 수 있고, 갱신 주기를 30·60초로 늘리면 더 줄어요.', 'With 6 sessions it uses about 1% of the Mac’s CPU and 70–80 MB of memory. Settings shows the live numbers, and a 30 or 60 second interval lowers them further.'),
  ('범고래가 신경 쓰여요.', 'The orca is distracting.'),
  ('설정의 「Orca animation」을 끄면 돼요.', 'Turn off “Orca animation” in Settings.'),
- ('여기 없는 질문은 #team-infra 의 Spyhop 스레드나 <a href="https://github.com/leeleelee3264/spyhop/issues" target="_blank" rel="noopener">GitHub 이슈</a>에 남겨 주세요. 들어온 질문은 여기에 계속 추가할게요.',
+ ('여기 없는 질문은 <a href="https://github.com/leeleelee3264/spyhop/issues" target="_blank" rel="noopener">GitHub 이슈</a>에 남겨 주세요. 들어온 질문은 여기에 계속 추가할게요.',
   'Anything else? Ask in <a href="https://github.com/leeleelee3264/spyhop/issues" target="_blank" rel="noopener">GitHub issues</a>. New questions will be added here.'),
  ('설치 명령을 복사했어요', 'Install command copied'),
  # 그림 안 글자
