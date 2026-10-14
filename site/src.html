@@ -71,7 +71,7 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 /* 상세 보기 해부 */
 .anat{position:relative;margin-top:56px;border-radius:24px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line)}
 .anat img{display:block;width:100%;height:auto}
-.mk{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:var(--blue);color:#fff;font:800 14px/30px "Pretendard",-apple-system,sans-serif;text-align:center;box-shadow:0 0 0 5px color-mix(in srgb,var(--blue) 25%,transparent)}
+.mk{position:absolute;left:var(--x);top:var(--y);width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:var(--blue);color:#fff;font:800 14px/30px "Pretendard",-apple-system,sans-serif;text-align:center;box-shadow:0 0 0 5px color-mix(in srgb,var(--blue) 25%,transparent)}
 @keyframes pulse{50%{box-shadow:0 0 0 10px color-mix(in srgb,var(--blue) 0%,transparent)}}
 .legend{text-align:left;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:28px}
 .lg{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 18px 16px}
@@ -189,11 +189,24 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 
 @media (prefers-reduced-motion:reduce){.flow{animation:none;stroke-dasharray:none}.mk{animation:none}.js .rv,.js .rv.tilt{opacity:1;transform:none;transition:none;filter:none}.js .lines .ln>span,.js .anat .mk{transform:none;transition:none}.hlogo .bob,.hlogo .wv,.lightup.on .n,.term pre .cur{animation:none}html{scroll-behavior:auto}}
 @media (max-width:900px){section{padding:84px 20px}.hls,.legend{grid-template-columns:1fr 1fr}.row,.row.rev,.pair,.uses{grid-template-columns:1fr;gap:28px}.row.rev .txt{order:0}.feats{grid-template-columns:1fr}.nav .links{margin-right:150px}.nav .links a{padding:7px 8px}}
-.tbl{max-width:880px;margin:28px auto 0;overflow-x:auto;border-radius:16px;border:1px solid var(--line,rgba(127,127,127,.2))}.tbl table{width:100%;border-collapse:collapse;font-size:14px;text-align:left}.tbl th,.tbl td{padding:12px 14px;border-top:1px solid var(--line,rgba(127,127,127,.15))}.tbl thead th{border-top:0;font-size:12.5px;opacity:.7;font-weight:600}.tbl td:not(:first-child){text-align:center}.tbl th:not(:first-child){text-align:center}</style>
+.tbl{max-width:880px;margin:28px auto 0;overflow-x:auto;border-radius:16px;border:1px solid var(--line,rgba(127,127,127,.2))}.tbl table{width:100%;border-collapse:collapse;font-size:14px;text-align:left}.tbl th,.tbl td{padding:12px 14px;border-top:1px solid var(--line,rgba(127,127,127,.15))}.tbl thead th{border-top:0;font-size:12.5px;opacity:.7;font-weight:600}.tbl td:not(:first-child){text-align:center}.tbl th:not(:first-child){text-align:center}.dia svg.vert{display:none}
+@media (max-width:640px){
+.nav .links{display:none}.nav .in{padding:0 16px}
+.themetgl{top:13px;right:12px;padding:6px 11px;font-size:12px}.langtgl{right:92px}
+section{padding:64px 16px}
+.shot picture img,.anat picture img{aspect-ratio:auto!important}
+.mk{left:var(--mx);top:var(--my);width:26px;height:26px;margin:-13px 0 0 -13px;font-size:12px;line-height:26px}
+.dia{padding:20px 14px;overflow:visible}.dia svg.hor{display:none}.dia svg.vert{display:block;min-width:0;max-width:340px;margin:0 auto}
+.term{padding:18px 16px}.term pre{font-size:12.5px;line-height:1.8}.term .cp{top:12px;right:12px}
+}
+@media (max-width:480px){.legend{grid-template-columns:1fr}}
+</style>
 </head>
 <body>
 <button class="themetgl" id="themeBtn" type="button" aria-label="화면 밝기 전환"></button><button class="themetgl langtgl" id="langBtn" type="button" aria-label="Language">EN</button>
 <script>
+document.addEventListener('DOMContentLoaded',function(){var v=document.getElementById('mv');if(v&&matchMedia('(max-width:640px)').matches){v.src=v.dataset.m;v.play&&v.play().catch(function(){})}});
+
 document.documentElement.classList.add('js');
 (function(){
   var r=document.documentElement,q=window.matchMedia('(prefers-color-scheme: dark)');
@@ -229,7 +242,7 @@ document.documentElement.classList.add('js');
 <button class="btn pri" type="button" onclick="copyCmd()" data-en="Copy install command &lt;code&gt;brew install …&lt;/code&gt;">설치 명령 복사 <code>brew install …</code></button>
 <a class="btn sec" href="https://github.com/leeleelee3264/spyhop" target="_blank" rel="noopener" data-en="View on GitHub">GitHub 보기</a>
 </div>
-<div class="shot hero-shot rv tilt"><img class="crop" style="aspect-ratio:1600/560" src="{{board}}" alt="Spyhop 메인 보드. 워크스페이스별 칸에 세션 카드가 있고 카드마다 단계 진행이 보인다" data-en-alt="The Spyhop board: a column per workspace, a card per session, each showing its steps"></div>
+<div class="shot hero-shot rv tilt"><picture><source media="(max-width:640px)" srcset="{{m-board.webp}}"><img class="crop" style="aspect-ratio:1600/560" src="{{board}}" alt="Spyhop 메인 보드. 워크스페이스별 칸에 세션 카드가 있고 카드마다 단계 진행이 보인다" data-en-alt="The Spyhop board: a column per workspace, a card per session, each showing its steps"></picture></div>
 <p class="cap" data-en="Screens show demo data.">화면은 데모 데이터예요.</p>
 <div class="hls">
 <a class="hl rv" href="#board"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div><b data-en="Every session, one board">모든 세션을 한 보드에</b><span data-en="Claude Code or Codex, any model">Claude Code든 Codex든, 어떤 모델이든</span></a>
@@ -262,7 +275,7 @@ document.documentElement.classList.add('js');
 <span class="pill" data-en="&lt;i class=&quot;dot&quot; style=&quot;background:var(--amber)&quot;&gt;&lt;/i&gt;No progress · looks stuck"><i class="dot" style="background:var(--amber)"></i>No progress · 멈춘 듯</span>
 </div>
 </div>
-<div class="shot rv r d1" style="margin:0"><img class="crop" style="aspect-ratio:1600/560" src="{{ai-groups}}" alt="AI 주제로 묶은 보드" data-en-alt="The board grouped by AI topics"></div>
+<div class="shot rv r d1" style="margin:0"><picture><source media="(max-width:640px)" srcset="{{m-ai-groups.webp}}"><img class="crop" style="aspect-ratio:1600/560" src="{{ai-groups}}" alt="AI 주제로 묶은 보드" data-en-alt="The board grouped by AI topics"></picture></div>
 </div></section>
 
 <!-- 터미널 -->
@@ -298,7 +311,7 @@ document.documentElement.classList.add('js');
 <span class="pill" data-en="&lt;i class=&quot;dot&quot; style=&quot;background:var(--violet)&quot;&gt;&lt;/i&gt;Intercept · side task"><i class="dot" style="background:var(--violet)"></i>Intercept · 끼어든 일</span>
 </div>
 </div>
-<div class="shot rv l d1" style="margin:0"><img src="{{bars}}" alt="좁은 화면에서 카드가 진행 막대로 줄어든 모습" data-en-alt="Cards shrunk to progress bars on a short screen"><p class="cap" style="margin:12px 16px 14px;text-align:left" data-en="When a column overflows, cards shrink to a single progress bar, readable even on half a portrait monitor.">칸이 넘치면 카드가 진행 막대 한 줄로 줄어요. 세로 모니터 절반에서도 읽혀요.</p></div>
+<div class="shot rv l d1" style="margin:0"><picture><source media="(max-width:640px)" srcset="{{m-bars.webp}}"><img src="{{bars}}" alt="좁은 화면에서 카드가 진행 막대로 줄어든 모습" data-en-alt="Cards shrunk to progress bars on a short screen"></picture><p class="cap" style="margin:12px 16px 14px;text-align:left" data-en="When a column overflows, cards shrink to a single progress bar, readable even on half a portrait monitor.">칸이 넘치면 카드가 진행 막대 한 줄로 줄어요. 세로 모니터 절반에서도 읽혀요.</p></div>
 </div></section>
 
 <!-- 상세 보기 -->
@@ -307,12 +320,12 @@ document.documentElement.classList.add('js');
 <h2 class="rv d1" data-en="Click a card&lt;br&gt;to see the whole session">카드를 누르면<br>그 세션의 전부가 보여요</h2>
 <p class="sub rv d2" data-en="No need to open the pane and scroll back: what it is doing and where it stopped, on one screen.">창을 열어 대화를 거슬러 올라가지 않아도, 무엇을 하고 있고 어디서 멈췄는지 한 화면에서 알 수 있어요.</p>
 <div class="anat rv z">
-<img class="crop" style="aspect-ratio:1600/530" src="{{detail}}" alt="상세 보기 화면" data-en-alt="Detail view">
-<span class="mk" style="left:36.8%;top:24%">4</span>
-<span class="mk" style="left:28.5%;top:11.5%">5</span>
-<span class="mk" style="left:13.4%;top:56.5%">1</span>
-<span class="mk" style="left:85.3%;top:50%">2</span>
-<span class="mk" style="left:56.6%;top:71.3%">3</span>
+<picture><source media="(max-width:640px)" srcset="{{m-detail.webp}}"><img class="crop" style="aspect-ratio:1600/530" src="{{detail}}" alt="상세 보기 화면" data-en-alt="Detail view"></picture>
+<span class="mk" style="--x:36.8%;--y:24%;--mx:65%;--my:27.2%">4</span>
+<span class="mk" style="--x:28.5%;--y:11.5%;--mx:42%;--my:9.7%">5</span>
+<span class="mk" style="--x:13.4%;--y:56.5%;--mx:87%;--my:44%">1</span>
+<span class="mk" style="--x:85.3%;--y:50%;--mx:93%;--my:79.7%">2</span>
+<span class="mk" style="--x:56.6%;--y:71.3%;--mx:32.8%;--my:91.6%">3</span>
 </div>
 <div class="legend">
 <div class="lg rv"><i>1</i><b data-en="Step details">단계별 설명</b><p data-en="One line per step. The current step stands out, the next ones are dimmed.">단계마다 무엇을 했는지 한 줄씩. 지금 단계는 강조되고 다음 단계는 흐리게.</p></div>
@@ -332,9 +345,9 @@ document.documentElement.classList.add('js');
 <div class="eyebrow rv" data-en="Move sessions">세션 옮기기</div>
 <h2 class="rv d1" data-en="Drag it like a kanban card,&lt;br&gt;the conversation follows">칸반처럼 끌어다 놓으면<br>대화가 그대로 따라가요</h2>
 <p class="sub rv d2" data-en="Drop a card in another column and it is already there; for Orca sessions the pane moves to that workspace and the conversation carries on (when it is your turn). Empty workspaces slide in from a drawer on the left while you drag.">카드를 다른 칸에 놓는 순간 이미 새 칸에 들어가 있어요. 오르카 세션은 오르카 창까지 그 워크스페이스로 옮겨 가고 대화가 그대로 이어져요(내 차례일 때). 세션이 없는 워크스페이스는 끄는 동안 왼쪽 서랍에서 골라요.</p>
-<div class="shot rv z vid"><video id="mv" autoplay muted loop playsinline preload="auto" src="{{move.mp4}}" aria-label="카드를 끌어 infra 칸에 놓으면 바로 들어가고 옮기는 동안 아래 막대가 돈다" data-en-aria-label="Dragging a card into the infra column: it lands right away and a bar runs while it moves"></video></div>
+<div class="shot rv z vid"><video id="mv" data-m="{{m-move.mp4}}" autoplay muted loop playsinline preload="auto" src="{{move.mp4}}" aria-label="카드를 끌어 infra 칸에 놓으면 바로 들어가고 옮기는 동안 아래 막대가 돈다" data-en-aria-label="Dragging a card into the infra column: it lands right away and a bar runs while it moves"></video></div>
 <p class="cap" data-en="The real drag and drop (demo data). The card lands right away; when the bar finishes, the move is done.">카드를 끌어 놓는 실제 동작이에요(데모 데이터). 놓는 순간 새 칸에 들어가고, 아래 막대가 끝나면 이동 완료.</p>
-<div class="shot rv z" style="margin-top:22px"><img class="crop" style="aspect-ratio:1600/560" src="{{drag}}" alt="카드를 끄는 동안 왼쪽 서랍에 세션 없는 워크스페이스가 나온 모습" data-en-alt="While dragging, empty workspaces slide in from a drawer on the left"></div>
+<div class="shot rv z" style="margin-top:22px"><picture><source media="(max-width:640px)" srcset="{{m-drag.webp}}"><img class="crop" style="aspect-ratio:1600/560" src="{{drag}}" alt="카드를 끄는 동안 왼쪽 서랍에 세션 없는 워크스페이스가 나온 모습" data-en-alt="While dragging, empty workspaces slide in from a drawer on the left"></picture></div>
 <p class="cap" data-en="Empty workspaces wait in a drawer on the left; the board itself does not move.">세션이 없는 워크스페이스는 왼쪽 서랍에서 기다려요. 보드는 움직이지 않아요.</p>
 </div></section>
 
@@ -344,7 +357,7 @@ document.documentElement.classList.add('js');
 <h2 class="rv d1" data-en="Code decides the status,&lt;br&gt;AI writes the steps">상태는 코드가,<br>단계는 AI가 정해요</h2>
 <p class="sub rv d2" data-en="Working or your turn is read straight from the running claude and codex processes and their transcripts, not guessed by the AI. The summarizer only writes steps and titles. The only thing that leaves your Mac is the transcript sent to the model you picked, with anything that looks like a key or token masked.">일하는 중인지 내 차례인지는 실행 중인 claude·codex 프로그램과 대화 기록을 직접 읽어서 정해요. AI가 추측하지 않아요. 요약 모델은 단계와 제목만 써요. 밖으로 나가는 건 요약할 때 고른 모델에 보내는 대화 기록뿐이고, 키·토큰처럼 보이는 값은 가려서 보내요.</p>
 <div class="dia rv lightup">
-<svg viewBox="0 0 920 210" role="img" aria-label="실행 중인 AI 프로그램과 대화 기록을 Spyhop 이 읽어 상태를 정하고, 요약 모델이 단계를 써서, 보드와 메뉴바에 보여 준다" data-en-aria-label="Spyhop reads running AI processes and transcripts to decide the status, the summarizer writes the steps, and the board and menu bar show them">
+<svg class="hor" viewBox="0 0 920 210" role="img" aria-label="실행 중인 AI 프로그램과 대화 기록을 Spyhop 이 읽어 상태를 정하고, 요약 모델이 단계를 써서, 보드와 메뉴바에 보여 준다" data-en-aria-label="Spyhop reads running AI processes and transcripts to decide the status, the summarizer writes the steps, and the board and menu bar show them">
 <rect class="n" x="10" y="18" width="206" height="72" rx="18"/><text class="t" x="113" y="49" text-anchor="middle" data-en="Running sessions">실행 중인 세션</text><text class="s" x="113" y="71" text-anchor="middle" data-en="working · waiting">일하는 중 · 기다리는 중</text>
 <rect class="n" x="10" y="122" width="206" height="72" rx="18"/><text class="t" x="113" y="153" text-anchor="middle" data-en="Transcripts">대화 기록</text><text class="s" x="113" y="175" text-anchor="middle">Claude · Codex</text>
 <path class="flow" d="M220 54 C258 54 258 106 294 106"/><path class="flow" d="M220 158 C258 158 258 106 294 106"/><path class="head" d="M288 100 l7 6 -7 6"/>
@@ -353,6 +366,16 @@ document.documentElement.classList.add('js');
 <rect class="n" x="572" y="64" width="160" height="84" rx="18"/><text class="t" x="652" y="100" text-anchor="middle" data-en="Summarizer">요약 모델</text><text class="s" x="652" y="122" text-anchor="middle" data-en="title · steps · TODO">제목 · 단계 · 할 일</text>
 <path class="flow d3" d="M736 106 H792"/><path class="head" d="M786 100 l7 6 -7 6"/>
 <rect class="n hi" x="798" y="64" width="112" height="84" rx="18"/><text class="t" x="854" y="100" text-anchor="middle" data-en="Board">보드</text><text class="s" x="854" y="122" text-anchor="middle" data-en="menu bar">메뉴바</text>
+</svg>
+<svg class="vert" viewBox="0 0 320 440" role="img" aria-label="실행 중인 AI 프로그램과 대화 기록을 Spyhop 이 읽어 상태를 정하고, 요약 모델이 단계를 써서, 보드와 메뉴바에 보여 준다" data-en-aria-label="Spyhop reads running AI processes and transcripts to decide the status, the summarizer writes the steps, and the board and menu bar show them">
+<rect class="n" x="4" y="4" width="150" height="70" rx="16"/><text class="t" x="79" y="34" text-anchor="middle" data-en="Running sessions">실행 중인 세션</text><text class="s" x="79" y="55" text-anchor="middle" data-en="working · waiting">일하는 중 · 기다리는 중</text>
+<rect class="n" x="166" y="4" width="150" height="70" rx="16"/><text class="t" x="241" y="34" text-anchor="middle" data-en="Transcripts">대화 기록</text><text class="s" x="241" y="55" text-anchor="middle">Claude · Codex</text>
+<path class="flow" d="M79 78 C79 102 160 92 160 116"/><path class="flow" d="M241 78 C241 102 160 92 160 116"/><path class="head" d="M154 110 l6 7 6-7"/>
+<rect class="n hi" x="50" y="122" width="220" height="74" rx="16"/><text class="t" x="160" y="154" text-anchor="middle" data-en="Spyhop · your Mac">Spyhop · 내 맥</text><text class="s" x="160" y="176" text-anchor="middle" data-en="status decided here">상태는 여기서 정해요</text>
+<path class="flow d2" d="M160 200 V236"/><path class="head" d="M154 230 l6 7 6-7"/>
+<rect class="n" x="70" y="242" width="180" height="74" rx="16"/><text class="t" x="160" y="274" text-anchor="middle" data-en="Summarizer">요약 모델</text><text class="s" x="160" y="296" text-anchor="middle" data-en="title · steps · TODO">제목 · 단계 · 할 일</text>
+<path class="flow d3" d="M160 320 V356"/><path class="head" d="M154 350 l6 7 6-7"/>
+<rect class="n hi" x="90" y="362" width="140" height="74" rx="16"/><text class="t" x="160" y="394" text-anchor="middle" data-en="Board">보드</text><text class="s" x="160" y="416" text-anchor="middle" data-en="menu bar">메뉴바</text>
 </svg>
 </div>
 </div></section>

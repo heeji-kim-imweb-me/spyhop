@@ -5,8 +5,8 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 s = open('src.html', encoding='utf-8').read()
 def emb(m):
     n = m.group(1)
-    if n.endswith('.mp4'):
-        return 'data:video/mp4;base64,' + base64.b64encode(open('assets/' + n, 'rb').read()).decode()
+    if n.endswith('.mp4') or n.endswith('.webp'):
+        return 'data:%s;base64,' % ('video/mp4' if n.endswith('.mp4') else 'image/webp') + base64.b64encode(open('assets/' + n, 'rb').read()).decode()
     return 'data:image/png;base64,' + base64.b64encode(open('assets/%s.png' % n, 'rb').read()).decode()
 s = re.sub(r'\{\{([a-z.0-9-]+)\}\}', emb, s)
 open('share.html', 'w', encoding='utf-8').write(s.replace('여기 없는 질문은 <a', '여기 없는 질문은 #team-infra 의 Spyhop 스레드나 <a'))  # 사내판만 사내 채널 안내
