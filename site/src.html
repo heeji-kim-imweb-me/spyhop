@@ -4,9 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="share-skeleton" content="custom">
-<meta name="share-skeleton-note" content="도구 소개(제품 소개형). 장면별 스크린샷과 기능 설명이 중심이라 13종 어디에도 딱 맞지 않음">
-<title>[devops] Spyhop 세션 보드</title>
+<title>Spyhop: AI 세션 보드</title>
+<meta name="description" content="Every AI coding session on one board, each with its own progress. Claude Code and Codex in Orca, Terminal, iTerm2, Ghostty or WezTerm on macOS.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Spyhop: every AI coding session on one board">
+<meta property="og:description" content="See all your Claude Code and Codex sessions at once, and how far each one has come: done, now, next.">
+<meta property="og:url" content="https://leeleelee3264.github.io/spyhop/">
+<meta property="og:image" content="https://leeleelee3264.github.io/spyhop/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 :root{color-scheme:light dark;--bg:#fff;--soft:#f6f7f9;--card:#fff;--ink:#191f28;--ink2:#4e5968;--ink3:#8b95a1;--line:#e9ecef;--blue:#3182f6;--blue-soft:#e8f3ff;--green:#16a37b;--pink:#e5508a;--amber:#e09b16;--violet:#8a63d2;--shadow:0 20px 60px rgba(25,31,40,.10)}
 :root[data-theme="light"]{color-scheme:light;--bg:#fff;--soft:#f6f7f9;--card:#fff;--ink:#191f28;--ink2:#4e5968;--ink3:#8b95a1;--line:#e9ecef;--blue:#3182f6;--blue-soft:#e8f3ff;--green:#16a37b;--pink:#e5508a;--amber:#e09b16;--violet:#8a63d2;--shadow:0 20px 60px rgba(25,31,40,.10)}
@@ -210,7 +217,7 @@ document.addEventListener('DOMContentLoaded',function(){var v=document.getElemen
 document.documentElement.classList.add('js');
 (function(){
   var r=document.documentElement,q=window.matchMedia('(prefers-color-scheme: dark)');
-  function saved(){try{return localStorage.getItem('imwebShareTheme')}catch(e){return null}}
+  function saved(){try{return localStorage.getItem('spyhopTheme')}catch(e){return null}}
   function label(t){var b=document.getElementById('themeBtn');
     if(b){var en=document.documentElement.lang==='en';b.textContent=(t==='dark'?(en?'☀︎ Light':'☀︎ 밝게'):(en?'☾ Dark':'☾ 어둡게'));b.setAttribute('aria-pressed',t==='dark')}}
   function apply(t){r.setAttribute('data-theme',t);label(t)}
@@ -220,7 +227,7 @@ document.documentElement.classList.add('js');
     var b=document.getElementById('themeBtn');
     b&&b.addEventListener('click',function(){
       var t=r.getAttribute('data-theme')==='dark'?'light':'dark';
-      try{localStorage.setItem('imwebShareTheme',t)}catch(e){}
+      try{localStorage.setItem('spyhopTheme',t)}catch(e){}
       apply(t);
     });
   });
@@ -427,7 +434,7 @@ brew install --cask swiftbar &amp;&amp; spyhop</pre>
     var b=document.getElementById('langBtn');if(b)b.textContent=l==='en'?'한국어':'EN';
     var t=document.getElementById('themeBtn'),dk=r.getAttribute('data-theme')==='dark';
     if(t)t.textContent=dk?(l==='en'?'☀︎ Light':'☀︎ 밝게'):(l==='en'?'☾ Dark':'☾ 어둡게');
-    document.title=l==='en'?'Spyhop: every AI session on one board':'[devops] Spyhop 세션 보드'};
+    document.title=l==='en'?'Spyhop: every AI session on one board':'Spyhop: AI 세션 보드'};
   applyLang(saved()||(/^ko/i.test(navigator.language||'')?'ko':'en'));
   document.getElementById('langBtn').addEventListener('click',function(){var l=document.documentElement.lang==='en'?'ko':'en';
     try{localStorage.setItem('spyhopLang',l)}catch(e){}applyLang(l)});
