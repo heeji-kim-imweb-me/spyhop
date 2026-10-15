@@ -2434,8 +2434,17 @@ def serve():
         if target:
             r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
                                 '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
-            if r.returncode != 0:  # 그 창을 나눌 수 없으면(화면에 없는 뒤쪽 창 등) 새 탭으로
-                sys.stderr.write('move: split next to %s failed, opening a tab\n' % target['handle'])
+            if r.returncode != 0:
+                # 오르카가 그 워크스페이스를 아직 화면에 올리지 않았으면 탭을 못 찾아 나누기가 실패한다("Terminal tab … not found").
+                # 그 창으로 한 번 넘어가 워크스페이스를 띄운 뒤 다시 나눈다. 그래도 안 되면 새 탭으로
+                sys.stderr.write('move: split next to %s failed (%s), showing that workspace and retrying\n'
+                                 % (target['handle'], (r.stdout or r.stderr).strip()[-160:].replace('\n', ' ')))
+                subprocess.run(['orca', 'terminal', 'switch', '--terminal', target['handle']], capture_output=True, timeout=10)
+                time.sleep(0.8)
+                r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
+                                    '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
+            if r.returncode != 0:
+                sys.stderr.write('move: split next to %s failed again, opening a tab\n' % target['handle'])
                 target = None
         if not target:
             r = subprocess.run(['orca', 'terminal', 'create', '--worktree', 'id:' + req['wid'], '--command', cmd, '--json'],
