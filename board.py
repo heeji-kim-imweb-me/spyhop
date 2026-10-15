@@ -1874,10 +1874,10 @@ def render(t, steps, ws):
     where = t.get('_ext') or 'Orca'
     meta = '<span class="mline">%s%s</span>' % (escape(model) + (' · ' if sid else '') if model else '', sidchip)
     card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
-            '<h3>%s</h3>%s%s%s'
+            '<h3>%s</h3>%s%s%s%s'
             '</a>'
             % (st, cid, t['handle'], st, escape(t['worktreeId']), escape(os.path.basename(t.get('log') or '')), title, LABEL[st], chip, for_how_long(since), title, stale, (mini_steps(flow, st == 'busy') + seg_steps(flow)) if flow else '',
-               sub_card))  # 마지막 답은 카드에서 빼고 상세 창에서만 보여준다. 대신 부른 작업 창을 한 줄씩
+               sub_card, CARD_ACTS))  # 마지막 답은 카드에서 빼고 상세 창에서만 보여준다. 대신 부른 작업 창을 한 줄씩
     modal = ('<div class="modal %s" id="c%s"><a class="bg" href="#"></a><div class="box">'
              '<div class="row"><span class="meta2"><b class="badge">%s</b><b class="ws">%s</b><span class="where">%s</span>%s</span><a class="x" href="#">Close ✕</a></div>'
              '<div class="hero">%s<div><h2>%s</h2><p class="sum">%s</p>'
@@ -2121,7 +2121,7 @@ def _build():
     # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
     head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em></div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % tiles
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
-    sorter = ('<div class="tb" title="Sort cards"><span class="tl">' + SORT_ICON + '</span><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
+    sorter = ('<div class="tb" title="Sort cards"><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
         '<button class="%s" onclick="pillGo(this,\'%s\')">%s</button>' % ('on' if sort == k else '', k, label)
         for k, label in (('recent', 'Newest'), ('wait', 'Longest wait'))))
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
@@ -2209,8 +2209,10 @@ def group_of(key):
     return a['g'] if a else UNSORTED
 
 
-SORT_ICON = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" '
-             'stroke-linejoin="round" aria-label="Sort"><path d="M7 4v16M3 16l4 4 4-4M14 6h7M14 12h5M14 18h3"/></svg>')
+# 카드에 마우스를 잠깐 올리면 아래에 뜨는 동작 줄. 끝내기는 줄 안에서 한 번 더 묻는다
+CARD_ACTS = ('<div class="cact"><button type="button" class="ce">End session</button>'
+             '<button type="button" class="cg">Go to session <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+             'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg></button></div>')
 PORT = 47613
 CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
 SEA = '<div class="sea" aria-hidden="true"></div><script>window.ORCA="<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 36 64\\" width=\\"100%\\" height=\\"100%\\" aria-hidden=\\"true\\"><g stroke=\\"currentColor\\" stroke-width=\\".7\\" stroke-linejoin=\\"round\\"><path fill=\\"#10131a\\" d=\\"M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z\\"/><path fill=\\"#9299a5\\" stroke=\\"none\\" d=\\"M9 40Q13 36 16 40L15 46Q11 44 9 40Z\\"/><path fill=\\"#10131a\\" d=\\"M24 29Q32 33 32 40Q27 39 22 33Z\\"/><path fill=\\"none\\" d=\\"M25 10Q27 11 29 10\\"/><circle cx=\\"24\\" cy=\\"16\\" r=\\".8\\" fill=\\"#10131a\\" stroke=\\"none\\"/></g></svg>";(function(){var sea=document.querySelector(".sea");if(!sea)return;function fitSea(){var h=sea.parentNode.getBoundingClientRect(),a=document.querySelector(".brand").getBoundingClientRect().right-h.left+16,b=h.right-document.querySelector(".tiles").getBoundingClientRect().left+16;sea.style.left=a+"px";sea.style.right=b+"px"}fitSea();addEventListener("resize",fitSea);function pop(){var o=document.createElement("div");o.className="orca";o.innerHTML=window.ORCA;var w=sea.getBoundingClientRect().width-30;if(w<=0)return;o.style.left=(Math.random()*w)+"px";sea.appendChild(o);setTimeout(function(){o.remove()},3200)}setTimeout(pop,400)})()</script>'  # 열 때 한 번 헤더에서, 그 뒤엔 세션이 일을 끝낼 때만 그 카드 위로 범고래가 수직으로 고개를 내밀어 둘러본다(spyhop)
@@ -3003,6 +3005,7 @@ header{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:0 
 .cnt{display:inline-flex;align-items:baseline;gap:4px;font-size:12px;font-weight:600;color:var(--st);margin-left:12px}.cnt b{font-size:16px;font-weight:800}
 .cnt.failt{--st:#dc2626}.tiles{align-items:center}
 .tb{display:flex;align-items:center;gap:8px}.tl{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;color:var(--ink3)}.pill{position:relative;display:inline-flex;background:var(--col);border:1px solid var(--line);border-radius:999px;padding:3px}.pill button{position:relative;z-index:1;font:600 12px/1 inherit;font-family:inherit;color:var(--ink2);background:none;border:0;padding:6px 13px;border-radius:999px;cursor:pointer;transition:color .3s}.pill button.on{color:var(--card)}.pill .knob{position:absolute;top:3px;bottom:3px;border-radius:999px;background:var(--ink);transition:left .35s cubic-bezier(.3,1.3,.5,1),width .35s cubic-bezier(.3,1.3,.5,1)}
+.card{position:relative}.card.wait{--sc:var(--wait)}.card.busy{--sc:var(--busy)}.cact{border-radius:0 0 6px 0}.cact{position:absolute;z-index:3;left:0;right:0;bottom:0;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--card);border-top:1px solid var(--line);border-radius:0 0 8px 8px;opacity:0;transform:translateY(4px);pointer-events:none;transition:opacity .12s cubic-bezier(.2,.8,.2,1),transform .2s cubic-bezier(.2,.8,.2,1)}.card.hov .cact{opacity:1;transform:none;pointer-events:auto}.cact button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:7px;font:650 11.5px/1 inherit;font-family:inherit;cursor:pointer;white-space:nowrap;transition:transform .45s cubic-bezier(.34,1.45,.64,1),background-color .2s,color .2s,border-color .2s}.cact button:active{transform:scale(.95)}.cact .cg{margin-left:auto;color:#fff;background:var(--sc);border:0}.cact .cg svg{transition:transform .35s cubic-bezier(.34,1.45,.64,1)}.cact .cg:hover svg{transform:translate(2px,-2px)}.cact .ce,.cact .cc{color:var(--ink3);background:none;border:1px solid transparent}.cact .ce:hover{color:#c0362c;border-color:color-mix(in srgb,#c0362c 35%,transparent);background:color-mix(in srgb,#c0362c 7%,transparent)}.cact .cc{margin-left:auto}.cact .cc:hover{color:var(--ink)}.cact .cy{color:#fff;background:#d1453b;border:0}.cact .cq{font-size:11.5px;font-weight:650;color:var(--ink2)}.dragging-on .cact,.floating .cact{display:none}
 .subbar{display:flex;justify-content:flex-start;align-items:center;gap:12px;margin:-6px 4px 12px;font-size:10.5px;color:var(--ink3)}.subbar .legend{margin:0 0 0 auto}#grouping{margin-right:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--ink2)}.donut{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--left);border-top-color:var(--wait);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:2px}
 .tiles{display:flex;gap:6px}.tile{min-width:62px;text-align:center;border-radius:8px;padding:4px 8px;
@@ -3167,6 +3170,17 @@ var endTarget=null;
 function askEnd(h,btn){endTarget=h;var t=btn.dataset.title||btn.closest('.box').querySelector('h2').textContent;
   document.getElementById('cft').textContent=t;document.getElementById('cfx').textContent=h.indexOf('proc_')===0?
     'Only the AI program ends; the terminal tab stays open.':'Only this pane closes; other panes in the tab stay.';document.getElementById('confirm').className='on'}
+// 카드 동작 줄: 0.2초 머물면 뜨고, 벗어나면 바로 사라진다(훑고 지나갈 때 깜빡이지 않게)
+var hovC=null,hovT=null;
+function hovOff(){clearTimeout(hovT);if(hovC){hovC.classList.remove('hov');var a=hovC.querySelector('.cact');if(a&&a.dataset.o){a.innerHTML=a.dataset.o;delete a.dataset.o}}hovC=null}
+document.addEventListener('mouseover',function(e){if(drag)return;var c=e.target.closest&&e.target.closest('main .card');if(c===hovC)return;hovOff();if(!c)return;hovC=c;hovT=setTimeout(function(){if(hovC===c)c.classList.add('hov')},200)});
+document.addEventListener('mouseleave',hovOff);
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.cact button');if(!b)return;e.preventDefault();e.stopPropagation();
+  var c=b.closest('.card'),a=b.closest('.cact'),h=c.dataset.h;
+  if(b.classList.contains('cg'))return go(h);
+  if(b.classList.contains('ce')){a.dataset.o=a.innerHTML;a.innerHTML='<span class="cq">End this session?</span><button type="button" class="cc">Cancel</button><button type="button" class="cy">End</button>';return}
+  if(b.classList.contains('cc')){a.innerHTML=a.dataset.o;delete a.dataset.o;return}
+  if(b.classList.contains('cy')){endTarget=h;doEnd()}},true);
 function cancelEnd(){endTarget=null;document.getElementById('confirm').className=''}
 function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
