@@ -1455,6 +1455,10 @@ def status_of(t):
     agent = t.get('agent') or {}
     if agent.get('state'):
         state = 'busy' if agent['state'] == 'working' else 'idle'
+    proc = t.get('_proc') or {}
+    if proc.get('kind') == 'claude' and 'busy' in proc:
+        # 클로드가 직접 적는 상태(~/.claude/sessions/<pid>.json)를 가장 믿는다. 오르카 쪽 표시는 끝난 뒤에도 working 으로 남을 때가 있다
+        state = 'busy' if proc['busy'] else 'idle'
     if state == 'unknown' and is_codex_log(t.get('log')):
         state = 'idle' if codex_turn_done(t['log']) else 'busy'
     if state == 'unknown':
@@ -2117,7 +2121,7 @@ def _build():
     # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
     head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em></div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % tiles
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
-    sorter = ('<div class="tb"><span class="tl">Sort</span><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
+    sorter = ('<div class="tb" title="Sort cards"><span class="tl">' + SORT_ICON + '</span><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
         '<button class="%s" onclick="pillGo(this,\'%s\')">%s</button>' % ('on' if sort == k else '', k, label)
         for k, label in (('recent', 'Newest'), ('wait', 'Longest wait'))))
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
@@ -2205,6 +2209,8 @@ def group_of(key):
     return a['g'] if a else UNSORTED
 
 
+SORT_ICON = ('<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" '
+             'stroke-linejoin="round" aria-label="Sort"><path d="M7 4v16M3 16l4 4 4-4M14 6h7M14 12h5M14 18h3"/></svg>')
 PORT = 47613
 CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
 SEA = '<div class="sea" aria-hidden="true"></div><script>window.ORCA="<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 36 64\\" width=\\"100%\\" height=\\"100%\\" aria-hidden=\\"true\\"><g stroke=\\"currentColor\\" stroke-width=\\".7\\" stroke-linejoin=\\"round\\"><path fill=\\"#10131a\\" d=\\"M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z\\"/><path fill=\\"#9299a5\\" stroke=\\"none\\" d=\\"M9 40Q13 36 16 40L15 46Q11 44 9 40Z\\"/><path fill=\\"#10131a\\" d=\\"M24 29Q32 33 32 40Q27 39 22 33Z\\"/><path fill=\\"none\\" d=\\"M25 10Q27 11 29 10\\"/><circle cx=\\"24\\" cy=\\"16\\" r=\\".8\\" fill=\\"#10131a\\" stroke=\\"none\\"/></g></svg>";(function(){var sea=document.querySelector(".sea");if(!sea)return;function fitSea(){var h=sea.parentNode.getBoundingClientRect(),a=document.querySelector(".brand").getBoundingClientRect().right-h.left+16,b=h.right-document.querySelector(".tiles").getBoundingClientRect().left+16;sea.style.left=a+"px";sea.style.right=b+"px"}fitSea();addEventListener("resize",fitSea);function pop(){var o=document.createElement("div");o.className="orca";o.innerHTML=window.ORCA;var w=sea.getBoundingClientRect().width-30;if(w<=0)return;o.style.left=(Math.random()*w)+"px";sea.appendChild(o);setTimeout(function(){o.remove()},3200)}setTimeout(pop,400)})()</script>'  # 열 때 한 번 헤더에서, 그 뒤엔 세션이 일을 끝낼 때만 그 카드 위로 범고래가 수직으로 고개를 내밀어 둘러본다(spyhop)
@@ -2996,7 +3002,7 @@ header{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:0 
 .brand{display:flex;align-items:center;gap:8px}.brand b{font-size:15px;letter-spacing:-.01em}.brand .logo{display:block;flex:none}
 .cnt{display:inline-flex;align-items:baseline;gap:4px;font-size:12px;font-weight:600;color:var(--st);margin-left:12px}.cnt b{font-size:16px;font-weight:800}
 .cnt.failt{--st:#dc2626}.tiles{align-items:center}
-.tb{display:flex;align-items:center;gap:8px}.tl{font-size:11.5px;font-weight:600;color:var(--ink3)}.pill{position:relative;display:inline-flex;background:var(--col);border:1px solid var(--line);border-radius:999px;padding:3px}.pill button{position:relative;z-index:1;font:600 12px/1 inherit;font-family:inherit;color:var(--ink2);background:none;border:0;padding:6px 13px;border-radius:999px;cursor:pointer;transition:color .3s}.pill button.on{color:var(--card)}.pill .knob{position:absolute;top:3px;bottom:3px;border-radius:999px;background:var(--ink);transition:left .35s cubic-bezier(.3,1.3,.5,1),width .35s cubic-bezier(.3,1.3,.5,1)}
+.tb{display:flex;align-items:center;gap:8px}.tl{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;color:var(--ink3)}.pill{position:relative;display:inline-flex;background:var(--col);border:1px solid var(--line);border-radius:999px;padding:3px}.pill button{position:relative;z-index:1;font:600 12px/1 inherit;font-family:inherit;color:var(--ink2);background:none;border:0;padding:6px 13px;border-radius:999px;cursor:pointer;transition:color .3s}.pill button.on{color:var(--card)}.pill .knob{position:absolute;top:3px;bottom:3px;border-radius:999px;background:var(--ink);transition:left .35s cubic-bezier(.3,1.3,.5,1),width .35s cubic-bezier(.3,1.3,.5,1)}
 .subbar{display:flex;justify-content:flex-start;align-items:center;gap:12px;margin:-6px 4px 12px;font-size:10.5px;color:var(--ink3)}.subbar .legend{margin:0 0 0 auto}#grouping{margin-right:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--ink2)}.donut{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--left);border-top-color:var(--wait);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:2px}
 .tiles{display:flex;gap:6px}.tile{min-width:62px;text-align:center;border-radius:8px;padding:4px 8px;
