@@ -53,8 +53,15 @@ def deepseek(system, user):
         'model': MODEL, 'max_tokens': 4000, 'thinking': {'type': 'disabled'},
         'system': system, 'messages': [{'role': 'user', 'content': user}]}).encode(),
         headers={'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        res = json.load(r)
+    for i in range(3):  # 503·429 같은 잠깐의 거절은 조금 쉬었다가 다시 묻는다 (요약 실패 표시가 괜히 뜨지 않게)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                res = json.load(r)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or i == 2:
+                raise
+            time.sleep((2, 6)[i])
     return ''.join(c.get('text', '') for c in res.get('content', []) if c.get('type') == 'text')
 
 
@@ -1865,7 +1872,7 @@ def render(t, steps, ws):
     card = ('<a class="card %s" href="#c%s" draggable="false" data-h="%s" data-st="%s" data-wid="%s" data-log="%s" data-title="%s"><div class="row"><span><b class="badge">%s</b>%s</span><small>%s</small></div>'
             '<h3>%s</h3>%s%s%s'
             '</a>'
-            % (st, cid, t['handle'], st, escape(t['worktreeId']), escape(os.path.basename(t.get('log') or '')), title, LABEL[st], chip, (lambda h: h if h == 'just now' else h + (' waiting' if st == 'wait' else ' working'))(for_how_long(since)), title, stale, (mini_steps(flow, st == 'busy') + seg_steps(flow)) if flow else '',
+            % (st, cid, t['handle'], st, escape(t['worktreeId']), escape(os.path.basename(t.get('log') or '')), title, LABEL[st], chip, for_how_long(since), title, stale, (mini_steps(flow, st == 'busy') + seg_steps(flow)) if flow else '',
                sub_card))  # 마지막 답은 카드에서 빼고 상세 창에서만 보여준다. 대신 부른 작업 창을 한 줄씩
     modal = ('<div class="modal %s" id="c%s"><a class="bg" href="#"></a><div class="box">'
              '<div class="row"><span class="meta2"><b class="badge">%s</b><b class="ws">%s</b><span class="where">%s</span>%s</span><a class="x" href="#">Close ✕</a></div>'
@@ -3004,7 +3011,7 @@ main{display:grid;gap:12px;align-items:start;overflow-x:auto;scroll-snap-type:x 
 .row small{white-space:nowrap}
 @container (max-width:260px){
   .card .row{flex-wrap:wrap;row-gap:2px}.card .row small{font-size:10.5px}
-  .card .model{display:none}.card h3{font-size:12.5px}
+  .card .model{max-width:96px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}.card h3{font-size:12.5px}
   .card .sum{font-size:11.5px}.m{font-size:11px}.seg span{font-size:10.5px}
   .col h2{font-size:12px}}
 @container (max-width:180px){.card .row small{width:100%}.card .reply{display:none}}
