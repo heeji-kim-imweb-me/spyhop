@@ -2175,8 +2175,9 @@ _GROUPING = {'busy': False, 'at': 0}
 
 
 def group_mode():
-    # 'orca' = 자리(오르카 워크스페이스, 오르카 밖이면 "폴더 · 터미널")로 묶기. 모델 없이 되니 기본값이다
-    return 'ai' if load_config().get('group_by') == 'ai' else 'orca'
+    # 'location' = 세션이 도는 자리(오르카 워크스페이스, 오르카 밖이면 "폴더 · 터미널")로 묶기. 모델 없이 되니 기본값이다
+    # 예전 설정의 'orca' 도 여기로 읽힌다
+    return 'ai' if load_config().get('group_by') == 'ai' else 'location'
 
 
 def load_groups():
@@ -2315,7 +2316,7 @@ def serve():
                     set_autostart(bool(req['autostart']))
                 if req.get('group_by') == 'ai':
                     _GROUPING['at'] = 0
-                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('orca', 'ai')), ('sort', ('recent', 'wait'))):
+                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('location', 'orca', 'ai')), ('sort', ('recent', 'wait'))):
                     if key in req:
                         if req[key] not in allowed:
                             return self.send(400, b'bad value')
@@ -3010,7 +3011,7 @@ def render_settings():
                   '<div class="pills">%s</div>' % ''.join(
                       '<button class="%s" onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
                       % ('on' if group_mode() == k else '', k, label)
-                      for k, label in (('orca', 'Orca workspace' if find_bin('orca') else 'Folder · terminal'), ('ai', 'AI topics'))))
+                      for k, label in (('location', 'Location'), ('ai', 'AI topics'))))
             + sec('Orca animation', 'Orcas spyhop in the header',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({orcas:this.checked})"><i></i></label>' % (' checked' if orcas_on() else ''))
             + sec('Start at login', 'Run the board when you log in to this Mac',

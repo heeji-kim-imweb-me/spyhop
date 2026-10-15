@@ -59,7 +59,7 @@ Spyhop finds sessions from the running `claude` and `codex` programs, so they sh
 | | Orca | Terminal, iTerm2, Ghostty, WezTerm | Other terminals |
 |---|---|---|---|
 | Card, steps, summary, detail view | ✅ | ✅ | ✅ |
-| Columns | Orca workspaces | folder and terminal (e.g. `workspace · iTerm2`) | folder and terminal |
+| Columns (Group by: Location) | Orca workspaces | folder and terminal (e.g. `workspace · iTerm2`) | folder and terminal |
 | Go to session | the exact pane | the exact tab | brings the app to the front |
 | End session | closes that split pane | stops the AI program, the tab stays | stops the AI program, the tab stays |
 | Drag a card to move the session to another workspace | ✅ | ❌ | ❌ |
@@ -87,7 +87,7 @@ How much it uses: only sessions whose transcript changed are summarized, at most
 
 ![Detail](docs/screenshots/detail.png)
 
-- **Group by AI topics** instead of Orca workspaces. Drag a card to another group to pin it there.
+- **Group by AI topics** instead of Location (the Orca workspace, or the folder and terminal each session runs in). Drag a card to another group to pin it there.
 
 ![AI groups](docs/screenshots/ai-groups.png)
 
