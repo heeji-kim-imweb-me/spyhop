@@ -1344,6 +1344,27 @@ def pretty_model(m):
     return m
 
 
+def active_pane(wid):
+    """그 워크스페이스에서 오르카가 지금 보여 주는 탭의 활성 창 handle (오르카가 그 워크스페이스를 그리고 있을 때만)."""
+    for v in (LIST_CACHE.get('list') or orca('terminal', 'list')).get('visualLayouts', []):
+        if v.get('worktreeId') != wid:
+            continue
+        root = v.get('root') or {}
+        tab = next((t for t in root.get('tabs') or [] if t.get('tabId') == root.get('activeTabId')), None)
+        found = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                if n.get('type') == 'terminal' and (n.get('leafId') == tab.get('activeLeafId') or not found):
+                    found.insert(0, n.get('handle')) if n.get('leafId') == tab.get('activeLeafId') else found.append(n.get('handle'))
+                for k in ('first', 'second', 'panes'):
+                    walk(n.get(k))
+        if tab:
+            walk(tab.get('panes'))
+        return found[0] if found else None
+    return None
+
+
 def layout_handles():
     found = set()
 
@@ -2403,14 +2424,29 @@ def serve():
         terms = orca('terminal', 'list').get('terminals', [])
         LIST_CACHE.clear()
         shown = layout_handles()
-        # 대상 워크스페이스에 화면에 떠 있는 창이 있으면 그 옆을 나누고, 없으면 새 탭을 만든다
-        target = next((x for x in terms if (x.get('ptyId') or '').split('@@')[0] == req['wid']
-                       and not x.get('orphaned') and x['handle'] in shown), None)
+        # 대상 워크스페이스에 창이 있으면 그 옆을 나누고, 하나도 없을 때만 새 탭을 만든다.
+        # 오르카가 그 워크스페이스를 지금 그리고 있으면 지금 보이는 탭의 창 옆을, 아니면 그 워크스페이스의 아무 창 옆을 고른다
+        mine = [x for x in terms if (x.get('ptyId') or '').split('@@')[0] == req['wid'] and not x.get('orphaned')]
+        active = active_pane(req['wid'])
+        target = (next((x for x in mine if x['handle'] == active), None) or next((x for x in mine if x['handle'] in shown), None)
+                  or (mine[0] if mine else None))
         # 1) 새 창부터 연다. 실패하면 원래 창은 그대로 둔다
         if target:
             r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
                                 '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
-        else:
+            if r.returncode != 0:
+                # 오르카가 그 워크스페이스를 아직 화면에 올리지 않았으면 탭을 못 찾아 나누기가 실패한다("Terminal tab … not found").
+                # 그 창으로 한 번 넘어가 워크스페이스를 띄운 뒤 다시 나눈다. 그래도 안 되면 새 탭으로
+                sys.stderr.write('move: split next to %s failed (%s), showing that workspace and retrying\n'
+                                 % (target['handle'], (r.stdout or r.stderr).strip()[-160:].replace('\n', ' ')))
+                subprocess.run(['orca', 'terminal', 'switch', '--terminal', target['handle']], capture_output=True, timeout=10)
+                time.sleep(0.8)
+                r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
+                                    '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
+            if r.returncode != 0:
+                sys.stderr.write('move: split next to %s failed again, opening a tab\n' % target['handle'])
+                target = None
+        if not target:
             r = subprocess.run(['orca', 'terminal', 'create', '--worktree', 'id:' + req['wid'], '--command', cmd, '--json'],
                                capture_output=True, text=True, timeout=20)
         sys.stderr.write('move %s -> %s: %s | %s\n' % (info['handle'], req['wid'], cmd, (r.stdout or r.stderr)[:200]))
