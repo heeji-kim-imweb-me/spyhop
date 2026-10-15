@@ -2094,19 +2094,24 @@ def _build():
     if mode == 'ai':
         assign_groups([(t.get('log') or t['handle'], (steps.get(t.get('log')) or {}).get('title'),
                         (steps.get(t.get('log')) or {}).get('summary')) for t in terms])
-        gorder = load_groups()['groups']
-        waiting = sum(1 for t in terms if group_of(t.get('log') or t['handle']) == UNSORTED)
+        groups = load_groups()  # 한 화면은 같은 배정 스냅샷으로 그린다
+        gorder = groups['groups']
+        waiting = sum(1 for t in terms if group_of(t.get('log') or t['handle'], groups) == UNSORTED)
         if waiting:
             grouping = ('<div id="grouping"><i class="donut"></i>Grouping %d session%s by topic…</div>'
                         % (waiting, '' if waiting == 1 else 's'))
     cols, modals, count, colwid = {}, [], {'wait': 0, 'busy': 0}, {}
+    if mode == 'ai':  # 세션이 없어도 만들어 둔 주제 칸과 자리를 유지한다
+        for i, name in enumerate(gorder):
+            cols[(-i, name)] = []
+            colwid[(-i, name)] = 'group:' + name
     sort = load_config().get('sort', 'recent')  # 칸 안 카드 순서. recent: 최근에 내 차례가 된 것부터 · wait: 오래 기다린 것부터. 칸 자리는 바꾸지 않는다
     if sort not in ('recent', 'wait'):
         sort = 'recent'
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
         w = worktrees.get(t['worktreeId'], {})
         if mode == 'ai':
-            ws = group_of(t.get('log') or t['handle'])
+            ws = group_of(t.get('log') or t['handle'], groups)
             rank = -(gorder.index(ws) if ws in gorder else 999)   # 그룹이 생긴 순서대로, Unsorted 는 맨 뒤
         else:
             ws = w.get('displayName') or os.path.basename(w.get('path', '') or '')
@@ -2204,10 +2209,8 @@ def assign_groups(items):
 
     def work():
         try:
-            live = {k for k, _, _ in items}
-            used = [x for x in g['groups'] if any(v.get('g') == x for k, v in g['assign'].items() if k in live)]
             ids = {'s%d' % i: k for i, (k, _, _) in enumerate(todo, 1)}
-            body = ('기존 그룹: %s\n\n배정할 세션:\n%s' % (json.dumps(used, ensure_ascii=False) if used else '(없음)',
+            body = ('기존 그룹: %s\n\n배정할 세션:\n%s' % (json.dumps(g['groups'], ensure_ascii=False) if g['groups'] else '(없음)',
                     '\n'.join('%s: %s: %s' % (sid, t, (sm or '')[:120]) for sid, (k, t, sm) in zip(ids, todo))))
             out = llm(GROUP_PROMPT, body)
             res = json.JSONDecoder().raw_decode(out[out.index('{'):])[0].get('assign') or {}
@@ -2226,8 +2229,8 @@ def assign_groups(items):
     threading.Thread(target=work, daemon=True).start()
 
 
-def group_of(key):
-    a = load_groups()['assign'].get(key)
+def group_of(key, groups=None):
+    a = (groups if groups is not None else load_groups())['assign'].get(key)
     return a['g'] if a else UNSORTED
 
 
@@ -3224,7 +3227,7 @@ function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;  // 끝났으면 상세 창과 카드를 바로 치운다
     location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){var col=c.closest('.col');c.style.transition='opacity .18s';c.style.opacity='0';
-      setTimeout(function(){c.remove();if(col&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();grid();recount()},180)}else recount()},180)}
+      setTimeout(function(){c.remove();if(col&&col.dataset.wid.indexOf('group:')!==0&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();grid();recount()},180)}else recount()},180)}
     toast('Session ended');setTimeout(function(){live().then(stop)},1200)})})
   .catch(function(t){stop();toast(typeof t==='string'&&t?t:'Could not end the session')})}
 
@@ -3284,7 +3287,7 @@ function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
     n.appendChild(h);var mo=document.createElement('p');mo.className='more';n.appendChild(mo);
     m.insertBefore(n,m.firstChild);col.remove();grid();m.scrollTo({left:0,behavior:'smooth'});col=n}
   flipTo(d.el,col,fr);d.el.classList.add('moving');var fromNext=d.from&&d.from.nextSibling;
-  if(d.from&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 칸은 접는다
+  if(d.from&&d.from.dataset.wid.indexOf('group:')!==0&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 Location 칸은 접고, AI 주제 칸은 남긴다
     setTimeout(function(){if(!gone.querySelector('.card')){gone.remove();var mm=document.querySelector('main');grid()}},200)}
   var pk=d.log?'l:'+d.log:'h:'+d.h;  // 대화 기록이 아직 없는 카드는 창 번호로 (두 장이 같은 빈 키를 쓰지 않게)
   pending[pk]={sel:d.log?'.card[data-log="'+d.log+'"]':'.card[data-h="'+d.h+'"]',wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
