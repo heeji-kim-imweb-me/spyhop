@@ -111,6 +111,21 @@ class TopicGroupsTest(unittest.TestCase):
         self.assertEqual(Columns(Path(B.OUT).read_text()).names, self.groups['groups'])
         self.assertEqual(json.loads(Path(B.STATE).read_text())['sessions'], [])
 
+    def test_unsorted_sessions_go_to_pill_not_column(self):
+        group_of = B.group_of
+        D.patch('ai')
+        B.group_of = group_of
+        B.load_groups = lambda: copy.deepcopy(self.groups)
+        B.OUT = str(self.root / 'board.html')
+        B.STATE = str(self.root / 'state.json')
+        self.groups['assign'][str(Path(D.TMP) / 'session-0.jsonl')] = {'g': 'Middle', 'manual': False}
+        B.build()
+        html = Path(B.OUT).read_text()
+        self.assertEqual(Columns(html).names, self.groups['groups'])  # Unsorted 칸 없음, 칸 자리 그대로
+        waiting = html.count('<a href="#c', html.index('class="gpop"'), html.index('</div>', html.index('class="gpop"')))
+        self.assertGreater(waiting, 0)
+        self.assertIn('<b>%d</b> new · sorting' % waiting, html)
+
     def test_snapshot_does_not_reload_changed_assignment(self):
         snapshot = B.load_groups()
         current = B.load_groups()

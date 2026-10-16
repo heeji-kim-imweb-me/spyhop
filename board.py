@@ -2096,11 +2096,7 @@ def _build():
                         (steps.get(t.get('log')) or {}).get('summary')) for t in terms])
         groups = load_groups()  # 한 화면은 같은 배정 스냅샷으로 그린다
         gorder = groups['groups']
-        waiting = sum(1 for t in terms if group_of(t.get('log') or t['handle'], groups) == UNSORTED)
-        if waiting:
-            grouping = ('<div id="grouping"><i class="donut"></i>Grouping %d session%s by topic…</div>'
-                        % (waiting, '' if waiting == 1 else 's'))
-    cols, modals, count, colwid = {}, [], {'wait': 0, 'busy': 0}, {}
+    cols, modals, count, colwid, sorting = {}, [], {'wait': 0, 'busy': 0}, {}, []
     if mode == 'ai':  # 세션이 없어도 만들어 둔 주제 칸과 자리를 유지한다
         for i, name in enumerate(gorder):
             cols[(-i, name)] = []
@@ -2118,11 +2114,20 @@ def _build():
             rank = w.get('sortOrder') or 0
         order, card, modal = render(t, steps.get(t.get('log')), ws)
         count['wait' if order[0] == 0 else 'busy'] += 1
+        modals.append(modal)
+        if mode == 'ai' and ws == UNSORTED:  # 분류 전 세션은 칸을 만들지 않고 위 알약에만 센다(칸이 생겼다 사라지며 옆 칸이 움직이지 않게)
+            m = re.search(r'href="(#c[^"]*)"[^>]*data-h="([^"]*)"[^>]*data-log="([^"]*)"[^>]*data-title="([^"]*)"', card)
+            if m:
+                sorting.append('<a href="%s" data-h="%s" data-log="%s"><i class="donut"></i>%s</a>' % m.groups())
+            continue
         if sort == 'recent' and order[0] == 0:
             order = (0, -order[1])  # 최근에 내 차례가 된 것부터
         cols.setdefault((rank, ws), []).append((order, card))
         colwid[(rank, ws)] = ('group:' + ws) if mode == 'ai' else t['worktreeId']
-        modals.append(modal)
+
+    if sorting:  # 숫자만 올라간다. 마우스를 올리면 기다리는 세션 이름
+        grouping = ('<div id="grouping"><i class="donut"></i><span><b>%d</b> new · sorting</span><div class="gpop">%s</div></div>'
+                    % (len(sorting), ''.join(sorting)))
 
     def col_key(item):
         (rank, ws), cards = item
@@ -2152,7 +2157,7 @@ def _build():
         for k, label in (('recent', 'Newest'), ('wait', 'Longest wait'))))
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
-        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or '<p class="none">The sea is calm · no sessions running.</p>', ''.join(modals) + render_settings()))
+        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or ('<p class="none">Sorting new sessions by topic…</p>' if sorting else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
         f.write(html)
@@ -3046,7 +3051,7 @@ header{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:0 
 .cnt.failt{--st:#dc2626}.tiles{align-items:center}
 .tb{display:flex;align-items:center;gap:8px}.tl{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;color:var(--ink3)}.pill{position:relative;display:inline-flex;background:var(--col);border:1px solid var(--line);border-radius:999px;padding:3px}.pill button{position:relative;z-index:1;font:600 12px/1 inherit;font-family:inherit;color:var(--ink2);background:none;border:0;padding:6px 13px;border-radius:999px;cursor:pointer;transition:color .3s}.pill button.on{color:var(--card)}.pill .knob{position:absolute;top:3px;bottom:3px;border-radius:999px;background:var(--ink);transition:left .35s cubic-bezier(.3,1.3,.5,1),width .35s cubic-bezier(.3,1.3,.5,1)}
 .card{position:relative}.card.wait{--sc:var(--wait)}.card.busy{--sc:var(--busy)}.cact{border-radius:0 0 6px 0}.cact{position:absolute;z-index:3;left:0;right:0;bottom:0;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--card);border-top:1px solid var(--line);border-radius:0 0 8px 8px;opacity:0;transform:translateY(4px);pointer-events:none;transition:opacity .12s cubic-bezier(.2,.8,.2,1),transform .2s cubic-bezier(.2,.8,.2,1)}.card.hov .cact{opacity:1;transform:none;pointer-events:auto}.cact button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:7px;font:650 11.5px/1 inherit;font-family:inherit;cursor:pointer;white-space:nowrap;transition:transform .45s cubic-bezier(.34,1.45,.64,1),background-color .2s,color .2s,border-color .2s}.cact button:active{transform:scale(.95)}.cact .cg{margin-left:auto;color:#fff;background:var(--sc);border:0}.cact .cg svg{transition:transform .35s cubic-bezier(.34,1.45,.64,1)}.cact .cg:hover svg{transform:translate(2px,-2px)}.cact .ce{color:var(--ink3);background:none;border:1px solid transparent}.cact .ce:hover{color:#c0362c;border-color:color-mix(in srgb,#c0362c 35%,transparent);background:color-mix(in srgb,#c0362c 7%,transparent)}.dragging-on .cact,.floating .cact{display:none}
-.subbar{display:flex;justify-content:flex-start;align-items:center;gap:12px;margin:-6px 4px 12px;font-size:10.5px;color:var(--ink3)}.subbar .legend{margin:0 0 0 auto}#grouping{margin-right:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--ink2)}.donut{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--left);border-top-color:var(--wait);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.subbar{display:flex;justify-content:flex-start;align-items:center;gap:12px;margin:-6px 4px 12px;font-size:10.5px;color:var(--ink3)}.subbar .legend{margin:0 0 0 auto}#grouping{margin-right:auto;position:relative;display:flex;align-items:center;gap:6px;height:22px;padding:0 9px 0 6px;border-radius:11px;background:var(--card);border:1px solid var(--line);font-size:11.5px;font-weight:600;color:var(--ink2);cursor:default}#grouping b{color:var(--ink)}#grouping .gpop{display:none;position:absolute;top:26px;left:0;z-index:30;min-width:220px;max-width:320px;background:var(--card);border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 18px rgba(0,0,0,.14);padding:5px}#grouping:hover .gpop{display:block}#grouping .gpop a{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;color:var(--ink);text-decoration:none;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#grouping .gpop a:hover{background:var(--col)}#grouping .gpop .donut{width:11px;height:11px;border-width:2px;flex:none}.donut{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--left);border-top-color:var(--wait);animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:2px}
 .tiles{display:flex;gap:6px}.tile{min-width:62px;text-align:center;border-radius:8px;padding:4px 8px;
 background:color-mix(in srgb,var(--st) 10%,var(--card));border:1px solid color-mix(in srgb,var(--st) 30%,transparent)}
@@ -3382,6 +3387,7 @@ function live(){
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
     var nt=d.querySelector('.tiles'),ot=document.querySelector('.tiles');
     if(nt&&ot&&nt.innerHTML!==LAST.tiles){ot.innerHTML=nt.innerHTML;LAST.tiles=nt.innerHTML}
+    var pend={},gp=document.getElementById('grouping');if(gp){var gr0=gp.getBoundingClientRect();gp.querySelectorAll('.gpop a').forEach(function(a){pend[a.dataset.log||a.dataset.h]=gr0})}  // 분류 중이던 세션은 알약 자리에서 날아온다
     var nb=d.querySelector('.subbar'),ob=document.querySelector('.subbar');
     if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace()}
     var nm=d.querySelector('main'),om=document.querySelector('main');
@@ -3393,7 +3399,7 @@ function live(){
         if(old[c.dataset.h]===undefined)c.classList.add('fresh');else if(old[c.dataset.h]!==c.outerHTML){c.classList.add('changed');
           if(c.dataset.st==='wait'&&/data-st="busy"/.test(old[c.dataset.h]))ended.push(c)}});
       holdMoves();scrollTo(0,y);om.scrollLeft=x;fit();
-      if(!many&&om.animate)om.querySelectorAll('.card').forEach(function(c){var a=was[key(c)];if(!a)return;var b=c.getBoundingClientRect(),dx=a.left-b.left,dy=a.top-b.top;
+      if(!many&&om.animate)om.querySelectorAll('.card').forEach(function(c){var a=was[key(c)]||pend[key(c)];if(!a)return;if(!was[key(c)]){c.classList.remove('fresh');c.classList.add('changed')}var b=c.getBoundingClientRect(),dx=a.left-b.left,dy=a.top-b.top;
         if(Math.abs(dx)+Math.abs(dy)>2)c.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'none'}],{duration:320,easing:'cubic-bezier(.2,.8,.2,1)'})});
       if(ended.length)setTimeout(peek,150)}
     var open=location.hash.slice(1),seen={},anchor=document.getElementById('settings');
