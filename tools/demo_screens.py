@@ -146,7 +146,7 @@ def patch(mode):
     B.orcas_on = lambda: True
     B.group_mode = lambda: mode
     B.assign_groups = lambda items: None
-    B.group_of = lambda key: GROUPS[int(os.path.basename(key).split('-')[1].split('.')[0])]
+    B.group_of = lambda key, groups=None: GROUPS[int(os.path.basename(key).split('-')[1].split('.')[0])]
     B.load_groups = lambda: {'groups': ['Payments', 'Frontend', 'Infra'], 'assign': {}}
     B.OUT = os.path.join(TMP, 'board-%s.html' % mode)
     B.STATE = os.path.join(TMP, 'state-%s.json' % mode)
