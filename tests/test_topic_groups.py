@@ -126,6 +126,25 @@ class TopicGroupsTest(unittest.TestCase):
         self.assertGreater(waiting, 0)
         self.assertIn('<b>%d</b> new · sorting' % waiting, html)
 
+    def test_invalid_model_answer_is_not_saved(self):
+        for answer in ('{"assign":{"s1":"Unsorted"}}', '{"assign":{"s1":null}}', '{"assign":{"s1":{"x":1}}}', '{"assign":{"s1":"  "}}'):
+            B._GROUPING = {'busy': False, 'at': 0}
+            with patch.object(B.threading, 'Thread', ImmediateThread), patch.object(B, 'llm', return_value=answer):
+                B.assign_groups([('new', 'New session', 'Topic')])
+            self.assertEqual(B.load_groups(), self.groups, answer)
+
+    def test_all_unsorted_with_empty_columns_shows_note(self):
+        group_of = B.group_of
+        D.patch('ai')
+        B.group_of = group_of
+        B.load_groups = lambda: copy.deepcopy(self.groups)
+        B.OUT = str(self.root / 'board.html')
+        B.STATE = str(self.root / 'state.json')
+        B.build()
+        html = Path(B.OUT).read_text()
+        self.assertEqual(Columns(html).names, self.groups['groups'])
+        self.assertIn('Sorting new sessions by topic', html)
+
     def test_snapshot_does_not_reload_changed_assignment(self):
         snapshot = B.load_groups()
         current = B.load_groups()
