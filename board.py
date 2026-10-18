@@ -3392,6 +3392,7 @@ function askName(d,r){naming={d:d,r:r};var f=document.getElementById('namer'),i=
   .catch(function(){if(naming&&naming.d===d)c.textContent=''})}
 function nameDone(ok){var f=document.getElementById('namer');if(!naming)return;var d=naming.d,r=naming.r,name=document.getElementById('nmin').value.split(/ +/).join(' ').trim();naming=null;f.className='';
   if(!ok||!name){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}  // 취소면 카드는 제자리로
+  var cur=document.querySelector('main .card[data-h="'+d.h+'"]');if(cur&&cur!==d.el){d.el=cur;d.from=cur.closest('.col')}  // 그사이 다시 그려졌으면 지금 카드를 옮긴다(두 장이 되지 않게)
   var m=document.querySelector('main'),key=name.replace(/ /g,'').toLowerCase(),col=null;
   m.querySelectorAll('.col[data-wid^="group:"]:not(.newcol)').forEach(function(c){if(c.dataset.name.replace(/ /g,'').toLowerCase()===key)col=c});  // 같은 이름 칸이 있으면 그 칸으로
   if(!col){col=document.createElement('section');col.className='col';col.dataset.wid='group:'+name;col.dataset.name=name;
@@ -3523,9 +3524,9 @@ function snap(){document.querySelectorAll('main .card').forEach(function(c){card
   LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
 snap();
 function live(){
-  if(drag||press)return Promise.resolve();
+  if(drag||press||naming)return Promise.resolve();  // 끄는 중·새 칸 이름을 짓는 중에는 다시 그리지 않는다
   return fetch('http://127.0.0.1:47613/?auto=1',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(txt){
-    if(drag||press)return;  // 응답이 오는 사이 끌기가 시작됐으면 이번 갱신은 버린다
+    if(drag||press||naming)return;  // 응답이 오는 사이 끌기가 시작됐으면 이번 갱신은 버린다
     var d=new DOMParser().parseFromString(txt,'text/html');
     var cs=d.documentElement.dataset.code;if(cs&&document.documentElement.dataset.code&&cs!==document.documentElement.dataset.code){location.reload();return true}
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
