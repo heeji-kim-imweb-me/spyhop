@@ -111,7 +111,7 @@ class TopicGroupsTest(unittest.TestCase):
             self.groups['assign'][str(Path(D.TMP) / ('session-%d.jsonl' % i))] = {
                 'g': 'Middle', 'manual': False}
         B.build()
-        self.assertEqual(Columns(Path(B.OUT).read_text()).names, self.groups['groups'])
+        self.assertEqual(Columns(Path(B.OUT).read_text()).names, ['Middle', 'First', 'Last'])  # 카드 있는 칸이 앞, 빈 칸은 만든 순서
         B.orca = lambda *args: {'worktrees': [], 'terminals': []}
         B.outside_terms = lambda: ([], {})
         B.build()
@@ -128,7 +128,7 @@ class TopicGroupsTest(unittest.TestCase):
         self.groups['assign'][str(Path(D.TMP) / 'session-0.jsonl')] = {'g': 'Middle', 'manual': False}
         B.build()
         html = Path(B.OUT).read_text()
-        self.assertEqual(Columns(html).names, self.groups['groups'])  # Unsorted 칸 없음, 칸 자리 그대로
+        self.assertEqual(Columns(html).names, ['Middle', 'First', 'Last'])  # Unsorted 칸 없음, 카드 있는 칸이 앞
         waiting = html.count('<a href="#c', html.index('class="gpop"'), html.index('</div>', html.index('class="gpop"')))
         self.assertGreater(waiting, 0)
         self.assertIn('<b>%d</b> new · sorting' % waiting, html)
