@@ -3381,7 +3381,7 @@ document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var
   if(to&&!canDrop(d,to)){toast('This session is working. Move it after it stops.');to=null}
   d.float.style.transition='transform .34s cubic-bezier(.16,1,.3,1),opacity .2s';
   if(!to){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}
-  if(to.classList.contains('newcol')){askName(d,r);return}
+  if(to.classList.contains('newcol')){d.el.classList.add('dragging');askName(d,r);return}  // 이름을 짓는 동안 원래 카드는 흐리게 둔다
   var fr=d.float.getBoundingClientRect();d.float.remove();dropOn(d,to,fr);unghost()});
 var naming=null;
 function askName(d,r){naming={d:d,r:r};var f=document.getElementById('namer'),i=document.getElementById('nmin'),c=document.getElementById('nmchips');
@@ -3390,7 +3390,7 @@ function askName(d,r){naming={d:d,r:r};var f=document.getElementById('namer'),i=
     s.names.concat(s.similar).forEach(function(n,k){var b=document.createElement('button');b.type='button';b.textContent=n;if(k>=s.names.length){b.className='old';b.title='Existing column'}
       b.onclick=function(){i.value=n;i.focus()};c.appendChild(b)});if(!c.children.length)c.textContent=''})
   .catch(function(){if(naming&&naming.d===d)c.textContent=''})}
-function nameDone(ok){var f=document.getElementById('namer');if(!naming)return;var d=naming.d,r=naming.r,name=document.getElementById('nmin').value.split(/ +/).join(' ').trim();naming=null;f.className='';
+function nameDone(ok){var f=document.getElementById('namer');if(!naming)return;var d=naming.d,r=naming.r;d.el.classList.remove('dragging');var name=document.getElementById('nmin').value.split(/ +/).join(' ').trim();naming=null;f.className='';
   if(!ok||!name){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}  // 취소면 카드는 제자리로
   var cur=document.querySelector('main .card[data-h="'+d.h+'"]');if(cur&&cur!==d.el){d.el=cur;d.from=cur.closest('.col')}  // 그사이 다시 그려졌으면 지금 카드를 옮긴다(두 장이 되지 않게)
   var m=document.querySelector('main'),key=name.replace(/ /g,'').toLowerCase(),col=null;
@@ -3456,7 +3456,7 @@ function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 
     if(card&&card.closest('.col')===col&&card.dataset.h!==p.from){delete pending[log];return}  // 새 창으로 자리 잡음
     if(card&&card.closest('.col')===col&&p.wid.indexOf('group:')===0){delete pending[log];return}
     if(!col){col=document.createElement('section');col.className='col';col.dataset.wid=p.wid;
-      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';col.querySelector('h2').textContent=w?w.name:'';m.appendChild(col)}
+      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';var nm2=w?w.name:(p.wid.indexOf('group:')===0?p.wid.slice(6):'');col.dataset.name=nm2;col.querySelector('h2').textContent=nm2;  // 막 만든 주제 칸은 서버 목록에 아직 없어 이름을 칸 번호에서 읽는다m.appendChild(col)}
     if(!card){var t=document.createElement('div');t.innerHTML=p.html;card=t.firstChild}
     card.classList.add('moving');var more=col.querySelector('.more');col.insertBefore(card,more?more.nextSibling:null)});
   recount()}
