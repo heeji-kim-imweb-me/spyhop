@@ -2119,16 +2119,15 @@ def _build():
     mode = group_mode()
     grouping = ''
     if mode == 'ai':
+        adopt_keys(terms)
         assign_groups([(t.get('log') or t['handle'], (steps.get(t.get('log')) or {}).get('title'),
                         (steps.get(t.get('log')) or {}).get('summary')) for t in terms])
         groups = load_groups()  # 한 화면은 같은 배정 스냅샷으로 그린다
         gorder = groups['groups']
     cols, modals, count, colwid, sorting = {}, [], {'wait': 0, 'busy': 0}, {}, []
-    if mode == 'ai':  # 세션이 없어도 만들어 둔 주제 칸과 자리를 유지한다
-        for i, name in enumerate(gorder):
-            cols[(-i, name)] = []
-            colwid[(-i, name)] = 'group:' + name
-    sort = load_config().get('sort', 'recent')  # 칸 안 카드 순서. recent: 최근에 내 차례가 된 것부터 · wait: 오래 기다린 것부터. 칸 자리는 바꾸지 않는다
+    # 빈 주제 칸은 그리지 않는다(칸 순서가 정렬을 따라 움직이므로 빈 칸으로 자리를 지킬 이유가 없다).
+    # 칸 이름은 다음 정리 때까지 groups.json 에 남아, 비슷한 새 세션이 오면 AI 가 그 이름을 다시 쓴다
+    sort = load_config().get('sort', 'recent')  # 카드 순서. recent: 최근에 내 차례가 된 것부터 · wait: 오래 기다린 것부터. 칸 순서도 이걸 따른다
     if sort not in ('recent', 'wait'):
         sort = 'recent'
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
@@ -2158,13 +2157,18 @@ def _build():
 
     def col_key(item):
         (rank, ws), cards = item
-        return (ws == UNSORTED, -rank)  # 칸 자리는 고정: 오르카 워크스페이스 순서 / AI 그룹이 생긴 순서. Unsorted 는 맨 뒤
+        return (ws == UNSORTED, -rank)  # 처음 자리: 오르카 워크스페이스 순서 / AI 그룹이 생긴 순서. Unsorted 는 맨 뒤
+
+    # 칸 순서도 정렬 기준을 따른다: 맨 위 카드가 앞서는 칸이 앞으로, 빈 칸은 뒤로(주제 칸 자체를 다시 나누지는 않는다).
+    # 화면에서는 칸이 통째로 미끄러져 움직이게 한다(아래 live 의 칸 FLIP)
+    first = {k: (not cards, min((o for o, _ in cards), default=()), col_key((k, cards))) for k, cards in cols.items()}
+    pos = {k[1]: i for i, k in enumerate(sorted(cols, key=lambda k: first[k]))}
 
     def col_head(ws, cards):
         return '<h2>%s <em>%d</em></h2>' % (escape(ws), len(cards))
     board = ''.join('<section class="col" data-wid="%s" data-name="%s">%s<p class="more"></p>%s</section>'
                     % (escape(colwid[key]), escape(key[1]), col_head(key[1], cards), ''.join(c for _, c in sorted(cards, key=lambda x: x[0])))
-                    for key, cards in sorted(cols.items(), key=col_key))
+                    for key, cards in sorted(cols.items(), key=lambda kv: pos[kv[0][1]]))
     nfail = sum(1 for t in terms if t.get('_fail'))
     tiles = ''.join('<span class="cnt %s"><b>%d</b>%s</span>' % (k, count[k], LABEL[k]) for k in ('wait', 'busy'))
     if nfail:
@@ -2255,6 +2259,7 @@ def assign_groups(items):
                 name = name.strip()[:24] if isinstance(name, str) else ''
                 if name.lower() in (UNSORTED.lower(), 'none', 'null'):
                     name = ''  # 이름이 아닌 답은 저장하지 않는다. 배정이 비어 있으니 다음 회차에 다시 묻는다
+                name = same_group(name, cur['groups']) if name else ''
                 if sid in ids and name and ids[sid] not in cur['assign']:
                     cur['assign'][ids[sid]] = {'g': name, 'manual': False}
                     if name not in cur['groups']:
@@ -2277,6 +2282,52 @@ def prune_groups(g, live):
     if new != g:
         save_groups(new)
     return new
+
+
+def same_group(name, groups):
+    """새 칸 이름이 기존 칸과 같으면(대소문자·띄어쓰기 무시) 기존 이름을 쓴다. 같은 칸이 둘 생기지 않게."""
+    name = ' '.join(str(name or '').split())[:24]
+    key = name.replace(' ', '').lower()
+    return next((g for g in groups if g.replace(' ', '').lower() == key), name)
+
+
+def adopt_keys(terms):
+    """대화 기록이 생기기 전에 창 번호로 저장한 배정을, 기록이 생기면 기록 이름으로 옮긴다(손으로 옮긴 칸을 잃지 않게)."""
+    g, moved = load_groups(), False
+    for t in terms:
+        if t.get('log') and t['log'] not in g['assign'] and t['handle'] in g['assign']:
+            g['assign'][t['log']] = g['assign'].pop(t['handle'])
+            moved = True
+    if moved:
+        save_groups(g)
+
+
+SUGGEST_PROMPT = """아래 AI 코딩 세션을 보드의 새 칸으로 옮기려 한다. 이 세션의 주제를 나타내는 칸 이름 후보 3개를 JSON 하나로만 답하라.
+{"names": ["...", "...", "..."]}
+- 2~12자 명사구(예: MFE 이관, 이벤트 증설, 보드 개발). 세션 제목을 그대로 쓰지 않는다. 기존 칸 이름과 같은 것은 빼라.
+- __LANG__ 로 쓴다.
+"""
+
+
+def suggest_groups(key):
+    """새 칸 이름 추천: 모델 후보 3개 + 비슷한 기존 칸(글자 두 개 묶음이 많이 겹치는 순)."""
+    g = load_groups()
+    s = cached_summary(key) if key.endswith('.jsonl') else None
+    text = '%s %s' % ((s or {}).get('title') or '', (s or {}).get('summary') or '')
+    pairs = lambda x: {x[i:i + 2] for i in range(len(x) - 1)}
+    tp = pairs(text.replace(' ', '').lower())
+    similar = sorted((n for n in g['groups'] if pairs(n.replace(' ', '').lower()) & tp),
+                     key=lambda n: -len(pairs(n.replace(' ', '').lower()) & tp))[:3]
+    names = []
+    if text.strip():
+        try:
+            out = llm(SUGGEST_PROMPT.replace('__LANG__', lang_name(system_lang())),
+                      '기존 칸: %s\n세션: %s' % (json.dumps(g['groups'], ensure_ascii=False), text[:400]))
+            got = json.JSONDecoder().raw_decode(out[out.index('{'):])[0].get('names') or []
+            names = [n for n in (' '.join(str(x).split())[:24] for x in got) if n and same_group(n, g['groups']) not in g['groups']][:3]
+        except Exception as e:
+            sys.stderr.write('suggest: %s\n' % str(e)[:120])
+    return {'names': names, 'similar': similar}
 
 
 def group_of(key, groups=None):
@@ -2399,6 +2450,12 @@ def serve():
                 return self.send(200, b'ok')
             if urlparse(self.path).path == '/move':
                 return self.move()
+            if urlparse(self.path).path == '/suggest':
+                h = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode().strip()
+                info = next((x for x in json.load(open(STATE)).get('sessions', []) if x['handle'] == h), None)
+                if not info:
+                    return self.send(404, b'unknown')
+                return self.send(200, json.dumps(suggest_groups(info.get('log') or h), ensure_ascii=False).encode(), 'application/json')
             if urlparse(self.path).path != '/close':
                 return self.send(404, b'not found')
             h = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode().strip()
@@ -2439,7 +2496,9 @@ def serve():
         info = next((x for x in json.load(open(STATE)).get('sessions', []) if x['handle'] == req.get('h')), None)
         if info and str(req.get('wid', '')).startswith('group:'):
             g = load_groups()
-            name = req['wid'][6:]
+            name = same_group(req['wid'][6:], g['groups'])
+            if not name or name == UNSORTED:
+                return self.send(400, 'Give the column a name'.encode())
             g['assign'][info.get('log') or info['handle']] = {'g': name, 'manual': True}
             if name not in g['groups']:
                 g['groups'].append(name)
@@ -3234,7 +3293,14 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 #confirm{display:none;position:fixed;inset:0;z-index:30;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #confirm.on{display:flex}#confirm .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}
 #confirm h3{margin:0 0 6px;font-size:15px}#confirm p{margin:0 0 14px;color:var(--ink2);font-size:12.5px}
-#confirm .row2{display:flex;gap:8px;justify-content:flex-end}
+#confirm .row2,#namer .row2{display:flex;gap:8px;justify-content:flex-end}
+#namer{display:none;position:fixed;inset:0;z-index:45;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
+#namer.on{display:flex}#namer .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}#namer h3{margin:0 0 10px;font-size:15px}
+#nmin{width:100%;box-sizing:border-box;font:500 13px -apple-system,sans-serif;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--col);color:var(--ink)}
+#nmchips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px;min-height:24px;font-size:11px;color:var(--ink3);align-items:center}
+#nmchips button{font:500 11.5px -apple-system,sans-serif;border-radius:12px;padding:3px 10px;cursor:pointer;border:1px solid var(--line);background:var(--col);color:var(--ink2)}#nmchips button.old{border-style:dashed}
+#namer .row2 button{font:600 12.5px -apple-system,sans-serif;border-radius:6px;padding:6px 12px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink)}#namer .row2 button.go{background:var(--busy);border-color:var(--busy);color:#fff}
+.col.newcol{border:2px dashed var(--line);background:transparent;display:flex;align-items:flex-start;justify-content:center;min-height:120px;color:var(--ink3)}.col.newcol h2{margin-top:40px}.col.newcol.drop{border-color:var(--busy);color:var(--busy)}
 #confirm button{font:600 12.5px -apple-system,sans-serif;border-radius:6px;padding:6px 12px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 #confirm button.danger{background:var(--wait);border-color:var(--wait);color:#fff}#confirm button.danger{background:#d1453b;border-color:#d1453b}
 .end{margin:8px 0 0 6px;font:600 12px -apple-system,sans-serif;color:var(--wait);background:transparent;border:1px solid var(--wait);border-radius:6px;padding:4px 10px;cursor:pointer}
@@ -3249,7 +3315,9 @@ header{position:relative;overflow:hidden}.brand .tag{font-style:normal;font-size
 .brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}.drawer{position:fixed;left:0;bottom:12px;z-index:35;width:210px;padding:10px 12px 12px 10px;box-sizing:border-box;overflow:auto;background:var(--card);border:1px solid var(--line);border-left:0;border-radius:0 14px 14px 0;box-shadow:0 12px 32px rgba(15,23,42,.18);transform:translateX(-100%);transition:transform .32s cubic-bezier(.16,1,.3,1)}.drawer.peek{transform:translateX(calc(-100% + 30px))}.drawer.open{transform:none}.drawer .tab{position:absolute;right:0;top:0;bottom:0;width:30px;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;font-size:11px;font-weight:800;color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transition:opacity .2s}.drawer.open .tab{opacity:0;pointer-events:none}.drawer h2{margin:0 0 4px;font-size:11px;color:var(--ink3);white-space:nowrap}.drawer .slot{animation:none;opacity:0;transform:translateX(-8px);transition:opacity .2s ease,transform .25s cubic-bezier(.16,1,.3,1),background-color .15s,border-color .15s,box-shadow .15s}.drawer.open .slot{opacity:1;transform:none}.drawer.open .slot.drop{transform:translateX(3px) scale(1.03)}.acts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.acts .go,.acts .end{margin:0}.mline{margin-left:8px;font-size:11.5px;color:var(--ink3);display:inline-flex;align-items:center;gap:4px}.mline .sid{background:transparent;padding:0;color:var(--ink3);font-weight:500}.mline .sid:hover{color:var(--ink)}.where{font-size:11.5px;color:var(--ink3)}.where:before{content:'· ';}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
 <div id="confirm"><div class="cb"><h3>End this session?</h3><p><b id="cft"></b><br><br>
 <span id="cfx">Only this pane closes; other panes in the tab stay.</span> The transcript is kept so you can resume later.</p>
-<div class="row2"><button onclick="cancelEnd()">Cancel</button><button class="danger" onclick="doEnd()">End</button></div></div></div><header>__HEAD__</header>__BODY__
+<div class="row2"><button onclick="cancelEnd()">Cancel</button><button class="danger" onclick="doEnd()">End</button></div></div></div>
+<div id="namer"><div class="cb"><h3>New column</h3><input id="nmin" maxlength="24" placeholder="Column name" autocomplete="off"><div id="nmchips"></div>
+<div class="row2"><button onclick="nameDone(false)">Cancel</button><button class="go" onclick="nameDone(true)">Create</button></div></div></div><header>__HEAD__</header>__BODY__
 <script>
 // 보드를 어디서 열었든(file://, 오르카 탭, 크롬) 로컬 서버 주소로 직접 요청한다
 var busyN=0;function busy(){busyN++;document.getElementById('busy').className='on';var done=false;return function(){if(done)return;done=true;if(--busyN<=0){busyN=0;document.getElementById('busy').className=''}}}
@@ -3279,7 +3347,7 @@ function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;  // 끝났으면 상세 창과 카드를 바로 치운다
     location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){var col=c.closest('.col');c.style.transition='opacity .18s';c.style.opacity='0';
-      setTimeout(function(){c.remove();if(col&&col.dataset.wid.indexOf('group:')!==0&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();recount()},180)}else recount()},180)}
+      setTimeout(function(){c.remove();if(col&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();recount()},180)}else recount()},180)}
     toast('Session ended');setTimeout(function(){live().then(stop)},1200)})})
   .catch(function(t){stop();toast(typeof t==='string'&&t?t:'Could not end the session')})}
 
@@ -3311,14 +3379,37 @@ document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var
   if(to&&!canDrop(d,to)){toast('This session is working. Move it after it stops.');to=null}
   d.float.style.transition='transform .34s cubic-bezier(.16,1,.3,1),opacity .2s';
   if(!to){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}
+  if(to.classList.contains('newcol')){d.el.classList.add('dragging');askName(d,r);return}  // 이름을 짓는 동안 원래 카드는 흐리게 둔다
   var fr=d.float.getBoundingClientRect();d.float.remove();dropOn(d,to,fr);unghost()});
+var naming=null;
+function askName(d,r){naming={d:d,r:r};var f=document.getElementById('namer'),i=document.getElementById('nmin'),c=document.getElementById('nmchips');
+  i.value='';c.textContent='Suggesting names…';f.className='on';setTimeout(function(){i.focus()},30);
+  fetch('http://127.0.0.1:47613/suggest?k=__TOKEN__',{method:'POST',body:d.h}).then(function(x){return x.json()}).then(function(s){if(!naming||naming.d!==d)return;c.textContent='';
+    s.names.concat(s.similar).forEach(function(n,k){var b=document.createElement('button');b.type='button';b.textContent=n;if(k>=s.names.length){b.className='old';b.title='Existing column'}
+      b.onclick=function(){i.value=n;i.focus()};c.appendChild(b)});if(!c.children.length)c.textContent=''})
+  .catch(function(){if(naming&&naming.d===d)c.textContent=''})}
+function nameDone(ok){var f=document.getElementById('namer');if(!naming)return;var d=naming.d,r=naming.r;d.el.classList.remove('dragging');var name=document.getElementById('nmin').value.split(/ +/).join(' ').trim();naming=null;f.className='';
+  if(!ok||!name){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}  // 취소면 카드는 제자리로
+  var cur=document.querySelector('main .card[data-h="'+d.h+'"]');if(cur&&cur!==d.el){d.el=cur;d.from=cur.closest('.col')}  // 그사이 다시 그려졌으면 지금 카드를 옮긴다(두 장이 되지 않게)
+  var m=document.querySelector('main'),key=name.replace(/ /g,'').toLowerCase(),col=null;
+  m.querySelectorAll('.col[data-wid^="group:"]:not(.newcol)').forEach(function(c){if(c.dataset.name.replace(/ /g,'').toLowerCase()===key)col=c});  // 같은 이름 칸이 있으면 그 칸으로
+  if(!col){col=document.createElement('section');col.className='col';col.dataset.wid='group:'+name;col.dataset.name=name;
+    var h=document.createElement('h2'),em=document.createElement('em');h.textContent=name+' ';em.textContent='0';h.appendChild(em);col.appendChild(h);
+    var mo=document.createElement('p');mo.className='more';col.appendChild(mo);var nc=m.querySelector('.newcol');m.insertBefore(col,nc)}
+  if(col===d.from){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}
+  var fr=d.float.getBoundingClientRect();d.float.remove();unghost();dropOn(d,col,fr)}
+document.getElementById('nmin').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();nameDone(true)}});
+document.addEventListener('mousedown',function(e){var f=document.getElementById('namer');if(f.className==='on'&&e.target===f){e.preventDefault();nameDone(false)}});
+addEventListener('keydown',function(e){if(e.key==='Escape'&&document.getElementById('namer').className==='on'){e.stopImmediatePropagation();nameDone(false)}},true);
 document.addEventListener('click',function(e){if(justDragged&&e.target.closest('main .card')){e.preventDefault();e.stopPropagation()}},true);
 var justDragged=false;
 function startDrag(c,e,p0){var r=c.getBoundingClientRect(),f=c.cloneNode(true),nope=c.dataset.st!=='wait'&&document.querySelector('main .col[data-wid^="group:"]')===null;if(nope)f.classList.add('nope');
   drag={h:c.dataset.h,st:c.dataset.st,wid:c.dataset.wid,log:c.dataset.log,el:c,from:c.closest('.col'),float:f,dx:p0.x-r.left,dy:p0.y-r.top};  // 처음 누른 자리를 잡은 채로 따라온다
 
   f.classList.add('floating');f.style.width=r.width+'px';f.style.transform='translate('+r.left+'px,'+r.top+'px)';document.body.appendChild(f);
-  c.classList.add('dragging');document.body.classList.add('dragging-on');if(!nope)ghosts();justDragged=true}
+  c.classList.add('dragging');document.body.classList.add('dragging-on');if(!nope)ghosts();newCol();justDragged=true}
+function newCol(){var m=document.querySelector('main');if(!m.querySelector('.col[data-wid^="group:"]')||m.querySelector('.newcol'))return;  // AI 주제 보기에서만, 끄는 동안 맨 끝에 새 칸 자리
+  var n=document.createElement('section');n.className='col newcol';n.dataset.wid='group:';n.innerHTML='<h2>+ New column</h2>';m.appendChild(n)}
 function colAt(x,y){var el=document.elementFromPoint(x,y);return el&&el.closest?(el.closest('.drawer .slot')||el.closest('main .col')):null}
 function edgeScroll(y){if(y>innerHeight-60)scrollBy(0,18);else if(y<60)scrollBy(0,-18)}  // 칸이 아랫줄로 넘어가므로 끄는 카드를 화면 위·아래 끝으로 가져가면 페이지가 따라 움직인다
 function ghosts(){  // 세션이 없는 워크스페이스는 끄는 동안에만, 보드를 밀지 않고 왼쪽 가장자리에 서랍 손잡이로 나온다
@@ -3329,7 +3420,7 @@ function ghosts(){  // 세션이 없는 워크스페이스는 끄는 동안에�
   add.forEach(function(w,i){var b=document.createElement('div');b.className='slot';b.dataset.wid=w.id;b.dataset.name=w.name;b.textContent=w.name;b.style.transitionDelay=(.03*i)+'s';g.appendChild(b)});
   document.body.appendChild(g);g.offsetWidth;g.classList.add('peek')}
 function drawerAt(x){var g=document.querySelector('.drawer');if(!g)return;var o=x<(g.classList.contains('open')?250:70);g.classList.toggle('open',o)}
-function unghost(){var g=document.querySelector('.drawer');if(!g)return;g.classList.remove('open','peek');setTimeout(function(){g.remove()},300)}
+function unghost(){var nc=document.querySelector('main .newcol');if(nc)nc.remove();var g=document.querySelector('.drawer');if(!g)return;g.classList.remove('open','peek');setTimeout(function(){g.remove()},300)}
 function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
   if(!ai&&d.st!=='wait'){toast('This session is working. Move it after it stops.');return}
   if(col.classList.contains('slot')){  // 빈 칸에 놓으면 그 워크스페이스 칸을 새로 세운다
@@ -3338,7 +3429,7 @@ function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
     n.appendChild(h);var mo=document.createElement('p');mo.className='more';n.appendChild(mo);
     m.insertBefore(n,m.firstChild);col.remove();col=n}
   flipTo(d.el,col,fr);d.el.classList.add('moving');var fromNext=d.from&&d.from.nextSibling;
-  if(d.from&&d.from.dataset.wid.indexOf('group:')!==0&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 Location 칸은 접고, AI 주제 칸은 남긴다
+  if(d.from&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 칸은 접는다
     setTimeout(function(){if(!gone.querySelector('.card')){gone.remove()}},200)}
   var pk=d.log?'l:'+d.log:'h:'+d.h;  // 대화 기록이 아직 없는 카드는 창 번호로 (두 장이 같은 빈 키를 쓰지 않게)
   pending[pk]={sel:d.log?'.card[data-log="'+d.log+'"]':'.card[data-h="'+d.h+'"]',wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
@@ -3363,7 +3454,7 @@ function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 
     if(card&&card.closest('.col')===col&&card.dataset.h!==p.from){delete pending[log];return}  // 새 창으로 자리 잡음
     if(card&&card.closest('.col')===col&&p.wid.indexOf('group:')===0){delete pending[log];return}
     if(!col){col=document.createElement('section');col.className='col';col.dataset.wid=p.wid;
-      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';col.querySelector('h2').textContent=w?w.name:'';m.appendChild(col)}
+      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';var nm2=w?w.name:(p.wid.indexOf('group:')===0?p.wid.slice(6):'');col.dataset.name=nm2;col.querySelector('h2').textContent=nm2;m.appendChild(col)}  // 막 만든 주제 칸은 서버 목록에 아직 없어 이름을 칸 번호에서 읽는다
     if(!card){var t=document.createElement('div');t.innerHTML=p.html;card=t.firstChild}
     card.classList.add('moving');var more=col.querySelector('.more');col.insertBefore(card,more?more.nextSibling:null)});
   recount()}
@@ -3424,16 +3515,16 @@ function fit(){var lv=['lv-nosum','lv-noreply','lv-bar','lv-min'],mn=document.qu
 fit();var ft;addEventListener('resize',function(){clearTimeout(ft);ft=setTimeout(fit,120)});
 
 // 화면은 한 번만 연다. 이후엔 새 화면을 받아 바뀐 부분만 갈아 끼운다(깜빡임·스크롤·열린 창 유지)
-var LAST={main:'',tiles:'',sub:''},cardHtml={},modalHtml={};
+var LAST={main:'',tiles:'',sub:''},cardHtml={},modalHtml={},HOLD=0;
 function snap(){document.querySelectorAll('main .card').forEach(function(c){cardHtml[c.dataset.h]=c.outerHTML});
   document.querySelectorAll('.modal[id^="c"]').forEach(function(m){modalHtml[m.id]=m.innerHTML});
   var m=document.querySelector('main'),t=document.querySelector('.tiles'),b=document.querySelector('.subbar');
   LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
 snap();
 function live(){
-  if(drag||press)return Promise.resolve();
+  if(drag||press||naming)return Promise.resolve();  // 끄는 중·새 칸 이름을 짓는 중에는 다시 그리지 않는다
   return fetch('http://127.0.0.1:47613/?auto=1',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(txt){
-    if(drag||press)return;  // 응답이 오는 사이 끌기가 시작됐으면 이번 갱신은 버린다
+    if(drag||press||naming)return;  // 응답이 오는 사이 끌기가 시작됐으면 이번 갱신은 버린다
     var d=new DOMParser().parseFromString(txt,'text/html');
     var cs=d.documentElement.dataset.code;if(cs&&document.documentElement.dataset.code&&cs!==document.documentElement.dataset.code){location.reload();return true}
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
@@ -3443,16 +3534,23 @@ function live(){
     var nb=d.querySelector('.subbar'),ob=document.querySelector('.subbar');
     if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace()}
     var nm=d.querySelector('main'),om=document.querySelector('main');
-    if(nm&&om&&nm.innerHTML!==LAST.main){
-      var y=scrollY,x=om.scrollLeft,old=cardHtml,was={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
-      var many=om.querySelectorAll('.card').length>120;if(!many)om.querySelectorAll('.card').forEach(function(c){was[key(c)]=c.getBoundingClientRect()});
+    var hov=om&&om.querySelector('.card:hover');if(!hov)HOLD=0;else if(!HOLD)HOLD=Date.now();
+    if(nm&&om&&nm.innerHTML!==LAST.main&&!(HOLD&&Date.now()-HOLD<10000)){  // 카드에 마우스를 올려 둔 동안(최대 10초)은 칸·카드를 옮기지 않는다(누르려던 카드가 도망가지 않게)
+      var y=scrollY,x=om.scrollLeft,old=cardHtml,was={},cw={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
+      var many=om.querySelectorAll('.card').length>120;if(!many){om.querySelectorAll('.card').forEach(function(c){was[key(c)]=c.getBoundingClientRect()});
+        om.querySelectorAll('.col').forEach(function(c){cw[c.dataset.name]=c.getBoundingClientRect()})}
       om.setAttribute('style',nm.getAttribute('style')||'');om.innerHTML=nm.innerHTML;LAST.main=nm.innerHTML;
       om.querySelectorAll('.card').forEach(function(c){cardHtml[c.dataset.h]=c.outerHTML;
         if(old[c.dataset.h]===undefined)c.classList.add('fresh');else if(old[c.dataset.h]!==c.outerHTML){c.classList.add('changed');
           if(c.dataset.st==='wait'&&/data-st="busy"/.test(old[c.dataset.h]))ended.push(c)}});
       holdMoves();scrollTo(0,y);om.scrollLeft=x;fit();
-      if(!many&&om.animate)om.querySelectorAll('.card').forEach(function(c){var a=was[key(c)]||pend[key(c)];if(!a)return;if(!was[key(c)]){c.classList.remove('fresh');c.classList.add('changed')}var b=c.getBoundingClientRect(),dx=a.left-b.left,dy=a.top-b.top;
-        if(Math.abs(dx)+Math.abs(dy)>2)c.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'none'}],{duration:320,easing:'cubic-bezier(.2,.8,.2,1)'})});
+      // 칸이 자리를 바꾸면 칸이 통째로 미끄러지고, 카드는 칸 안에서 움직인 만큼만 움직인다(카드가 하나씩 화면을 가로지르지 않게)
+      var cd={},nowAt={};if(!many)om.querySelectorAll('.card').forEach(function(c){nowAt[c.dataset.h]=c.getBoundingClientRect()});  // 칸 움직임을 걸기 전에 카드 새 자리를 먼저 잰다
+      if(!many&&om.animate)om.querySelectorAll('.col').forEach(function(c){var a=cw[c.dataset.name];if(!a)return;var b=c.getBoundingClientRect(),dx=a.left-b.left,dy=a.top-b.top;
+        cd[c.dataset.name]=[dx,dy];if(Math.abs(dx)+Math.abs(dy)>2)c.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'none'}],{duration:480,easing:'cubic-bezier(.2,.8,.2,1)'})});
+      if(!many&&om.animate)om.querySelectorAll('.card').forEach(function(c){var a=was[key(c)]||pend[key(c)];if(!a)return;if(!was[key(c)]){c.classList.remove('fresh');c.classList.add('changed')}
+        var b=nowAt[c.dataset.h]||c.getBoundingClientRect(),col=c.closest('.col'),k=(col&&cd[col.dataset.name])||[0,0],dx=a.left-b.left-k[0],dy=a.top-b.top-k[1];
+        if(Math.abs(dx)+Math.abs(dy)>2)c.animate([{transform:'translate('+dx+'px,'+dy+'px)'},{transform:'none'}],{duration:col&&cd[col.dataset.name]?480:320,easing:'cubic-bezier(.2,.8,.2,1)'})});
       if(ended.length)setTimeout(peek,150)}
     var open=location.hash.slice(1),seen={},anchor=document.getElementById('settings');
     d.querySelectorAll('.modal[id^="c"]').forEach(function(nmod){seen[nmod.id]=1;var cur=document.getElementById(nmod.id);

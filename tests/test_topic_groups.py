@@ -100,7 +100,7 @@ class TopicGroupsTest(unittest.TestCase):
         self.assertEqual(B.load_groups(), self.groups)
         self.assertFalse(B._GROUPING['busy'])
 
-    def test_empty_columns_and_order_survive_session_disappearance(self):
+    def test_empty_columns_are_not_drawn(self):
         group_of = B.group_of
         D.patch('ai')
         B.group_of = group_of
@@ -111,11 +111,11 @@ class TopicGroupsTest(unittest.TestCase):
             self.groups['assign'][str(Path(D.TMP) / ('session-%d.jsonl' % i))] = {
                 'g': 'Middle', 'manual': False}
         B.build()
-        self.assertEqual(Columns(Path(B.OUT).read_text()).names, self.groups['groups'])
+        self.assertEqual(Columns(Path(B.OUT).read_text()).names, ['Middle'])  # 카드 있는 칸만
         B.orca = lambda *args: {'worktrees': [], 'terminals': []}
         B.outside_terms = lambda: ([], {})
         B.build()
-        self.assertEqual(Columns(Path(B.OUT).read_text()).names, self.groups['groups'])
+        self.assertEqual(Columns(Path(B.OUT).read_text()).names, [])  # 세션이 다 끝나면 빈 칸은 안 그린다
         self.assertEqual(json.loads(Path(B.STATE).read_text())['sessions'], [])
 
     def test_unsorted_sessions_go_to_pill_not_column(self):
@@ -128,7 +128,7 @@ class TopicGroupsTest(unittest.TestCase):
         self.groups['assign'][str(Path(D.TMP) / 'session-0.jsonl')] = {'g': 'Middle', 'manual': False}
         B.build()
         html = Path(B.OUT).read_text()
-        self.assertEqual(Columns(html).names, self.groups['groups'])  # Unsorted 칸 없음, 칸 자리 그대로
+        self.assertEqual(Columns(html).names, ['Middle'])  # Unsorted 칸 없음, 빈 칸 없음
         waiting = html.count('<a href="#c', html.index('class="gpop"'), html.index('</div>', html.index('class="gpop"')))
         self.assertGreater(waiting, 0)
         self.assertIn('<b>%d</b> new · sorting' % waiting, html)
@@ -140,7 +140,7 @@ class TopicGroupsTest(unittest.TestCase):
                 B.assign_groups([('new', 'New session', 'Topic')])
             self.assertEqual(B.load_groups(), self.groups, answer)
 
-    def test_all_unsorted_with_empty_columns_shows_note(self):
+    def test_all_unsorted_shows_note(self):
         group_of = B.group_of
         D.patch('ai')
         B.group_of = group_of
@@ -149,7 +149,7 @@ class TopicGroupsTest(unittest.TestCase):
         B.STATE = str(self.root / 'state.json')
         B.build()
         html = Path(B.OUT).read_text()
-        self.assertEqual(Columns(html).names, self.groups['groups'])
+        self.assertEqual(Columns(html).names, [])
         self.assertIn('Sorting new sessions by topic', html)
 
     def test_snapshot_does_not_reload_changed_assignment(self):
