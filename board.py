@@ -2246,7 +2246,7 @@ GROUP_PROMPT = """아래는 지금 떠 있는 AI 코딩 세션 목록이다. 새
 - 배정할 세션 id 만 assign 에 넣는다.
 - 새 그룹 이름은 __LANG__ 로 쓴다.
 """
-_GROUPING = {'busy': False, 'at': 0}
+_GROUPING = {'busy': False, 'at': 0, 'pruned': 0}
 
 
 def group_mode():
@@ -2272,6 +2272,8 @@ def assign_groups(items):
     """items: [(key, title, summary)]. 아직 그룹이 없는 세션만 모델에 물어 배정한다(뒤에서, 1분에 한 번까지).
     한 번 정한 그룹과 사람이 끌어서 옮긴 그룹은 바꾸지 않는다."""
     g = load_groups()
+    if items and not _GROUPING['busy'] and time.time() - _GROUPING['pruned'] > 86400:
+        g = prune_groups(g, {k for k, _, _ in items})
     todo = [(k, t, sm) for k, t, sm in items if k not in g['assign'] and t]
     if not todo or _GROUPING['busy'] or time.time() - _GROUPING['at'] < 60:
         return
@@ -2299,6 +2301,18 @@ def assign_groups(items):
         finally:
             _GROUPING['busy'] = False
     threading.Thread(target=work, daemon=True).start()
+
+
+def prune_groups(g, live):
+    """서버가 뜬 뒤 처음 한 번, 그 뒤로는 하루에 한 번 정리한다. 끝난 세션의 배정을 지우고,
+    떠 있는 세션이 하나도 없는 칸을 지운다. 보는 동안 빈 칸은 다음 정리 때까지 자리를 지킨다."""
+    _GROUPING['pruned'] = time.time()
+    assign = {k: v for k, v in g['assign'].items() if k in live}
+    used = {v['g'] for v in assign.values()}
+    new = {'groups': [n for n in g['groups'] if n in used], 'assign': assign}
+    if new != g:
+        save_groups(new)
+    return new
 
 
 def group_of(key, groups=None):

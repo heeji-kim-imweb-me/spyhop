@@ -48,7 +48,7 @@ class TopicGroupsTest(unittest.TestCase):
             'old': {'g': 'Middle', 'manual': False},
             'manual': {'g': 'First', 'manual': True}}}
         B.save_groups(self.groups)
-        B._GROUPING = {'busy': False, 'at': 0}
+        B._GROUPING = {'busy': False, 'at': 0, 'pruned': B.time.time()}  # 정리는 이미 한 상태로 시작
 
     def tearDown(self):
         vars(B).update(self.saved)
@@ -69,6 +69,13 @@ class TopicGroupsTest(unittest.TestCase):
             self.assertEqual(current['assign'][key], self.groups['assign'][key])
         self.assertEqual(current['assign']['new']['g'], 'Last')
         self.assertEqual(current['groups'], self.groups['groups'])
+
+    def test_prune_drops_ended_sessions_and_their_empty_columns(self):
+        B._GROUPING['pruned'] = 0  # 서버가 막 뜬 상태
+        with patch.object(B, 'llm') as model:
+            B.assign_groups([('manual', 'Manual title', 'Summary')])
+        model.assert_not_called()
+        self.assertEqual(B.load_groups(), {'groups': ['First'], 'assign': {'manual': {'g': 'First', 'manual': True}}})
 
     def test_assigned_session_never_calls_model_again(self):
         with patch.object(B, 'llm') as model:
@@ -128,7 +135,7 @@ class TopicGroupsTest(unittest.TestCase):
 
     def test_invalid_model_answer_is_not_saved(self):
         for answer in ('{"assign":{"s1":"Unsorted"}}', '{"assign":{"s1":null}}', '{"assign":{"s1":{"x":1}}}', '{"assign":{"s1":"  "}}'):
-            B._GROUPING = {'busy': False, 'at': 0}
+            B._GROUPING.update(busy=False, at=0)
             with patch.object(B.threading, 'Thread', ImmediateThread), patch.object(B, 'llm', return_value=answer):
                 B.assign_groups([('new', 'New session', 'Topic')])
             self.assertEqual(B.load_groups(), self.groups, answer)
