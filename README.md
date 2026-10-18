@@ -87,7 +87,9 @@ How much it uses: only sessions whose transcript changed are summarized, at most
 
 ![Detail](docs/screenshots/detail.png)
 
-- **Group by AI topics** instead of Location (the Orca workspace, or the folder and terminal each session runs in). Drag a card to another group to pin it there.
+- **Group by AI topics** instead of Location (the Orca workspace, or the folder and terminal each session runs in). Drag a card to another topic to pin it there, or drop it on **+ New column** to make your own topic. Pinned cards stay put when the AI sorts new sessions.
+- **Sort**: Newest or Longest wait. Cards and columns both follow it, and a moving column slides as one block.
+- **Narrow windows**: columns wrap onto the next row (3 across in a 900px window, 1 on a phone). A column too long for the screen scrolls inside itself.
 
 ![AI groups](docs/screenshots/ai-groups.png)
 
