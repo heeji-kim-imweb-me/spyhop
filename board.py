@@ -2185,7 +2185,7 @@ def _build():
     note = '<p class="none">Sorting new sessions by topic…</p>' if sorting and not any(cols.values()) else ''  # 빈 주제 칸만 남아 있어도 보이게
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
-        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + note + '<main style="grid-template-columns:repeat(%d,minmax(240px,1fr))">%s</main>%s' % (max(len(cols), 1), board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
+        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + note + '<main>%s</main>%s' % (board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
         f.write(html)
@@ -3090,7 +3090,7 @@ background:color-mix(in srgb,var(--st) 10%,var(--card));border:1px solid color-m
 .tile.wait b,.tile.busy b{font-weight:800}
 .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;margin-right:4px;color:#fff}
 .pill.wait{background:var(--wait)}.pill.busy{background:var(--busy)}.pill.done{background:var(--done)}
-main{display:grid;gap:12px;align-items:start;overflow-x:auto;scrollbar-gutter:stable;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.col{scroll-snap-align:start}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;align-items:start;overflow-x:auto;scrollbar-gutter:stable;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.col{scroll-snap-align:start}
 .col{background:var(--col);border-radius:10px;padding:10px 8px;min-width:0}
 .col{container-type:inline-size}
 .row small{white-space:nowrap}
@@ -3263,7 +3263,7 @@ function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;  // 끝났으면 상세 창과 카드를 바로 치운다
     location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){var col=c.closest('.col');c.style.transition='opacity .18s';c.style.opacity='0';
-      setTimeout(function(){c.remove();if(col&&col.dataset.wid.indexOf('group:')!==0&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();grid();recount()},180)}else recount()},180)}
+      setTimeout(function(){c.remove();if(col&&col.dataset.wid.indexOf('group:')!==0&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();recount()},180)}else recount()},180)}
     toast('Session ended');setTimeout(function(){live().then(stop)},1200)})})
   .catch(function(t){stop();toast(typeof t==='string'&&t?t:'Could not end the session')})}
 
@@ -3285,7 +3285,7 @@ document.addEventListener('pointermove',function(e){
   drag.float.classList.toggle('aside',!!g);
   drag.float.style.transform='translate('+fx+'px,'+fy+'px) rotate(2deg) scale('+fs+')';
   var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.drop').forEach(function(x){if(x!==col)x.classList.remove('drop')});
-  if(col&&col!==drag.from&&canDrop(drag,col))col.classList.add('drop');edgeScroll(e.clientX)});
+  if(col&&col!==drag.from&&canDrop(drag,col))col.classList.add('drop');edgeScroll(e.clientY)});
 function canDrop(d,col){return d.st==='wait'||(col.dataset.wid||'').indexOf('group:')===0}
 document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var d=drag;drag=null;setTimeout(function(){justDragged=false},60);  // 놓을 때 생기는 클릭이 상세를 열지 않게
 
@@ -3304,8 +3304,7 @@ function startDrag(c,e,p0){var r=c.getBoundingClientRect(),f=c.cloneNode(true),n
   f.classList.add('floating');f.style.width=r.width+'px';f.style.transform='translate('+r.left+'px,'+r.top+'px)';document.body.appendChild(f);
   c.classList.add('dragging');document.body.classList.add('dragging-on');if(!nope)ghosts();justDragged=true}
 function colAt(x,y){var el=document.elementFromPoint(x,y);return el&&el.closest?(el.closest('.drawer .slot')||el.closest('main .col')):null}
-function edgeScroll(x){var m=document.querySelector('main'),r=m.getBoundingClientRect();if(x>r.right-60)m.scrollLeft+=18;else if(x<r.left+60)m.scrollLeft-=18}
-function grid(){var m=document.querySelector('main');m.style.gridTemplateColumns=[].map.call(m.querySelectorAll('.col'),function(){return 'minmax(240px,1fr)'}).join(' ')}
+function edgeScroll(y){if(y>innerHeight-60)scrollBy(0,18);else if(y<60)scrollBy(0,-18)}  // 칸이 아랫줄로 넘어가므로 끄는 카드를 화면 위·아래 끝으로 가져가면 페이지가 따라 움직인다
 function ghosts(){  // 세션이 없는 워크스페이스는 끄는 동안에만, 보드를 밀지 않고 왼쪽 가장자리에 서랍 손잡이로 나온다
   var have={};document.querySelectorAll('main .col').forEach(function(c){have[c.dataset.wid]=1});
   var add=WS.filter(function(w){return !have[w.id]});if(!add.length)return;
@@ -3321,10 +3320,10 @@ function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
     var m=document.querySelector('main'),n=document.createElement('section'),h=document.createElement('h2'),em=document.createElement('em');
     n.className='col';n.dataset.wid=col.dataset.wid;n.dataset.name=col.dataset.name;h.textContent=col.dataset.name+' ';em.textContent='0';h.appendChild(em);
     n.appendChild(h);var mo=document.createElement('p');mo.className='more';n.appendChild(mo);
-    m.insertBefore(n,m.firstChild);col.remove();grid();m.scrollTo({left:0,behavior:'smooth'});col=n}
+    m.insertBefore(n,m.firstChild);col.remove();col=n}
   flipTo(d.el,col,fr);d.el.classList.add('moving');var fromNext=d.from&&d.from.nextSibling;
   if(d.from&&d.from.dataset.wid.indexOf('group:')!==0&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 Location 칸은 접고, AI 주제 칸은 남긴다
-    setTimeout(function(){if(!gone.querySelector('.card')){gone.remove();var mm=document.querySelector('main');grid()}},200)}
+    setTimeout(function(){if(!gone.querySelector('.card')){gone.remove()}},200)}
   var pk=d.log?'l:'+d.log:'h:'+d.h;  // 대화 기록이 아직 없는 카드는 창 번호로 (두 장이 같은 빈 키를 쓰지 않게)
   pending[pk]={sel:d.log?'.card[data-log="'+d.log+'"]':'.card[data-h="'+d.h+'"]',wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
   if(ai)toast('Moved in Spyhop only. The Orca pane stays where it is.');
@@ -3348,8 +3347,7 @@ function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 
     if(card&&card.closest('.col')===col&&card.dataset.h!==p.from){delete pending[log];return}  // 새 창으로 자리 잡음
     if(card&&card.closest('.col')===col&&p.wid.indexOf('group:')===0){delete pending[log];return}
     if(!col){col=document.createElement('section');col.className='col';col.dataset.wid=p.wid;
-      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';col.querySelector('h2').textContent=w?w.name:'';m.appendChild(col);
-      grid()}
+      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';col.querySelector('h2').textContent=w?w.name:'';m.appendChild(col)}
     if(!card){var t=document.createElement('div');t.innerHTML=p.html;card=t.firstChild}
     card.classList.add('moving');var more=col.querySelector('.more');col.insertBefore(card,more?more.nextSibling:null)});
   recount()}
@@ -3392,13 +3390,15 @@ function go(h){fetch('http://127.0.0.1:47613/switch?h='+encodeURIComponent(h))
 // 칸이 화면 높이를 넘으면 그 칸의 카드를 아래쪽부터 한 장씩, 덜 중요한 것부터 줄인다.
 // 줄이는 순서: 요약 빼기 → 마지막 답 빼기 → 단계를 막대로 → 제목 1줄. 단계가 이 보드의 핵심이라 가장 늦게 줄인다.
 // 위쪽 카드(오래 기다린 내 차례)는 끝까지 단계·마지막 답이 남는다. 창 크기가 바뀌면 전부 풀고 다시 맞춘다
-function fit(){var lv=['lv-nosum','lv-noreply','lv-bar','lv-min'];document.querySelectorAll('.col').forEach(function(c){
+function fit(){var lv=['lv-nosum','lv-noreply','lv-bar','lv-min'],mn=document.querySelector('main');if(!mn)return;
+  var room=innerHeight-(mn.getBoundingClientRect().top+scrollY);  // 칸이 아랫줄로 넘어가도 줄마다 첫 줄과 같은 높이 안에 들게 맞춘다
+  document.querySelectorAll('.col').forEach(function(c){var top=c.getBoundingClientRect().top;
   var cards=[].slice.call(c.querySelectorAll('.card')).reverse(),m=c.querySelector('.more');m.style.display='none';
   cards.forEach(function(k){lv.forEach(function(x){k.classList.remove(x)})});
   var last=cards[0];  // 칸은 가장 긴 칸 높이로 늘어나므로 칸 끝이 아니라 마지막 카드 끝으로 잰다
-  var over=function(){return last&&last.getBoundingClientRect().bottom>innerHeight-12};
+  var over=function(){return last&&last.getBoundingClientRect().bottom-top>room-12};
   for(var i=0;i<lv.length&&over();i++)cards.forEach(function(k){k.classList.add(lv[i])});  // 한 칸 안의 카드는 같은 단계로 함께 줄인다
-  var hid=cards.filter(function(a){return a.getBoundingClientRect().bottom>innerHeight}).length;
+  var hid=cards.filter(function(a){return a.getBoundingClientRect().bottom-top>room}).length;
   if(hid){m.textContent='↓ '+hid+' more below';m.style.display='block'}})}
 fit();var ft;addEventListener('resize',function(){clearTimeout(ft);ft=setTimeout(fit,120)});
 
