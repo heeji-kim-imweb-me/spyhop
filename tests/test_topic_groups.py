@@ -77,7 +77,7 @@ class TopicGroupsTest(unittest.TestCase):
         model.assert_not_called()
 
     def test_manual_move_during_model_call_wins(self):
-        def answer(*args):
+        def answer(*args, **kw):
             current = B.load_groups()
             current['assign']['new'] = {'g': 'First', 'manual': True}
             B.save_groups(current)

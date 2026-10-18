@@ -87,6 +87,8 @@ def deepseek(system, user):
             if e.code not in (429, 500, 502, 503, 504) or i == 2:
                 raise
             time.sleep((2, 6)[i])
+    u = res.get('usage') or {}
+    _USAGE.tok = {'in': u.get('input_tokens'), 'cached': u.get('cache_read_input_tokens'), 'out': u.get('output_tokens')}
     return ''.join(c.get('text', '') for c in res.get('content', []) if c.get('type') == 'text')
 
 
@@ -245,14 +247,47 @@ def codex_cli(system, user, model):
         return out.read()
 
 
-def llm(system, user, sid=None):
+_USAGE = threading.local()
+USAGE_LOG = os.path.join(BASE, 'usage.jsonl')
+SAVE_REQ = os.environ.get('SPYHOP_SAVE_REQUESTS') == '1'  # 켜면 요청 원문도 남긴다 (같은 입력으로 다시 돌려 비교할 때)
+
+
+def llm(system, user, sid=None, kind='other', extra=None):
     user = mask(user)  # 모델로 나가는 글은 어디서 부르든 여기서 한 번 더 가린다 (요약·주제 묶기 공통)
-    provider, _, model = (sid or current_summarizer()).partition(':')
-    if provider == 'claude':
-        return claude_cli(system, user, model)
-    if provider == 'codex':
-        return codex_cli(system, user, model)
-    return deepseek(system, user)
+    sid = sid or current_summarizer()
+    provider, _, model = sid.partition(':')
+    _USAGE.tok, t, out, err = {}, time.time(), '', None
+    try:
+        if provider == 'claude':
+            out = claude_cli(system, user, model)
+        elif provider == 'codex':
+            out = codex_cli(system, user, model)
+        else:
+            out = deepseek(system, user)
+        return out
+    except Exception as e:
+        err = str(e)[:120]
+        raise
+    finally:
+        log_usage(dict(getattr(_USAGE, 'tok', {}), at=round(t, 1), kind=kind, by=sid, ms=int((time.time() - t) * 1000),
+                       in_chars=len(system) + len(user), out_chars=len(out), err=err),
+                  dict(extra or {}, system=system, user=user, out=out) if SAVE_REQ else None)
+
+
+def log_usage(row, req=None):
+    """모델 호출 한 번마다 토큰·걸린 시간을 한 줄 남긴다. 1MB 가 넘으면 .1 로 밀어 둔다."""
+    try:
+        if os.path.getsize(USAGE_LOG) > 1 << 20:
+            os.replace(USAGE_LOG, USAGE_LOG + '.1')
+    except OSError:
+        pass
+    try:
+        with open(USAGE_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(row, ensure_ascii=False) + '\n')
+        if req:
+            save_json(os.path.join(BASE, 'requests', '%d-%s.json' % (row['at'] * 10, row['kind'])), dict(req, usage=row))
+    except OSError:
+        pass
 
 PROMPT = '''아래는 한 AI 코딩 세션의 대화 기록이다 (U=사용자, A=AI). 사용자는 목표 하나를 정해 두지 않고, 한 세션에서 일을 하나 끝내면 다음 일을 맡기는 식으로 쓴다. 이 세션에서 맡긴 일들을 JSON 하나로만 출력하라. 설명·코드블록 없이 JSON 만.
 
@@ -556,7 +591,8 @@ def summarize(path):
         else:
             body = '<기록>\n%s\n</기록>\n\n위 기록을 지시한 JSON 하나로만 출력하라.' % mask(transcript(path))
         by = current_summarizer()
-        out = llm(PROMPT.replace('__LANG__', lang_name(lang)), body, by)
+        out = llm(PROMPT.replace('__LANG__', lang_name(lang)), body, by, 'continue' if base else 'full',
+                  {'key': key, 'base': base and {k: base.get(k) for k in ('title', 'steps', 'items')}})
         data = json.JSONDecoder().raw_decode(out[out.index('{'):])[0]  # JSON 뒤에 붙은 말은 버린다
         items = [{'label': str(i.get('label', ''))[:20],
                   'state': i.get('state') if i.get('state') in STATES else 'open',
@@ -2246,7 +2282,7 @@ def assign_groups(items):
             ids = {'s%d' % i: k for i, (k, _, _) in enumerate(todo, 1)}
             body = ('기존 그룹: %s\n\n배정할 세션:\n%s' % (json.dumps(g['groups'], ensure_ascii=False) if g['groups'] else '(없음)',
                     '\n'.join('%s: %s: %s' % (sid, t, (sm or '')[:120]) for sid, (k, t, sm) in zip(ids, todo))))
-            out = llm(GROUP_PROMPT.replace('__LANG__', lang_name(system_lang())), body)
+            out = llm(GROUP_PROMPT.replace('__LANG__', lang_name(system_lang())), body, kind='group')
             res = json.JSONDecoder().raw_decode(out[out.index('{'):])[0].get('assign') or {}
             cur = load_groups()
             for sid, name in res.items():
