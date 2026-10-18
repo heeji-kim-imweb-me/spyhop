@@ -3456,7 +3456,7 @@ function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 
     if(card&&card.closest('.col')===col&&card.dataset.h!==p.from){delete pending[log];return}  // 새 창으로 자리 잡음
     if(card&&card.closest('.col')===col&&p.wid.indexOf('group:')===0){delete pending[log];return}
     if(!col){col=document.createElement('section');col.className='col';col.dataset.wid=p.wid;
-      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';var nm2=w?w.name:(p.wid.indexOf('group:')===0?p.wid.slice(6):'');col.dataset.name=nm2;col.querySelector('h2').textContent=nm2;  // 막 만든 주제 칸은 서버 목록에 아직 없어 이름을 칸 번호에서 읽는다m.appendChild(col)}
+      var w=WS.filter(function(x){return x.id===p.wid})[0];col.innerHTML='<h2></h2><p class="more"></p>';var nm2=w?w.name:(p.wid.indexOf('group:')===0?p.wid.slice(6):'');col.dataset.name=nm2;col.querySelector('h2').textContent=nm2;m.appendChild(col)}  // 막 만든 주제 칸은 서버 목록에 아직 없어 이름을 칸 번호에서 읽는다
     if(!card){var t=document.createElement('div');t.innerHTML=p.html;card=t.firstChild}
     card.classList.add('moving');var more=col.querySelector('.more');col.insertBefore(card,more?more.nextSibling:null)});
   recount()}
