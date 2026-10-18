@@ -2125,10 +2125,8 @@ def _build():
         groups = load_groups()  # 한 화면은 같은 배정 스냅샷으로 그린다
         gorder = groups['groups']
     cols, modals, count, colwid, sorting = {}, [], {'wait': 0, 'busy': 0}, {}, []
-    if mode == 'ai':  # 세션이 없어도 만들어 둔 주제 칸과 자리를 유지한다
-        for i, name in enumerate(gorder):
-            cols[(-i, name)] = []
-            colwid[(-i, name)] = 'group:' + name
+    # 빈 주제 칸은 그리지 않는다(칸 순서가 정렬을 따라 움직이므로 빈 칸으로 자리를 지킬 이유가 없다).
+    # 칸 이름은 다음 정리 때까지 groups.json 에 남아, 비슷한 새 세션이 오면 AI 가 그 이름을 다시 쓴다
     sort = load_config().get('sort', 'recent')  # 카드 순서. recent: 최근에 내 차례가 된 것부터 · wait: 오래 기다린 것부터. 칸 순서도 이걸 따른다
     if sort not in ('recent', 'wait'):
         sort = 'recent'
@@ -3349,7 +3347,7 @@ function doEnd(){var h=endTarget,stop=busy();cancelEnd();
   fetch('http://127.0.0.1:47613/close?k=__TOKEN__',{method:'POST',headers:{'Content-Type':'text/plain'},body:h})
   .then(function(r){return r.text().then(function(t){if(!r.ok)throw t;  // 끝났으면 상세 창과 카드를 바로 치운다
     location.hash='';var c=document.querySelector('main .card[data-h="'+h+'"]');if(c){var col=c.closest('.col');c.style.transition='opacity .18s';c.style.opacity='0';
-      setTimeout(function(){c.remove();if(col&&col.dataset.wid.indexOf('group:')!==0&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();recount()},180)}else recount()},180)}
+      setTimeout(function(){c.remove();if(col&&!col.querySelector('.card')){col.style.transition='opacity .18s';col.style.opacity='0';setTimeout(function(){col.remove();recount()},180)}else recount()},180)}
     toast('Session ended');setTimeout(function(){live().then(stop)},1200)})})
   .catch(function(t){stop();toast(typeof t==='string'&&t?t:'Could not end the session')})}
 
@@ -3431,7 +3429,7 @@ function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
     n.appendChild(h);var mo=document.createElement('p');mo.className='more';n.appendChild(mo);
     m.insertBefore(n,m.firstChild);col.remove();col=n}
   flipTo(d.el,col,fr);d.el.classList.add('moving');var fromNext=d.from&&d.from.nextSibling;
-  if(d.from&&d.from.dataset.wid.indexOf('group:')!==0&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 Location 칸은 접고, AI 주제 칸은 남긴다
+  if(d.from&&!d.from.querySelector('.card')){var gone=d.from;gone.style.transition='opacity .2s ease';gone.style.opacity='0';  // 비게 된 칸은 접는다
     setTimeout(function(){if(!gone.querySelector('.card')){gone.remove()}},200)}
   var pk=d.log?'l:'+d.log:'h:'+d.h;  // 대화 기록이 아직 없는 카드는 창 번호로 (두 장이 같은 빈 키를 쓰지 않게)
   pending[pk]={sel:d.log?'.card[data-log="'+d.log+'"]':'.card[data-h="'+d.h+'"]',wid:col.dataset.wid,from:d.h,until:Date.now()+40000,html:d.el.outerHTML};
