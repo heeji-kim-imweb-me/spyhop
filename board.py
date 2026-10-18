@@ -3093,6 +3093,8 @@ background:color-mix(in srgb,var(--st) 10%,var(--card));border:1px solid color-m
 main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;align-items:start;overflow-x:auto;scrollbar-gutter:stable;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.col{scroll-snap-align:start}
 .col{background:var(--col);border-radius:10px;padding:10px 8px;min-width:0}
 .col{container-type:inline-size}
+.col.scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.col.scroll h2{position:sticky;top:-10px;z-index:1;background:var(--col);margin-top:-10px;padding-top:10px}
 .row small{white-space:nowrap}
 @container (max-width:260px){
   .card .row{flex-wrap:wrap;row-gap:2px}.card .row small{font-size:10.5px}
@@ -3392,14 +3394,19 @@ function go(h){fetch('http://127.0.0.1:47613/switch?h='+encodeURIComponent(h))
 // 위쪽 카드(오래 기다린 내 차례)는 끝까지 단계·마지막 답이 남는다. 창 크기가 바뀌면 전부 풀고 다시 맞춘다
 function fit(){var lv=['lv-nosum','lv-noreply','lv-bar','lv-min'],mn=document.querySelector('main');if(!mn)return;
   var room=innerHeight-(mn.getBoundingClientRect().top+scrollY);  // 칸이 아랫줄로 넘어가도 줄마다 첫 줄과 같은 높이 안에 들게 맞춘다
-  document.querySelectorAll('.col').forEach(function(c){var top=c.getBoundingClientRect().top;
+  document.querySelectorAll('.col').forEach(function(c){var top=c.getBoundingClientRect().top,st=c.scrollTop;
+  c.classList.remove('scroll');c.style.maxHeight='';c.onscroll=null;
   var cards=[].slice.call(c.querySelectorAll('.card')).reverse(),m=c.querySelector('.more');m.style.display='none';
   cards.forEach(function(k){lv.forEach(function(x){k.classList.remove(x)})});
   var last=cards[0];  // 칸은 가장 긴 칸 높이로 늘어나므로 칸 끝이 아니라 마지막 카드 끝으로 잰다
   var over=function(){return last&&last.getBoundingClientRect().bottom-top>room-12};
   for(var i=0;i<lv.length&&over();i++)cards.forEach(function(k){k.classList.add(lv[i])});  // 한 칸 안의 카드는 같은 단계로 함께 줄인다
-  var hid=cards.filter(function(a){return a.getBoundingClientRect().bottom-top>room}).length;
-  if(hid){m.textContent='↓ '+hid+' more below';m.style.display='block'}})}
+  if(!over())return;
+  // 간단 카드로도 넘치면 그 칸만 화면 높이에서 자르고 칸 안에서 스크롤한다 (아랫줄 칸이 밀려 내려가지 않게)
+  c.style.maxHeight=Math.max(room-12,200)+'px';c.classList.add('scroll');c.scrollTop=st;
+  var hint=function(){var b=c.getBoundingClientRect().bottom,hid=cards.filter(function(a){return a.getBoundingClientRect().top>b-8}).length;
+    m.textContent='↓ '+hid+' more below';m.style.display=hid?'block':'none'};
+  hint();c.onscroll=hint})}
 fit();var ft;addEventListener('resize',function(){clearTimeout(ft);ft=setTimeout(fit,120)});
 
 // 화면은 한 번만 연다. 이후엔 새 화면을 받아 바뀐 부분만 갈아 끼운다(깜빡임·스크롤·열린 창 유지)
