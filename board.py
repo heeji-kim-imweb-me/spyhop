@@ -2899,13 +2899,33 @@ def claude_pid(session_id):
     return None
 
 
-def watching():
+def watcher_record(pidfile=None):
+    """PID 번호만 믿지 않고 실행 파일·감시 인자·시작 시각을 확인한다. 옛 두 칸 기록도 읽는다."""
     try:
-        with open(PIDFILE) as f:
-            os.kill(int(f.read().split()[0]), 0)
-        return True
-    except (OSError, ValueError, IndexError):
-        return False
+        with open(pidfile or PIDFILE) as f:
+            parts = f.read().split()
+        pid, path = int(parts[0]), parts[1]
+        if pid <= 0 or os.path.basename(path) != 'board.py':
+            return None
+        p = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart=,comm='],
+                           capture_output=True, text=True, timeout=5).stdout.split(None, 5)
+        if len(p) != 6 or not os.path.basename(p[5].strip()).lower().startswith('python'):
+            return None
+        start = _ps_start(p[:5])
+        if not start or len(parts) > 2 and float(parts[2]) != start:
+            return None
+        args = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+        argv = args.rsplit(None, 2)
+        if len(argv) != 3 or argv[-1] != '--watch' or os.path.realpath(argv[-2]) != os.path.realpath(path):
+            return None
+        return pid, path, start
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def watching(pidfile=None):
+    return watcher_record(pidfile) is not None
 
 
 UPDATE_FILE = os.path.expanduser('~/.spyhop/update.json')  # 마지막 업데이트(어디서 → 어디로, 언제, 확인했는지). 재시작·업그레이드에도 남게 설치 폴더 밖
@@ -2963,19 +2983,19 @@ _UPGRADE = {'at': 0}
 
 def stop_if_outdated():
     """brew upgrade 뒤 `spyhop` 을 다시 치면, 옛 버전으로 도는 감시를 내리고 새 버전으로 띄운다."""
-    try:
-        with open(PIDFILE) as f:
-            parts = f.read().split()
-        pid, running = int(parts[0]), (parts[1] if len(parts) > 1 else '')
-    except (OSError, ValueError, IndexError):
+    record = watcher_record()
+    if not record:
         return
+    pid, running, _ = record
     if running == os.path.realpath(__file__):
         return
-    note_update(running)
+    if watcher_record() != record:  # 확인 사이에 PID가 재사용됐으면 신호를 보내지 않는다
+        return
     try:
         os.kill(pid, 15)
     except OSError:
         return
+    note_update(running)
     for _ in range(50):  # 최대 5초, 내려가길 기다린다
         try:
             os.kill(pid, 0)
@@ -3065,7 +3085,8 @@ def watch():
         sys.stderr.write('board: 이미 다른 감시가 돌고 있어 종료\n')
         return
     with open(PIDFILE, 'w') as f:
-        f.write('%d %s' % (os.getpid(), os.path.realpath(__file__)))  # 어느 버전 코드로 도는지 함께 적는다
+        start = next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
+        f.write('%d %s %s' % (os.getpid(), os.path.realpath(__file__), start))
     serve()
     last_seen = time.time()
     while time.time() - last_seen < IDLE_EXIT:
