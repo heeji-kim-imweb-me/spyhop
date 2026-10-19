@@ -52,6 +52,12 @@ brew upgrade spyhop && spyhop
 
 `spyhop` restarts the board on the new version if an older one is still running.
 
+## OMP (Oh My Pi)
+
+Spyhop also reads Oh My Pi sessions. Start OMP once after installation, then run `spyhop` and restart OMP sessions so they load the bundled status extension. It records only PID, process start time, session ID, transcript path, folder and busy/idle state in `~/.spyhop/omp/`; summaries use the same summarizer as Claude and Codex.
+
+The extension is installed at `~/.omp/agent/extensions/spyhop-status.ts` when the OMP agent directory exists (or `PI_CODING_AGENT_DIR` when set for `spyhop`). OMP must allow its normal extension discovery. Go to session and End session use the existing terminal controls. AI topic grouping works; moving OMP sessions between Orca workspaces is not supported yet. Tested with Oh My Pi 18.12.2.
+
 ## Terminals
 
 Spyhop finds sessions from the running `claude` and `codex` programs, so they show up wherever you start them. Orca adds a few extras.

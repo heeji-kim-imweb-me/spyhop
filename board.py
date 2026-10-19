@@ -299,15 +299,23 @@ def orca_or(default, *args):
         return default
 
 
+def terminal_layouts():
+    """새 Orca CLI는 배치를 명시적으로 요청한다. 옛 CLI는 기본 목록으로 되돌린다."""
+    data = orca_or({}, 'terminal', 'list', '--include-visual-layouts')
+    return data if 'terminals' in data else orca_or({'terminals': [], 'visualLayouts': []}, 'terminal', 'list')
+
+
 def agent_kind(t):
     """클로드 창인지 Codex 창인지. 오르카가 알려 주는 agentType 을 먼저 믿는다.
     제목의 진행 기호로는 못 가린다: Codex 도 일하는 동안 제목 앞에 ⠹ 같은 기호를 붙인다."""
     if t.get('_pkind'):  # 이 창에서 실제로 돌고 있는 프로그램
         return t['_pkind']
-    kind = (t.get('agent') or {}).get('agentType')
-    if kind in ('claude', 'codex'):
-        return kind
     title = t.get('title') or ''
+    if title.startswith(('π ', '⌥ ')):
+        return 'omp'
+    kind = (t.get('agent') or {}).get('agentType')
+    if kind in ('claude', 'codex', 'omp'):
+        return kind
     head = title[:1]
     if head in CLAUDE_MARKS:  # 클로드 코드만 쓰는 기호(✳ 쉬는 중, ✶✻ 등 일하는 중)
         return 'claude'
@@ -483,6 +491,9 @@ def transcript(path, start=0):
             elif d.get('type') == 'response_item' and d.get('payload', {}).get('type') == 'message':  # Codex
                 p = d['payload']
                 role, text = p.get('role'), text_of(p.get('content'))
+            elif d.get('type') == 'message':  # OMP
+                m = d.get('message', {})
+                role, text = m.get('role'), text_of(m.get('content'))
             else:
                 continue
             text = text.strip()
@@ -790,9 +801,91 @@ def proc_kind(comm):
     return None
 
 
+OMP_STATE_DIR = os.path.expanduser('~/.spyhop/omp')
+OMP_EXTENSION = r'''// Spyhop status bridge. No prompts or credentials are written.
+import { mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+export default function(pi) {
+  const dir = join(homedir(), ".spyhop", "omp"), file = join(dir, process.pid + ".json");
+  const start = Date.now() / 1000 - process.uptime();
+  function publish(ctx, busy) {
+    if (ctx.agent?.kind === "sub") return;
+    try {
+      mkdirSync(dir, {recursive:true});
+      writeFileSync(file + ".tmp", JSON.stringify({pid:process.pid, start, busy,
+        sid:ctx.sessionManager.getSessionId(), log:ctx.sessionManager.getSessionFile(), cwd:ctx.cwd}), {mode:0o600});
+      renameSync(file + ".tmp", file);
+    } catch {} // 보드 연결 실패가 OMP 작업을 중단하지 않게 한다.
+  }
+  for (const name of ["session_start", "session_switch"])
+    pi.on(name, (_event, ctx) => publish(ctx, !ctx.isIdle()));
+  pi.on("agent_start", (_event, ctx) => publish(ctx, true));
+  pi.on("agent_end", (event, ctx) => { if (event.isTerminal !== false) publish(ctx, false); });
+  pi.on("session_shutdown", (_event, ctx) => {
+    if (ctx.agent?.kind !== "sub") { try { rmSync(file, {force:true}); } catch {} }
+  });
+}
+'''
+
+
+def install_omp_extension(agent_dir=None):
+    """OMP가 이미 설치된 맥에서 다음 OMP 실행부터 기본 확장을 읽게 한다."""
+    agent_dir = agent_dir or os.environ.get('PI_CODING_AGENT_DIR') or os.path.expanduser('~/.omp/agent')
+    if not os.path.isdir(agent_dir):
+        return
+    path = os.path.join(agent_dir, 'extensions', 'spyhop-status.ts')
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        old = ''
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as f:
+                old = f.read()
+        if old != OMP_EXTENSION:
+            with open(path + '.tmp', 'w', encoding='utf-8') as f:
+                f.write(OMP_EXTENSION)
+            os.replace(path + '.tmp', path)
+    except OSError as e:
+        sys.stderr.write('OMP status extension: %s\n' % e)
+
+
+def omp_sessions():
+    """OMP 기본 확장이 기록한 정확한 PID·세션만 읽는다. Bun 전체를 AI로 취급하지 않는다."""
+    out = {}
+    for path in glob.glob(os.path.join(OMP_STATE_DIR, '*.json')):
+        try:
+            with open(path, encoding='utf-8') as f:
+                d = json.load(f)
+            if (type(d.get('pid')) is not int or d['pid'] <= 0 or not isinstance(d.get('start'), (int, float))
+                    or not isinstance(d.get('busy'), bool) or not isinstance(d.get('cwd'), str)
+                    or not isinstance(d.get('sid'), str)):
+                continue
+            out[d['pid']] = d
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return out
+
+
+@per_file
+def omp_header(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            title = ''
+            for _ in range(2):  # OMP는 선택적인 title 행 다음에 session 헤더를 둔다.
+                d = json.loads(f.readline())
+                if d.get('type') == 'title':
+                    title = d.get('title') or ''
+                if d.get('type') == 'session' and d.get('id') and d.get('cwd'):
+                    return dict(d, title=title)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return {}
+
+
 def agent_pids():
     """지금 살아 있는 AI 프로그램 번호 모음 (새 세션이 생기거나 끝났는지 2초마다 보는 데 쓴다)"""
-    return {r[0] for r in _agent_rows() if proc_kind(r[4])}
+    registered = omp_sessions()
+    return {r[0] for r in _agent_rows() if proc_kind(r[4]) or (r[0] in registered and abs(registered[r[0]]['start'] - r[3]) < 5)}
 
 
 def _lsof(pids, extra):
@@ -831,11 +924,20 @@ def agent_procs():
             pid, seen = parent.get(pid, 0), seen + 1
         return False
     agents, daemons = {}, []
+    omp = omp_sessions()
     for pid, ppid, tty, start, comm in rows:
         base = proc_kind(comm)
+        if pid in omp and abs(omp[pid]['start'] - start) < 5:
+            base = 'omp'
         if not base or mine(pid):
             continue
         agents[pid] = {'pid': pid, 'kind': base, 'tty': tty, 'start': start}
+        if base == 'omp':
+            d = omp[pid]
+            agents[pid].update(busy=d['busy'], cwd=d.get('cwd'), how='omp:process')
+            log = d.get('log')
+            if isinstance(log, str) and omp_header(log).get('id') == d.get('sid'):
+                agents[pid]['log'] = log
     if not agents:
         _PROC_CACHE.update(at=time.time(), data={})
         return {}
@@ -1023,6 +1125,8 @@ def _session_title(a):
     if is_codex_log(log):
         m = re.search(r'([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$', log)
         return codex_latest_names(a.get('codex_home')).get(m.group(1), '') if m else ''
+    if a.get('kind') == 'omp':
+        return omp_header(log).get('title', '')
     custom, auto = ai_title(log)
     return custom or auto or ''
 
@@ -1080,7 +1184,7 @@ def attach_procs(terms):
             why(t, 'process', how=a['how'])
             continue
         if a['kind'] != 'codex':
-            why(t, 'process-unresolved', kind='claude', reason=a.get('why') or '?')
+            why(t, 'process-unresolved', kind=a['kind'], reason=a.get('why') or '?')
             continue
         cands = [r for r in a.get('codex_candidates') or [] if r not in claimed]
         head = codex_head(t.get('title'))
@@ -1191,6 +1295,9 @@ def match_sessions(terms, worktrees):
                 t['log'] = t['_plog']
                 continue
             kind = agent_kind(t)
+            if kind == 'omp':
+                why(t, 'process-unresolved', kind='omp', reason='restart OMP after starting Spyhop to load its status extension')
+                continue
             if t.get('_pkind') == 'codex':  # 프로그램이 Codex 면 클로드 쪽 짝 맞추기는 하지 않는다
                 rest.append(t)
                 continue
@@ -1333,6 +1440,15 @@ def model_of(path):
             tail = f.read().decode('utf-8', 'ignore')
     except OSError:
         return ''
+    if omp_header(path):
+        model = ''
+        for line in tail.splitlines():
+            try:
+                d = json.loads(line)
+                model = (d.get('model') if d.get('type') == 'model_change' else (d.get('message') or {}).get('model')) or model
+            except (ValueError, AttributeError):
+                continue
+        return pretty_model(model.split('/')[-1])
     if is_codex_log(path):  # Codex: 마지막 turn_context 의 모델. 한 번만 적혀 있으면 끝부분에 없으니 처음부터 한 줄씩 훑는다
         model = effort = ''
         lines = [l for l in tail.splitlines() if '"turn_context"' in l]
@@ -1380,7 +1496,7 @@ def pretty_model(m):
 
 def active_pane(wid):
     """그 워크스페이스에서 오르카가 지금 보여 주는 탭의 활성 창 handle (오르카가 그 워크스페이스를 그리고 있을 때만)."""
-    for v in (LIST_CACHE.get('list') or orca('terminal', 'list')).get('visualLayouts', []):
+    for v in (LIST_CACHE.get('list') or terminal_layouts()).get('visualLayouts', []):
         if v.get('worktreeId') != wid:
             continue
         root = v.get('root') or {}
@@ -1410,7 +1526,7 @@ def layout_handles():
                 walk(n.get(k))
             for tab in n.get('tabs') or []:
                 walk(tab.get('panes'))
-    for v in (LIST_CACHE.get('list') or orca('terminal', 'list')).get('visualLayouts', []):
+    for v in (LIST_CACHE.get('list') or terminal_layouts()).get('visualLayouts', []):
         walk(v.get('root'))
     return found
 
@@ -1504,7 +1620,7 @@ def status_of(t):
     if agent.get('state'):
         state = 'busy' if agent['state'] == 'working' else 'idle'
     proc = t.get('_proc') or {}
-    if proc.get('kind') == 'claude' and 'busy' in proc:
+    if proc.get('kind') in ('claude', 'omp') and 'busy' in proc:
         # 클로드가 직접 적는 상태(~/.claude/sessions/<pid>.json)를 가장 믿는다. 오르카 쪽 표시는 끝난 뒤에도 working 으로 남을 때가 있다
         state = 'busy' if proc['busy'] else 'idle'
     if state == 'unknown' and is_codex_log(t.get('log')):
@@ -1533,6 +1649,9 @@ def last_turn(path):
             role, text = d['type'], text_of(d.get('message', {}).get('content'))
         elif d.get('type') == 'response_item' and d.get('payload', {}).get('type') == 'message':  # Codex
             role, text = d['payload'].get('role'), text_of(d['payload'].get('content'))
+        elif d.get('type') == 'message':  # OMP
+            m = d.get('message', {})
+            role, text = m.get('role'), text_of(m.get('content'))
         else:
             continue
         text = (text or '').strip()
@@ -1565,7 +1684,7 @@ def turn_times(path):
                 continue
             ai = '"type":"assistant"' in line or '"role":"assistant"' in line or '"task_complete"' in line
             user = ('"type":"user"' in line and '"tool_result"' not in line and '"isMeta":true' not in line) or \
-                   ('"role":"user"' in line and '"input_text"' in line)
+                   ('"role":"user"' in line and ('"input_text"' in line or '"type":"message"' in line))
             if not (ai or user):
                 continue
             try:
@@ -1833,7 +1952,7 @@ def render(t, steps, ws):
     st = status_of(t)
     since = since_of(t, st)
     cid = re.sub(r'[^A-Za-z0-9]', '', t['paneKey'])[-16:]
-    title = escape(steps.get('title') or ('New %s session' % t['_pkind'].capitalize() if t.get('_pkind') and not t.get('log') else '')
+    title = escape(steps.get('title') or ('New %s session' % ('OMP' if t['_pkind'] == 'omp' else t['_pkind'].capitalize()) if t.get('_pkind') and not t.get('log') else '')
                    or clean_title(t['title']) or '(untitled)')
     summary = escape(steps.get('summary') or '')
     reply = escape(steps.get('last_reply') or dg['recap'] or '')  # 터미널 recap 은 영어로 나올 때가 있어 DeepSeek 요약(한국어)을 먼저 쓴다
@@ -1852,7 +1971,7 @@ def render(t, steps, ws):
     model = model_of(t.get('log')) if t.get('log') else model_from_screen(read_tail(t['handle']))
     sid_m = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$', t.get('log') or '')
     sid = sid_m.group(1) if sid_m else ''
-    resume = ('codex resume ' if is_codex_log(t.get('log')) else 'claude --resume ') + sid if sid else ''
+    resume = ('codex resume ' if is_codex_log(t.get('log')) else 'omp --resume ' if t.get('_pkind') == 'omp' else 'claude --resume ') + sid if sid else ''
     stale = ''
     e = steps.get('err') or ''
     ok = steps.get('ok_at')
@@ -2018,7 +2137,7 @@ def _build():
     # 오르카 조회 셋은 서로 기다릴 필요가 없어 한꺼번에 묻는다 (갱신 시간의 대부분이 이 대기다)
     with ThreadPoolExecutor(3) as ex:
         f_wt, f_term, f_agents = ex.submit(orca_or, {'worktrees': []}, 'worktree', 'list'), \
-            ex.submit(orca_or, {'terminals': [], 'visualLayouts': []}, 'terminal', 'list'), ex.submit(orca_agents)
+            ex.submit(terminal_layouts), ex.submit(orca_agents)
         worktrees = {w['id']: w for w in f_wt.result().get('worktrees', [])}
         LIST_CACHE['list'] = f_term.result()
         agents = f_agents.result()
@@ -2046,7 +2165,7 @@ def _build():
              and t.get('worktreeId') not in spy and (t.get('ptyId') or '').split('@@')[0] not in spy]
     for t in terms:
         t['paneKey'] = '%s:%s' % (t['tabId'], t['leafId'])
-        t['agent'] = agents.get(t['paneKey']) or t.get('agent')  # 오르카 밖 세션은 실행 기록의 일하는 중/대기를 그대로 둔다
+        t['agent'] = {} if t.get('_pkind') == 'omp' else agents.get(t['paneKey']) or t.get('agent')  # 오르카 밖 세션은 실행 기록의 일하는 중/대기를 그대로 둔다
         # 지금 화면에 안 띄운 워크스페이스의 창은 worktreeId 가 부모로 뭉개져 나온다. 실제 소속은 ptyId 앞부분에 있다
         spawn = (t.get('ptyId') or '').split('@@')[0]
         if spawn in worktrees:
@@ -2539,6 +2658,8 @@ def serve():
             return self.send(200, 'Moved'.encode())
         if not info:
             return self.send(404, 'Unknown session'.encode())
+        if omp_header(info.get('log') or ''):
+            return self.send(409, 'OMP sessions can be grouped, but cannot be moved between workspaces yet.'.encode())
         if info['handle'].startswith('proc_'):
             return self.send(409, 'This session runs outside Orca, so it cannot be moved.'.encode())
         if info['status'] != 'wait':
@@ -2820,6 +2941,7 @@ def watch():
     os.makedirs(BASE, exist_ok=True)   # 맥을 막 켜면 /tmp 가 비어 있다
     os.chmod(BASE, 0o700)
     write_loader()
+    install_omp_extension()
     _LOCK = open(os.path.join(BASE, 'watch.lock'), 'w')
     try:
         fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -3056,6 +3178,7 @@ def main(argv):
     if '--watch' in argv:
         watch()
         return
+    install_omp_extension()
     write_loader()
     stop_if_outdated()
     if not watching():
