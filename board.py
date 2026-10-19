@@ -1989,6 +1989,25 @@ def check_board(terms):
 WAKE = threading.Event()  # 세션을 끝내는 등 보드가 바로 다시 그려야 할 때 감시 루프를 깨운다
 
 
+_SWEPT = {'at': time.time()}
+
+
+def sweep_caches(handles, logs):
+    """하루에 한 번, 지금 떠 있지 않은 창·세션의 캐시를 버린다(빈 주제 칸 정리와 같은 규칙).
+    서버가 뜰 때는 캐시가 비어 있어 따로 할 일이 없다. 버린 것은 그 세션이 다시 보이면 한 번 다시 읽는다."""
+    if time.time() - _SWEPT['at'] < 86400:
+        return
+    _SWEPT['at'] = time.time()
+    for cache in (TAIL_CACHE, _COORD, _COORD_SRC, _RECHECK):
+        for k in [k for k in cache if k not in handles]:
+            del cache[k]
+    for cache in (_CODEX_CWD, TURN_CACHE):
+        for k in [k for k in cache if k not in logs]:
+            del cache[k]
+    for k in [k for k in _FILE_CACHE if k[1] not in logs]:
+        del _FILE_CACHE[k]
+
+
 def build():
     """보드 한 장을 그린다. 감시 루프와 설정 저장이 동시에 부를 수 있어 한 번에 하나만 돌게 한다."""
     with BUILD_LOCK:
@@ -2112,6 +2131,7 @@ def _build():
              'raw': raw}
 
     logs = sorted({t['log'] for t in terms if t.get('log')})
+    sweep_caches({t['handle'] for t in raw}, {t['log'] for t in raw + [s_ for t in terms for s_ in t.get('subs') or []] if t.get('log')})
     steps = {l: cached_summary(l) for l in logs}
     if logs:
         summarize_later(logs)
