@@ -95,5 +95,48 @@ class WatcherIdentityTest(unittest.TestCase):
             self.assertFalse(B.watching(), value)
 
 
+class UpdateRecoveryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='spyhop-update-')
+        self.journal = Path(self.tmp.name) / 'update.json'
+        self.paths = patch.multiple(B, UPDATE_FILE=str(self.journal), VERSION='0.6.0')
+        self.paths.start()
+
+    def tearDown(self):
+        self.paths.stop()
+        self.tmp.cleanup()
+
+    def test_invalid_journal_does_not_break_version_rendering(self):
+        good = dict(to='0.6.0', **{'from': '0.5.0'}, at=time.time(), seen=False)
+        for value in ([], None, 'text', {}, dict(good, at='bad'), dict(good, at=True),
+                      dict(good, at=float('nan')), dict(good, at=float('inf')),
+                      dict(good, at=10 ** 1000), dict(good, at=-1), dict(good, seen=[])):
+            self.journal.write_text(json.dumps(value))
+            self.assertEqual(B.load_update(), {})
+            self.assertNotIn('ver new', B.version_badge())
+        self.journal.write_text('{')
+        self.assertNotIn('ver new', B.version_badge())
+
+    def test_valid_unseen_update_highlights_until_seen_or_expired(self):
+        good = dict(to='0.6.0', **{'from': '0.5.0'}, at=time.time(), seen=False)
+        self.journal.write_text(json.dumps(good))
+        self.assertIn('ver new', B.version_badge())
+        for value in (dict(good, seen=True), dict(good, at=time.time() - 86401)):
+            self.journal.write_text(json.dumps(value))
+            self.assertNotIn('ver new', B.version_badge())
+
+    def test_same_target_is_retried_at_next_watch_check(self):
+        with patch.object(B, 'installed_board', return_value='/new/board.py'), patch.object(B.subprocess, 'Popen') as start:
+            B.switch_if_upgraded()
+            B.switch_if_upgraded()
+            self.assertEqual(start.call_count, 2)
+
+    def test_failed_spawn_does_not_stop_old_board_or_block_next_check(self):
+        with patch.object(B, 'installed_board', return_value='/new/board.py'), patch.object(B.subprocess, 'Popen', side_effect=[OSError('QA failure'), object()]) as start:
+            B.switch_if_upgraded()
+            B.switch_if_upgraded()
+            self.assertEqual(start.call_count, 2)
+
+
 if __name__ == '__main__':
     unittest.main()

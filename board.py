@@ -10,6 +10,7 @@
 """
 import glob
 import json
+import math
 import os
 import re
 import signal
@@ -2665,9 +2666,8 @@ def serve():
                 return self.move()
             if urlparse(self.path).path == '/update-seen':  # 어느 탭·브라우저에서든 한 번 확인하면 모든 곳에서 강조를 끈다
                 try:
-                    with open(UPDATE_FILE, encoding='utf-8') as f:
-                        u = json.load(f)
-                    if not u.get('seen'):
+                    u = load_update()
+                    if u and not u.get('seen'):
                         save_json(UPDATE_FILE, dict(u, seen=True))
                         WAKE.set()
                 except (OSError, ValueError):
@@ -2949,13 +2949,23 @@ def note_update(old_path):
     save_json(UPDATE_FILE, {'from': m.group(1), 'to': VERSION, 'at': time.time(), 'seen': False})
 
 
-def version_badge():
-    """헤더의 작은 버전 글자. 새 버전으로 바뀐 뒤 아직 아무도 확인하지 않았으면(하루까지) 강조하고 말풍선을 단다."""
+def load_update():
+    """손상된 업데이트 기록은 없는 기록처럼 처리해 보드 갱신을 계속한다."""
     try:
         with open(UPDATE_FILE, encoding='utf-8') as f:
             u = json.load(f)
-    except (OSError, ValueError):
-        u = {}
+        if (isinstance(u, dict) and isinstance(u.get('from'), str) and isinstance(u.get('to'), str)
+                and type(u.get('at')) in (int, float) and math.isfinite(u['at']) and u['at'] >= 0
+                and isinstance(u.get('seen'), bool)):
+            return u
+    except (OSError, ValueError, OverflowError):
+        pass
+    return {}
+
+
+def version_badge():
+    """헤더의 작은 버전 글자. 새 버전으로 바뀐 뒤 아직 아무도 확인하지 않았으면(하루까지) 강조하고 말풍선을 단다."""
+    u = load_update()
     if u.get('to') == VERSION and not u.get('seen') and time.time() - u.get('at', 0) < 86400:
         return ('<span class="ver new" id="ver"><i class="dot"></i>v%s<span class="vtip"><b>Updated</b> from v%s'
                 '<a href="https://github.com/leeleelee3264/spyhop/releases/tag/v%s" target="_blank" rel="noopener">What&#39;s new &#8599;</a></span></span>'
@@ -2980,12 +2990,14 @@ def switch_if_upgraded():
     """brew upgrade 로 새 버전이 깔렸으면 새 버전 보드를 띄운다. 새 보드가 이 옛 보드를 내리고 이어받는다
     (stop_if_outdated). 설정·칸 배정은 설치 폴더 밖(~/.spyhop)에 있어 그대로이고, AI 세션은 건드리지 않는다."""
     new = installed_board()
-    if not new or _UPGRADE.get('to') == new:
+    if not new:
         return
-    _UPGRADE['to'] = new
     sys.stderr.write('board: brew upgrade 감지, %s 로 바꿈\n' % new)
-    subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    try:
+        subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError as e:
+        sys.stderr.write('board: 새 버전 실행 실패, 다음 점검에서 재시도: %s\n' % e)
 
 
 _UPGRADE = {'at': 0}
