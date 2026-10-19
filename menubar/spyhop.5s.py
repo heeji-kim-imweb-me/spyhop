@@ -14,24 +14,20 @@ import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 BOARD = os.path.join(os.path.dirname(HERE), 'board.py')
+sys.path.insert(0, os.path.dirname(HERE))
+import board
 STATE = '/tmp/progress-board/state.json'
 PIDFILE = '/tmp/progress-board/watch.pid'
 ORCA = '/usr/local/bin/orca'
 
 
 def watcher_alive():
-    try:
-        with open(PIDFILE) as f:
-            os.kill(int(f.read().split()[0]), 0)  # "pid 코드경로"
-        return True
-    except (OSError, ValueError, IndexError):
-        return False
+    return board.watching(PIDFILE)
 
 
 def agents_running():
-    # Claude Code 는 프로세스 이름이 버전 번호(예: 2.1.286)로 보인다
-    out = subprocess.run(['ps', '-axo', 'comm='], capture_output=True, text=True).stdout.split()
-    return any(c in ('codex', 'claude') or c.replace('.', '').isdigit() and c.count('.') == 2 for c in out)
+    # 보드와 같은 수집기를 써서 OMP를 포함한 실제 세션만 감지한다.
+    return bool(board.agent_pids())
 
 
 def ensure_watcher():
