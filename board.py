@@ -2203,7 +2203,7 @@ def _build():
     legend = ('<div class="legend"><span><i class="lg done"></i>Done</span><span><i class="lg now"></i>Now</span>'
               '<span><i class="lg left"></i>Next</span><span><i class="lg side"></i>Intercept</span></div>')
     # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
-    head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em>%s</div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % (version_badge(), tiles)
+    head = ('<div class="brand"><b>Spyhop</b>%s</div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % (version_badge(), tiles)
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
     sorter = ('<div class="tb" title="Sort cards"><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
         '<button class="%s" onclick="pillGo(this,\'%s\')">%s</button>' % ('on' if sort == k else '', k, label)
