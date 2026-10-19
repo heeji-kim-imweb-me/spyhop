@@ -50,7 +50,7 @@ spyhop
 brew upgrade spyhop && spyhop
 ```
 
-From 0.6.0 on, a running board switches to the new version by itself within a minute after `brew upgrade`, and every open board tab reloads and shows **Spyhop updated to vX (was vY)**. Settings, topic columns and your AI sessions are kept. Running `spyhop` does the same right away. If your board started on 0.5.0 or older, run `spyhop` once after this upgrade.
+From 0.6.0 on, a running board switches to the new version by itself within a minute after `brew upgrade`, and every open board tab reloads. The version next to the title is highlighted until you rest the pointer on it (or for a day); the tooltip says what it was updated from and links to the release notes. Settings, topic columns and your AI sessions are kept. Running `spyhop` does the same right away. If your board started on 0.5.0 or older, run `spyhop` once after this upgrade.
 
 ## Terminals
 
