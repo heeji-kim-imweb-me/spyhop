@@ -52,6 +52,12 @@ brew upgrade spyhop && spyhop
 
 From 0.6.0 on, a running board switches to the new version by itself within a minute after `brew upgrade`, and every open board tab reloads. The version next to the title is highlighted until you rest the pointer on it (or for a day); the tooltip says what it was updated from and links to the release notes. Settings, topic columns and your AI sessions are kept. Running `spyhop` does the same right away. If your board started on 0.5.0 or older, run `spyhop` once after this upgrade.
 
+## OMP (Oh My Pi)
+
+Spyhop also reads Oh My Pi sessions. Start OMP once after installation, then run `spyhop` and restart OMP sessions so they load the bundled status extension. It records only PID, process start time, session ID, transcript path, folder and busy/idle state in `~/.spyhop/omp/`; summaries use the same summarizer as Claude and Codex.
+
+The extension is installed at `~/.omp/agent/extensions/spyhop-status.ts` when the OMP agent directory exists (or `PI_CODING_AGENT_DIR` when set for `spyhop`). OMP must allow its normal extension discovery. Go to session and End session use the existing terminal controls. AI topic grouping works; moving OMP sessions between Orca workspaces is not supported yet. Tested with Oh My Pi 18.12.2.
+
 ## Terminals
 
 Spyhop finds sessions from the running `claude` and `codex` programs, so they show up wherever you start them. Orca adds a few extras.
