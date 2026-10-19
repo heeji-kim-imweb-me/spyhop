@@ -1121,8 +1121,10 @@ def focus_outside(pid):
                     'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn "ok"\nend if\n'
                     'end repeat\nend repeat\nend tell' % tty, 'ok') and _open_app('Terminal') and 'tab' or app('Terminal')
     if tp == 'iTerm.app':
-        return _osa('tell application "iTerm2"\nactivate\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
-                    'if tty of s is "%s" then\nset wid to id of w\ntell s to select\n'
+        return _osa('tell application "iTerm2"\nactivate\nrepeat with w in windows\nset ti to 0\nrepeat with t in tabs of w\n'
+                    'set ti to ti + 1\nset si to 0\nrepeat with s in sessions of t\nset si to si + 1\n'
+                    'if tty of s is "%s" then\nset wid to id of w\ntell tab ti of window id wid to select\n'
+                    'tell session si of tab ti of window id wid to select\n'
                     'select window id wid\nreturn "ok"\nend if\n'
                     'end repeat\nend repeat\nend repeat\nend tell' % tty, 'ok') and 'tab' or app('iTerm')
     if tp == 'WezTerm':
@@ -1132,14 +1134,17 @@ def focus_outside(pid):
             pane = next((p for p in panes if p.get('tty_name') == tty), None)
             ok = bool(pane) and subprocess.run([wz, 'cli', 'activate-pane', '--pane-id', str(pane['pane_id'])],
                                                capture_output=True, timeout=5).returncode == 0
-        except (OSError, ValueError, subprocess.SubprocessError):
+            if ok:
+                panes = json.loads(subprocess.run([wz, 'cli', 'list', '--format', 'json'], capture_output=True, text=True, timeout=5).stdout or '[]')
+                pane = next(p for p in panes if p.get('tty_name') == tty)
+        except (OSError, ValueError, StopIteration, subprocess.SubprocessError):
             ok = False
         if ok:
             # pane 선택은 창을 올리지 않는다. 고유한 창 제목으로 해당 창만 앞으로 가져온다.
-            title = pane.get('title')
+            title = pane.get('tab_title') or pane.get('title') or pane.get('window_title')
             if title:
                 script = ('tell application "System Events" to tell process "WezTerm"\n'
-                          'set targets to every window whose name is %s\nif (count targets) is not 1 then return "ambiguous"\n'
+                          'set targets to every window whose name ends with %s\nif (count targets) is not 1 then return "ambiguous"\n'
                           'set frontmost to true\nperform action "AXRaise" of item 1 of targets\nreturn "ok"\nend tell') % json.dumps(title, ensure_ascii=False)
                 if _osa(script, 'ok'):
                     return 'tab'
