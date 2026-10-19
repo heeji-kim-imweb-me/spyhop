@@ -2932,7 +2932,12 @@ def watcher_record(pidfile=None):
         args = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
                               capture_output=True, text=True, timeout=5).stdout.strip()
         argv = args.rsplit(None, 2)
-        if len(argv) != 3 or argv[-1] != '--watch' or os.path.realpath(argv[-2]) != os.path.realpath(path):
+        if len(argv) != 3 or argv[-1] != '--watch':
+            return None
+        # brew가 opt 링크를 바꿔도 기존 감시의 실행 인자는 여전히 opt 경로다.
+        opt_path = re.sub(r'/Cellar/spyhop/[^/]+/', '/opt/spyhop/', path)
+        if (os.path.realpath(argv[-2]) != os.path.realpath(path)
+                and (opt_path == path or os.path.normpath(argv[-2]) != opt_path)):
             return None
         return pid, path, start
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
