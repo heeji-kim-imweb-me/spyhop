@@ -226,6 +226,16 @@ class RobustnessTest(unittest.TestCase):
             self.assertEqual(self.request('/config?k=qa', b'{"refresh":30}')[0], 200)
         self.assertEqual(B.load_config()['refresh'], 30)
 
+    def test_corrupt_update_ack_does_not_break_server_and_valid_ack_persists(self):
+        B.UPDATE_FILE = str(self.root / 'update.json')
+        self.serve()
+        for value in ([], None, {'at': 'bad'}):
+            B.save_json(B.UPDATE_FILE, value)
+            self.assertEqual(self.request('/update-seen?k=qa', b'')[0], 200)
+        B.save_json(B.UPDATE_FILE, {'from': '0.5.0', 'to': '0.6.0', 'at': time.time(), 'seen': False})
+        self.assertEqual(self.request('/update-seen?k=qa', b'')[0], 200)
+        self.assertTrue(json.loads(Path(B.UPDATE_FILE).read_text())['seen'])
+
     def test_unknown_and_stale_external_sessions_cannot_signal_processes(self):
         self.serve()
         B.save_json(B.STATE, {'sessions': [{'handle': 'proc_123'}]})

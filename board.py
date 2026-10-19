@@ -10,6 +10,7 @@
 """
 import glob
 import json
+import math
 import os
 import re
 import signal
@@ -1120,8 +1121,11 @@ def focus_outside(pid):
                     'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn "ok"\nend if\n'
                     'end repeat\nend repeat\nend tell' % tty, 'ok') and _open_app('Terminal') and 'tab' or app('Terminal')
     if tp == 'iTerm.app':
-        return _osa('tell application "iTerm2"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
-                    'if tty of s is "%s" then\nselect w\ntell t to select\ntell s to select\nactivate\nreturn "ok"\nend if\n'
+        return _osa('tell application "iTerm2"\nactivate\nrepeat with w in windows\nset ti to 0\nrepeat with t in tabs of w\n'
+                    'set ti to ti + 1\nset si to 0\nrepeat with s in sessions of t\nset si to si + 1\n'
+                    'if tty of s is "%s" then\nset wid to id of w\ntell tab ti of window id wid to select\n'
+                    'tell session si of tab ti of window id wid to select\n'
+                    'select window id wid\nreturn "ok"\nend if\n'
                     'end repeat\nend repeat\nend repeat\nend tell' % tty, 'ok') and 'tab' or app('iTerm')
     if tp == 'WezTerm':
         wz = find_bin('wezterm') or '/Applications/WezTerm.app/Contents/MacOS/wezterm'
@@ -1130,9 +1134,21 @@ def focus_outside(pid):
             pane = next((p for p in panes if p.get('tty_name') == tty), None)
             ok = bool(pane) and subprocess.run([wz, 'cli', 'activate-pane', '--pane-id', str(pane['pane_id'])],
                                                capture_output=True, timeout=5).returncode == 0
-        except (OSError, ValueError, subprocess.SubprocessError):
+            if ok:
+                panes = json.loads(subprocess.run([wz, 'cli', 'list', '--format', 'json'], capture_output=True, text=True, timeout=5).stdout or '[]')
+                pane = next(p for p in panes if p.get('tty_name') == tty)
+        except (OSError, ValueError, StopIteration, subprocess.SubprocessError):
             ok = False
-        return 'tab' if _open_app('WezTerm') and ok else app('WezTerm')
+        if ok:
+            # pane 선택은 창을 올리지 않는다. 고유한 창 제목으로 해당 창만 앞으로 가져온다.
+            title = pane.get('tab_title') or pane.get('title') or pane.get('window_title')
+            if title:
+                script = ('tell application "System Events" to tell process "WezTerm"\n'
+                          'set targets to every window whose name ends with %s\nif (count targets) is not 1 then return "ambiguous"\n'
+                          'set frontmost to true\nperform action "AXRaise" of item 1 of targets\nreturn "ok"\nend tell') % json.dumps(title, ensure_ascii=False)
+                if _osa(script, 'ok'):
+                    return 'tab'
+        return app('WezTerm')
     if tp == 'ghostty':
         return 'tab' if _ghostty_focus(a) else app('Ghostty')
     name = {'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
@@ -2655,9 +2671,8 @@ def serve():
                 return self.move()
             if urlparse(self.path).path == '/update-seen':  # 어느 탭·브라우저에서든 한 번 확인하면 모든 곳에서 강조를 끈다
                 try:
-                    with open(UPDATE_FILE, encoding='utf-8') as f:
-                        u = json.load(f)
-                    if not u.get('seen'):
+                    u = load_update()
+                    if u and not u.get('seen'):
                         save_json(UPDATE_FILE, dict(u, seen=True))
                         WAKE.set()
                 except (OSError, ValueError):
@@ -2899,13 +2914,33 @@ def claude_pid(session_id):
     return None
 
 
-def watching():
+def watcher_record(pidfile=None):
+    """PID 번호만 믿지 않고 실행 파일·감시 인자·시작 시각을 확인한다. 옛 두 칸 기록도 읽는다."""
     try:
-        with open(PIDFILE) as f:
-            os.kill(int(f.read().split()[0]), 0)
-        return True
-    except (OSError, ValueError, IndexError):
-        return False
+        with open(pidfile or PIDFILE) as f:
+            parts = f.read().split()
+        pid, path = int(parts[0]), parts[1]
+        if pid <= 0 or os.path.basename(path) != 'board.py':
+            return None
+        p = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart=,comm='],
+                           capture_output=True, text=True, timeout=5).stdout.split(None, 5)
+        if len(p) != 6 or not os.path.basename(p[5].strip()).lower().startswith('python'):
+            return None
+        start = _ps_start(p[:5])
+        if not start or len(parts) > 2 and float(parts[2]) != start:
+            return None
+        args = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
+                              capture_output=True, text=True, timeout=5).stdout.strip()
+        argv = args.rsplit(None, 2)
+        if len(argv) != 3 or argv[-1] != '--watch' or os.path.realpath(argv[-2]) != os.path.realpath(path):
+            return None
+        return pid, path, start
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
+def watching(pidfile=None):
+    return watcher_record(pidfile) is not None
 
 
 UPDATE_FILE = os.path.expanduser('~/.spyhop/update.json')  # 마지막 업데이트(어디서 → 어디로, 언제, 확인했는지). 재시작·업그레이드에도 남게 설치 폴더 밖
@@ -2919,13 +2954,23 @@ def note_update(old_path):
     save_json(UPDATE_FILE, {'from': m.group(1), 'to': VERSION, 'at': time.time(), 'seen': False})
 
 
-def version_badge():
-    """헤더의 작은 버전 글자. 새 버전으로 바뀐 뒤 아직 아무도 확인하지 않았으면(하루까지) 강조하고 말풍선을 단다."""
+def load_update():
+    """손상된 업데이트 기록은 없는 기록처럼 처리해 보드 갱신을 계속한다."""
     try:
         with open(UPDATE_FILE, encoding='utf-8') as f:
             u = json.load(f)
-    except (OSError, ValueError):
-        u = {}
+        if (isinstance(u, dict) and isinstance(u.get('from'), str) and isinstance(u.get('to'), str)
+                and type(u.get('at')) in (int, float) and math.isfinite(u['at']) and u['at'] >= 0
+                and isinstance(u.get('seen'), bool)):
+            return u
+    except (OSError, ValueError, OverflowError):
+        pass
+    return {}
+
+
+def version_badge():
+    """헤더의 작은 버전 글자. 새 버전으로 바뀐 뒤 아직 아무도 확인하지 않았으면(하루까지) 강조하고 말풍선을 단다."""
+    u = load_update()
     if u.get('to') == VERSION and not u.get('seen') and time.time() - u.get('at', 0) < 86400:
         return ('<span class="ver new" id="ver"><i class="dot"></i>v%s<span class="vtip"><b>Updated</b> from v%s'
                 '<a href="https://github.com/leeleelee3264/spyhop/releases/tag/v%s" target="_blank" rel="noopener">What&#39;s new &#8599;</a></span></span>'
@@ -2950,12 +2995,14 @@ def switch_if_upgraded():
     """brew upgrade 로 새 버전이 깔렸으면 새 버전 보드를 띄운다. 새 보드가 이 옛 보드를 내리고 이어받는다
     (stop_if_outdated). 설정·칸 배정은 설치 폴더 밖(~/.spyhop)에 있어 그대로이고, AI 세션은 건드리지 않는다."""
     new = installed_board()
-    if not new or _UPGRADE.get('to') == new:
+    if not new:
         return
-    _UPGRADE['to'] = new
     sys.stderr.write('board: brew upgrade 감지, %s 로 바꿈\n' % new)
-    subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    try:
+        subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError as e:
+        sys.stderr.write('board: 새 버전 실행 실패, 다음 점검에서 재시도: %s\n' % e)
 
 
 _UPGRADE = {'at': 0}
@@ -2963,19 +3010,19 @@ _UPGRADE = {'at': 0}
 
 def stop_if_outdated():
     """brew upgrade 뒤 `spyhop` 을 다시 치면, 옛 버전으로 도는 감시를 내리고 새 버전으로 띄운다."""
-    try:
-        with open(PIDFILE) as f:
-            parts = f.read().split()
-        pid, running = int(parts[0]), (parts[1] if len(parts) > 1 else '')
-    except (OSError, ValueError, IndexError):
+    record = watcher_record()
+    if not record:
         return
+    pid, running, _ = record
     if running == os.path.realpath(__file__):
         return
-    note_update(running)
+    if watcher_record() != record:  # 확인 사이에 PID가 재사용됐으면 신호를 보내지 않는다
+        return
     try:
         os.kill(pid, 15)
     except OSError:
         return
+    note_update(running)
     for _ in range(50):  # 최대 5초, 내려가길 기다린다
         try:
             os.kill(pid, 0)
@@ -3065,7 +3112,8 @@ def watch():
         sys.stderr.write('board: 이미 다른 감시가 돌고 있어 종료\n')
         return
     with open(PIDFILE, 'w') as f:
-        f.write('%d %s' % (os.getpid(), os.path.realpath(__file__)))  # 어느 버전 코드로 도는지 함께 적는다
+        start = next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
+        f.write('%d %s %s' % (os.getpid(), os.path.realpath(__file__), start))
     serve()
     last_seen = time.time()
     while time.time() - last_seen < IDLE_EXIT:
@@ -3589,6 +3637,7 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 @keyframes verglow{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--wait) 22%,transparent)}}
 .vtip{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:50;white-space:nowrap;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:500 11.5px -apple-system,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.18)}
 .ver.new:hover .vtip{display:block}.vtip b{font-weight:700}.vtip a{display:block;margin-top:4px;color:var(--wait);text-decoration:none;font-weight:600}
+.vtip:after{content:"";position:absolute;left:0;right:0;top:-9px;height:9px} /* 배지와 말풍선 사이에서도 hover 유지 */
 .vtip:before{content:"";position:absolute;left:14px;top:-5px;width:8px;height:8px;background:var(--card);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
 @media (prefers-reduced-motion:reduce){.ver .dot{animation:none}}
 #picker{display:none;position:fixed;inset:0;z-index:45;background:rgba(9,30,66,.5);align-items:center;justify-content:center}

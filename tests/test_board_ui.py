@@ -99,6 +99,19 @@ class BoardUITest(unittest.TestCase):
         self.assertNotIn('error', result, result)
         return result
 
+    def test_version_tooltip_gap_remains_inside_badge_hit_area(self):
+        result = self.browser('assigned', '''
+            const badge=document.getElementById('ver');badge.className='ver new';
+            badge.innerHTML='v0.6.0<span class="vtip"><b>Updated</b> from v0.5.0<a href="#">Release notes</a></span>';
+            const tip=badge.querySelector('.vtip');tip.style.display='block';
+            const b=badge.getBoundingClientRect(),t=tip.getBoundingClientRect();
+            const x=b.left+b.width/2,y=(b.bottom+t.top)/2;
+            const hit=document.elementFromPoint(x,y);
+            const result={gap:t.top-b.bottom,connected:!!hit.closest('#ver')};
+        ''')
+        self.assertGreater(result['gap'], 0)
+        self.assertTrue(result['connected'])
+
     def test_column_scroll_survives_refresh_and_reordering(self):
         result = self.browser('assigned', '''
             const column=()=>document.querySelector('[data-wid="group:QA"]');
