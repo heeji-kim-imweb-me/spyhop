@@ -523,6 +523,28 @@ def tidy_steps(flow):
     return flow
 
 
+def validate_summary(data):
+    """모델 응답과 디스크 캐시에 같은 자료형 검증을 적용한다."""
+    if not isinstance(data, dict):
+        raise ValueError('summary must be an object')
+    for key in ('title', 'summary', 'last_reply'):
+        if data.get(key) is not None and not isinstance(data[key], str):
+            raise ValueError('%s must be text' % key)
+    for key in ('steps', 'items'):
+        rows = data.get(key, [])
+        if not isinstance(rows, list):
+            raise ValueError('%s must be a list' % key)
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get('label'), str):
+                raise ValueError('%s entries must have text labels' % key)
+            if not isinstance(row.get('state'), str) or not isinstance(row.get('detail', ''), str):
+                raise ValueError('%s entries must have text state and detail' % key)
+    for key in ('at', 'ok_at', 'size', 'pos'):
+        if key in data and (not isinstance(data[key], (int, float)) or isinstance(data[key], bool)):
+            raise ValueError('%s must be a number' % key)
+    return data
+
+
 def summarize(path):
     key = os.path.basename(path)
     cache = os.path.join(AUTO, key + '.json')
@@ -530,7 +552,7 @@ def summarize(path):
     old = None
     try:
         with open(cache, encoding='utf-8') as f:
-            old = json.load(f)
+            old = validate_summary(json.load(f))
     except (OSError, ValueError):
         old = None
     lang = system_lang()
@@ -557,7 +579,7 @@ def summarize(path):
             body = '<기록>\n%s\n</기록>\n\n위 기록을 지시한 JSON 하나로만 출력하라.' % mask(transcript(path))
         by = current_summarizer()
         out = llm(PROMPT.replace('__LANG__', lang_name(lang)), body, by)
-        data = json.JSONDecoder().raw_decode(out[out.index('{'):])[0]  # JSON 뒤에 붙은 말은 버린다
+        data = validate_summary(json.JSONDecoder().raw_decode(out[out.index('{'):])[0])  # JSON 뒤에 붙은 말은 버린다
         items = [{'label': str(i.get('label', ''))[:20],
                   'state': i.get('state') if i.get('state') in STATES else 'open',
                   'detail': str(i.get('detail') or '')[:160]}
@@ -1821,7 +1843,10 @@ SUB_LABEL = {'busy': 'Working', 'done': 'Done', 'wait': 'Waiting'}
 
 def render(t, steps, ws):
     """카드(보드용)와 상세 창(카드를 눌렀을 때)을 함께 만든다."""
-    steps = steps or {}
+    try:
+        steps = validate_summary(steps or {})
+    except ValueError as e:
+        steps = {'fail': True, 'err': str(e)}
     items = steps.get('items') or []
     agent = t.get('agent') or {}
     if t.get('log') or agent.get('prompt') or agent.get('lastAssistantMessage'):
@@ -1954,7 +1979,7 @@ _SUMMARY = {'busy': False}
 def cached_summary(path):
     try:
         with open(os.path.join(AUTO, os.path.basename(path) + '.json'), encoding='utf-8') as f:
-            return json.load(f)
+            return validate_summary(json.load(f))
     except (OSError, ValueError):
         return None
 
@@ -2245,6 +2270,9 @@ def group_mode():
     return 'ai' if load_config().get('group_by') == 'ai' else 'location'
 
 
+GROUP_LOCK = threading.RLock()  # 읽기부터 저장까지 하나의 변경으로 보호한다
+
+
 def load_groups():
     try:
         with open(GROUPS_FILE, encoding='utf-8') as f:
@@ -2276,17 +2304,18 @@ def assign_groups(items):
                     '\n'.join('%s: %s: %s' % (sid, t, (sm or '')[:120]) for sid, (k, t, sm) in zip(ids, todo))))
             out = llm(GROUP_PROMPT.replace('__LANG__', lang_name(system_lang())), body)
             res = json.JSONDecoder().raw_decode(out[out.index('{'):])[0].get('assign') or {}
-            cur = load_groups()
-            for sid, name in res.items():
-                name = name.strip()[:24] if isinstance(name, str) else ''
-                if name.lower() in (UNSORTED.lower(), 'none', 'null'):
-                    name = ''  # 이름이 아닌 답은 저장하지 않는다. 배정이 비어 있으니 다음 회차에 다시 묻는다
-                name = same_group(name, cur['groups']) if name else ''
-                if sid in ids and name and ids[sid] not in cur['assign']:
-                    cur['assign'][ids[sid]] = {'g': name, 'manual': False}
-                    if name not in cur['groups']:
-                        cur['groups'].append(name)
-            save_groups(cur)
+            with GROUP_LOCK:
+                cur = load_groups()
+                for sid, name in res.items():
+                    name = name.strip()[:24] if isinstance(name, str) else ''
+                    if name.lower() in (UNSORTED.lower(), 'none', 'null'):
+                        name = ''  # 이름이 아닌 답은 저장하지 않는다. 배정이 비어 있으니 다음 회차에 다시 묻는다
+                    name = same_group(name, cur['groups']) if name else ''
+                    if sid in ids and name and ids[sid] not in cur['assign']:
+                        cur['assign'][ids[sid]] = {'g': name, 'manual': False}
+                        if name not in cur['groups']:
+                            cur['groups'].append(name)
+                save_groups(cur)
         except Exception as e:
             sys.stderr.write('grouping: %s\n' % str(e)[:200])
         finally:
@@ -2297,22 +2326,25 @@ def assign_groups(items):
 def prune_groups(g, live):
     """서버가 뜬 뒤 처음 한 번, 그 뒤로는 하루에 한 번 정리한다. 끝난 세션의 배정을 지우고,
     떠 있는 세션이 하나도 없는 칸을 지운다. 보는 동안 빈 칸은 다음 정리 때까지 자리를 지킨다."""
-    _GROUPING['pruned'] = time.time()
-    assign = {k: v for k, v in g['assign'].items() if k in live}
-    used = {v['g'] for v in assign.values()}
-    new = {'groups': [n for n in g['groups'] if n in used], 'assign': assign}
-    if new != g:
-        save_groups(new)
-    return new
+    with GROUP_LOCK:
+        g = load_groups()
+        _GROUPING['pruned'] = time.time()
+        assign = {k: v for k, v in g['assign'].items() if k in live}
+        used = {v['g'] for v in assign.values()}
+        new = {'groups': [n for n in g['groups'] if n in used], 'assign': assign}
+        if new != g:
+            save_groups(new)
+        return new
 
 
 def regroup_all():
     """AI 주제를 처음부터 다시 나누게 한다. 손으로 옮긴 카드(manual)와 그 칸 이름만 남긴다."""
-    g = load_groups()
-    keep = {k: v for k, v in g['assign'].items() if v.get('manual')}
-    used = {v['g'] for v in keep.values()}
-    save_groups({'groups': [n for n in g['groups'] if n in used], 'assign': keep})
-    _GROUPING['at'] = 0  # 1분 기다리지 않고 다음 그릴 때 바로 묻는다
+    with GROUP_LOCK:
+        g = load_groups()
+        keep = {k: v for k, v in g['assign'].items() if v.get('manual')}
+        used = {v['g'] for v in keep.values()}
+        save_groups({'groups': [n for n in g['groups'] if n in used], 'assign': keep})
+        _GROUPING['at'] = 0  # 1분 기다리지 않고 다음 그릴 때 바로 묻는다
 
 
 def same_group(name, groups):
@@ -2324,13 +2356,14 @@ def same_group(name, groups):
 
 def adopt_keys(terms):
     """대화 기록이 생기기 전에 창 번호로 저장한 배정을, 기록이 생기면 기록 이름으로 옮긴다(손으로 옮긴 칸을 잃지 않게)."""
-    g, moved = load_groups(), False
-    for t in terms:
-        if t.get('log') and t['log'] not in g['assign'] and t['handle'] in g['assign']:
-            g['assign'][t['log']] = g['assign'].pop(t['handle'])
-            moved = True
-    if moved:
-        save_groups(g)
+    with GROUP_LOCK:
+        g, moved = load_groups(), False
+        for t in terms:
+            if t.get('log') and t['log'] not in g['assign'] and t['handle'] in g['assign']:
+                g['assign'][t['log']] = g['assign'].pop(t['handle'])
+                moved = True
+        if moved:
+            save_groups(g)
 
 
 SUGGEST_PROMPT = """아래 AI 코딩 세션을 보드의 새 칸으로 옮기려 한다. 이 세션의 주제를 나타내는 칸 이름 후보 3개를 JSON 하나로만 답하라.
@@ -2446,7 +2479,12 @@ def serve():
             if parse_qs(urlparse(self.path).query).get('k') != [token()]:
                 return self.send(403, b'forbidden')
             if urlparse(self.path).path == '/config':
-                req = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+                try:
+                    req = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}')
+                    if not isinstance(req, dict):
+                        raise ValueError('config must be an object')
+                except ValueError:
+                    return self.send(400, b'bad config')
                 if 'autostart' in req:
                     set_autostart(bool(req['autostart']))
                 if req.get('group_by') == 'ai':
@@ -2528,14 +2566,15 @@ def serve():
             return self.send(400, b'bad')
         info = next((x for x in json.load(open(STATE)).get('sessions', []) if x['handle'] == req.get('h')), None)
         if info and str(req.get('wid', '')).startswith('group:'):
-            g = load_groups()
-            name = same_group(req['wid'][6:], g['groups'])
-            if not name or name == UNSORTED:
-                return self.send(400, 'Give the column a name'.encode())
-            g['assign'][info.get('log') or info['handle']] = {'g': name, 'manual': True}
-            if name not in g['groups']:
-                g['groups'].append(name)
-            save_groups(g)
+            with GROUP_LOCK:
+                g = load_groups()
+                name = same_group(req['wid'][6:], g['groups'])
+                if not name or name == UNSORTED:
+                    return self.send(400, 'Give the column a name'.encode())
+                g['assign'][info.get('log') or info['handle']] = {'g': name, 'manual': True}
+                if name not in g['groups']:
+                    g['groups'].append(name)
+                save_groups(g)
             return self.send(200, 'Moved'.encode())
         if not info:
             return self.send(404, 'Unknown session'.encode())
