@@ -66,6 +66,46 @@ class WatcherIdentityTest(unittest.TestCase):
         _, record = self.start([sys.executable, str(alias), '--watch'])
         self.assertIsNotNone(record)
 
+    def test_running_brew_opt_board_survives_link_retarget_and_can_be_replaced(self):
+        old = self.root / 'brew/Cellar/spyhop/0.5.0/libexec/board.py'
+        new = self.root / 'brew/Cellar/spyhop/0.6.0/libexec/board.py'
+        for path in (old, new):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(self.script.read_bytes())
+        opt = self.root / 'brew/opt/spyhop'
+        opt.parent.mkdir(parents=True)
+        opt.symlink_to(old.parent.parent)
+        p = subprocess.Popen([sys.executable, str(opt / 'libexec/board.py'), '--watch'])
+        self.processes.append(p)
+        self.pidfile.write_text('%d %s' % (p.pid, old))
+        for _ in range(100):
+            record = B.watcher_record()
+            if record:
+                break
+            time.sleep(.01)
+        self.assertIsNotNone(record)
+        opt.unlink()
+        opt.symlink_to(new.parent.parent)
+        self.assertTrue(B.watching())  # 0.5.0의 두 항목 기록
+        self.pidfile.write_text('%d %s %s' % (p.pid, old, record[2]))
+        self.assertTrue(B.watching())  # 새 형식의 시작 시각도 그대로 검증
+        threading.Thread(target=p.wait, daemon=True).start()
+        B.stop_if_outdated()
+        self.assertEqual(p.wait(timeout=5), -15)
+
+    def test_retargeted_arbitrary_symlink_is_not_trusted(self):
+        alias = self.root / 'alias.py'
+        alias.symlink_to(self.script)
+        p, record = self.start([sys.executable, str(alias), '--watch'])
+        self.assertIsNotNone(record)
+        other = self.root / 'other.py'
+        other.write_bytes(self.script.read_bytes())
+        alias.unlink()
+        alias.symlink_to(other)
+        B.stop_if_outdated()
+        self.assertFalse(B.watching())
+        self.assertIsNone(p.poll())
+
     def test_unrelated_live_pid_is_not_signalled(self):
         p = subprocess.Popen(['/bin/sleep', '60'])
         self.processes.append(p)
