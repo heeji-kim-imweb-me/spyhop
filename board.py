@@ -2210,7 +2210,7 @@ def _build():
         for k, label in (('recent', 'Newest'), ('wait', 'Longest wait'))))
     note = '<p class="none">Sorting new sessions by topic…</p>' if sorting and not any(cols.values()) else ''  # 빈 주제 칸만 남아 있어도 보이게
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
-    html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
+    html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<div id="board-note">%s</div><main>%s</main>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
@@ -2371,7 +2371,9 @@ CARD_ACTS = ('<div class="cact"><button type="button" class="ce">End session</bu
              '<button type="button" class="cg">Go to session <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
              'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg></button></div>')
 PORT = 47613
-CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
+CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))
+_V = re.search(r'/Cellar/spyhop/([^/]+)/', os.path.realpath(__file__))
+VERSION = _V.group(1) if _V else 'dev'  # brew 설치본은 폴더 이름이 곧 버전. 레포에서 돌리면 dev  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
 SEA = '<div class="sea" aria-hidden="true"></div><script>window.ORCA="<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 36 64\\" width=\\"100%\\" height=\\"100%\\" aria-hidden=\\"true\\"><g stroke=\\"currentColor\\" stroke-width=\\".7\\" stroke-linejoin=\\"round\\"><path fill=\\"#10131a\\" d=\\"M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z\\"/><path fill=\\"#9299a5\\" stroke=\\"none\\" d=\\"M9 40Q13 36 16 40L15 46Q11 44 9 40Z\\"/><path fill=\\"#10131a\\" d=\\"M24 29Q32 33 32 40Q27 39 22 33Z\\"/><path fill=\\"none\\" d=\\"M25 10Q27 11 29 10\\"/><circle cx=\\"24\\" cy=\\"16\\" r=\\".8\\" fill=\\"#10131a\\" stroke=\\"none\\"/></g></svg>";(function(){var sea=document.querySelector(".sea");if(!sea)return;function fitSea(){var h=sea.parentNode.getBoundingClientRect(),a=document.querySelector(".brand").getBoundingClientRect().right-h.left+16,b=h.right-document.querySelector(".tiles").getBoundingClientRect().left+16;sea.style.left=a+"px";sea.style.right=b+"px"}fitSea();addEventListener("resize",fitSea);function pop(){var o=document.createElement("div");o.className="orca";o.innerHTML=window.ORCA;var w=sea.getBoundingClientRect().width-30;if(w<=0)return;o.style.left=(Math.random()*w)+"px";sea.appendChild(o);setTimeout(function(){o.remove()},3200)}setTimeout(pop,400)})()</script>'  # 열 때 한 번 헤더에서, 그 뒤엔 세션이 일을 끝낼 때만 그 카드 위로 범고래가 수직으로 고개를 내밀어 둘러본다(spyhop)
 PANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'panel.html')
 
@@ -2725,6 +2727,34 @@ def watching():
         return False
 
 
+def installed_board():
+    """brew 로 깔린 지금 버전의 board.py 경로. brew upgrade 를 하면 opt 링크가 새 버전 폴더를 가리킨다.
+    brew 설치본으로 돌 때만 본다(레포에서 돌리는 개발용 보드는 brew 버전으로 바꾸지 않는다)."""
+    me = os.path.realpath(__file__)
+    if '/Cellar/spyhop/' not in me:
+        return None
+    for prefix in ('/opt/homebrew', '/usr/local'):
+        p = os.path.realpath(os.path.join(prefix, 'opt', 'spyhop', 'libexec', 'board.py'))
+        if p != me and '/Cellar/spyhop/' in p and os.path.isfile(p):
+            return p
+    return None
+
+
+def switch_if_upgraded():
+    """brew upgrade 로 새 버전이 깔렸으면 새 버전 보드를 띄운다. 새 보드가 이 옛 보드를 내리고 이어받는다
+    (stop_if_outdated). 설정·칸 배정은 설치 폴더 밖(~/.spyhop)에 있어 그대로이고, AI 세션은 건드리지 않는다."""
+    new = installed_board()
+    if not new or _UPGRADE.get('to') == new:
+        return
+    _UPGRADE['to'] = new
+    sys.stderr.write('board: brew upgrade 감지, %s 로 바꿈\n' % new)
+    subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+_UPGRADE = {'at': 0}
+
+
 def stop_if_outdated():
     """brew upgrade 뒤 `spyhop` 을 다시 치면, 옛 버전으로 도는 감시를 내리고 새 버전으로 띄운다."""
     try:
@@ -2837,6 +2867,9 @@ def watch():
         except Exception as e:
             sys.stderr.write('board: %s\n' % e)
         sample_metrics()
+        if time.time() - _UPGRADE['at'] > 60:  # 1분에 한 번, brew upgrade 로 새 버전이 깔렸는지 본다
+            _UPGRADE['at'] = time.time()
+            switch_if_upgraded()
         # 다음 갱신까지 기다리되, AI 프로그램이 새로 뜨거나 끝나면 바로 다시 그린다 (새 세션이 1~2초 안에 뜬다)
         pids, until = agent_pids(), time.time() + refresh_sec()
         while time.time() < until:
@@ -3367,7 +3400,7 @@ function peek(){  // 세션이 일을 끝내면 헤더 물결에서 범고래가
   var s=document.querySelector('.sea');if(!window.ORCA||!s||s.style.display==='none'||s.querySelector('.orca'))return;
   var o=document.createElement('div'),w=s.getBoundingClientRect().width-30;if(w<=0)return;o.className='orca';o.innerHTML=window.ORCA;
   o.style.left=(Math.random()*w)+'px';s.appendChild(o);setTimeout(function(){o.remove()},3300)}
-function toast(t){var e=document.getElementById('toast');e.textContent=t;e.className='on';setTimeout(function(){e.className=''},1600)}
+function toast(t,ms){var e=document.getElementById('toast');e.textContent=t;e.className='on';clearTimeout(e._t);e._t=setTimeout(function(){e.className=''},ms||1600)}
 var endTarget=null;
 function askEnd(h,btn){endTarget=h;var t=btn.dataset.title||btn.closest('.box').querySelector('h2').textContent;
   document.getElementById('cft').textContent=t;document.getElementById('cfx').textContent=h.indexOf('proc_')===0?
@@ -3566,12 +3599,16 @@ function snap(){document.querySelectorAll('main .card').forEach(function(c){card
   var m=document.querySelector('main'),t=document.querySelector('.tiles'),b=document.querySelector('.subbar');
   LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
 snap();
+try{var seen=sessionStorage.getItem('spyhop_ver'),cur=document.documentElement.dataset.ver;  // 이 탭이 전에 본 버전과 다르면 한 번 알린다(다시 읽기든, 보드가 잠깐 꺼졌다 켜진 뒤든)
+  if(seen&&cur&&seen!==cur)setTimeout(function(){toast('Spyhop updated to v'+cur+' (was v'+seen+')',6000)},400);sessionStorage.setItem('spyhop_ver',cur)}catch(e){}
 function live(){
   if(drag||press||naming)return Promise.resolve();  // 끄는 중·새 칸 이름을 짓는 중에는 다시 그리지 않는다
   return fetch('http://127.0.0.1:47613/?auto=1',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(txt){
     if(drag||press||naming)return;  // 응답이 오는 사이 끌기가 시작됐으면 이번 갱신은 버린다
     var d=new DOMParser().parseFromString(txt,'text/html');
-    var cs=d.documentElement.dataset.code;if(cs&&document.documentElement.dataset.code&&cs!==document.documentElement.dataset.code){location.reload();return true}
+    var cs=d.documentElement.dataset.code,nv=d.documentElement.dataset.ver,ov=document.documentElement.dataset.ver,newVer=nv&&ov&&nv!==ov;
+    if(newVer||(cs&&document.documentElement.dataset.code&&cs!==document.documentElement.dataset.code)){  // 코드나 버전이 바뀌었으면 다시 읽는다
+      location.reload();return true}
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
     var nt=d.querySelector('.tiles'),ot=document.querySelector('.tiles');
     if(nt&&ot&&nt.innerHTML!==LAST.tiles){ot.innerHTML=nt.innerHTML;LAST.tiles=nt.innerHTML}
