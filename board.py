@@ -2203,7 +2203,7 @@ def _build():
     legend = ('<div class="legend"><span><i class="lg done"></i>Done</span><span><i class="lg now"></i>Now</span>'
               '<span><i class="lg left"></i>Next</span><span><i class="lg side"></i>Intercept</span></div>')
     # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
-    head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em></div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % tiles
+    head = ('<div class="brand"><b>Spyhop</b><em class="tag">all your AI sessions at a glance</em>%s</div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % (version_badge(), tiles)
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
     sorter = ('<div class="tb" title="Sort cards"><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
         '<button class="%s" onclick="pillGo(this,\'%s\')">%s</button>' % ('on' if sort == k else '', k, label)
@@ -2485,6 +2485,16 @@ def serve():
                 return self.send(200, b'ok')
             if urlparse(self.path).path == '/move':
                 return self.move()
+            if urlparse(self.path).path == '/update-seen':  # 어느 탭·브라우저에서든 한 번 확인하면 모든 곳에서 강조를 끈다
+                try:
+                    with open(UPDATE_FILE, encoding='utf-8') as f:
+                        u = json.load(f)
+                    if not u.get('seen'):
+                        save_json(UPDATE_FILE, dict(u, seen=True))
+                        WAKE.set()
+                except (OSError, ValueError):
+                    pass
+                return self.send(200, b'ok')
             if urlparse(self.path).path == '/suggest':
                 h = self.rfile.read(int(self.headers.get('Content-Length') or 0)).decode().strip()
                 info = next((x for x in json.load(open(STATE)).get('sessions', []) if x['handle'] == h), None)
@@ -2727,6 +2737,31 @@ def watching():
         return False
 
 
+UPDATE_FILE = os.path.expanduser('~/.spyhop/update.json')  # 마지막 업데이트(어디서 → 어디로, 언제, 확인했는지). 재시작·업그레이드에도 남게 설치 폴더 밖
+
+
+def note_update(old_path):
+    """옛 버전 보드를 새 버전으로 바꿀 때 한 번 적는다. 헤더 버전 배지가 이걸 보고 반짝인다."""
+    m = re.search(r'/Cellar/spyhop/([^/]+)/', old_path or '')
+    if not m or VERSION == 'dev' or m.group(1) == VERSION:
+        return
+    save_json(UPDATE_FILE, {'from': m.group(1), 'to': VERSION, 'at': time.time(), 'seen': False})
+
+
+def version_badge():
+    """헤더의 작은 버전 글자. 새 버전으로 바뀐 뒤 아직 아무도 확인하지 않았으면(하루까지) 강조하고 말풍선을 단다."""
+    try:
+        with open(UPDATE_FILE, encoding='utf-8') as f:
+            u = json.load(f)
+    except (OSError, ValueError):
+        u = {}
+    if u.get('to') == VERSION and not u.get('seen') and time.time() - u.get('at', 0) < 86400:
+        return ('<span class="ver new" id="ver"><i class="dot"></i>v%s<span class="vtip"><b>Updated</b> from v%s'
+                '<a href="https://github.com/leeleelee3264/spyhop/releases/tag/v%s" target="_blank" rel="noopener">What&#39;s new &#8599;</a></span></span>'
+                % (escape(VERSION), escape(str(u.get('from', ''))), escape(VERSION)))
+    return '<span class="ver" id="ver">%s</span>' % escape(VERSION if VERSION == 'dev' else 'v' + VERSION)
+
+
 def installed_board():
     """brew 로 깔린 지금 버전의 board.py 경로. brew upgrade 를 하면 opt 링크가 새 버전 폴더를 가리킨다.
     brew 설치본으로 돌 때만 본다(레포에서 돌리는 개발용 보드는 brew 버전으로 바꾸지 않는다)."""
@@ -2765,6 +2800,7 @@ def stop_if_outdated():
         return
     if running == os.path.realpath(__file__):
         return
+    note_update(running)
     try:
         os.kill(pid, 15)
     except OSError:
@@ -3361,6 +3397,15 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 #confirm.on{display:flex}#confirm .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}
 #confirm h3{margin:0 0 6px;font-size:15px}#confirm p{margin:0 0 14px;color:var(--ink2);font-size:12.5px}
 #confirm .row2,#namer .row2,#picker .row2{display:flex;gap:8px;justify-content:flex-end}
+
+.ver{position:relative;display:inline-flex;align-items:center;gap:5px;margin-left:8px;font:500 10.5px -apple-system,sans-serif;color:var(--ink3);padding:1px 7px;border-radius:9px;border:1px solid transparent;vertical-align:1px}
+.ver.new{color:var(--ink2);border-color:color-mix(in srgb,var(--wait) 45%,transparent);background:color-mix(in srgb,var(--wait) 8%,transparent);cursor:default}
+.ver .dot{width:6px;height:6px;border-radius:50%;background:var(--wait);animation:verglow 2.4s ease-in-out infinite}
+@keyframes verglow{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--wait) 22%,transparent)}}
+.vtip{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:50;white-space:nowrap;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:500 11.5px -apple-system,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.18)}
+.ver.new:hover .vtip{display:block}.vtip b{font-weight:700}.vtip a{display:block;margin-top:4px;color:var(--wait);text-decoration:none;font-weight:600}
+.vtip:before{content:"";position:absolute;left:14px;top:-5px;width:8px;height:8px;background:var(--card);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
+@media (prefers-reduced-motion:reduce){.ver .dot{animation:none}}
 #picker{display:none;position:fixed;inset:0;z-index:45;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #picker.on{display:flex}#picker .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}#picker h3{margin:0 0 4px;font-size:15px}
 #picker .pk-sub{margin:0 0 12px;color:var(--ink3);font-size:12px}#pklist{max-height:50vh;overflow-y:auto;margin-bottom:12px}
@@ -3384,7 +3429,7 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 ::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--ink3) 60%,transparent);background-clip:padding-box}
 ::-webkit-scrollbar-corner{background:transparent}
 
-header{position:relative;overflow:hidden}.brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px}.sea{position:absolute;left:0;right:0;bottom:0;height:44px;pointer-events:none;overflow:hidden}.sea:after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%226%22%20viewBox%3D%220%200%2032%206%22%3E%3Cpath%20d%3D%22M0%203%20Q4%200.5%208%203%20T16%203%20T24%203%20T32%203%22%20fill%3D%22none%22%20stroke%3D%22%23cbd5e1%22%20stroke-width%3D%221.4%22/%3E%3C/svg%3E") repeat-x;opacity:.7}.orca{position:absolute;bottom:-1px;width:30px;height:52px;color:var(--ink3);transform:translateY(110%);transform-origin:50% 45%;animation:spyhop 3.2s linear forwards;pointer-events:none}.orca svg{display:block}@keyframes spyhop{0%,5%{transform:translateY(110%) rotate(0)}30%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}42%{transform:translateY(45%) rotate(-1.5deg);animation-timing-function:ease-in-out}56%{transform:translateY(45%) rotate(1.5deg);animation-timing-function:ease-in-out}68%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}100%{transform:translateY(110%) rotate(0)}}@media (prefers-reduced-motion:reduce){.orca{display:none}}
+header{position:relative;overflow:visible}.brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px}.sea{position:absolute;left:0;right:0;bottom:0;height:44px;pointer-events:none;overflow:hidden}.sea:after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%226%22%20viewBox%3D%220%200%2032%206%22%3E%3Cpath%20d%3D%22M0%203%20Q4%200.5%208%203%20T16%203%20T24%203%20T32%203%22%20fill%3D%22none%22%20stroke%3D%22%23cbd5e1%22%20stroke-width%3D%221.4%22/%3E%3C/svg%3E") repeat-x;opacity:.7}.orca{position:absolute;bottom:-1px;width:30px;height:52px;color:var(--ink3);transform:translateY(110%);transform-origin:50% 45%;animation:spyhop 3.2s linear forwards;pointer-events:none}.orca svg{display:block}@keyframes spyhop{0%,5%{transform:translateY(110%) rotate(0)}30%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}42%{transform:translateY(45%) rotate(-1.5deg);animation-timing-function:ease-in-out}56%{transform:translateY(45%) rotate(1.5deg);animation-timing-function:ease-in-out}68%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}100%{transform:translateY(110%) rotate(0)}}@media (prefers-reduced-motion:reduce){.orca{display:none}}
 .brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}.acts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.acts .go,.acts .end{margin:0}.mline{margin-left:8px;font-size:11.5px;color:var(--ink3);display:inline-flex;align-items:center;gap:4px}.mline .sid{background:transparent;padding:0;color:var(--ink3);font-weight:500}.mline .sid:hover{color:var(--ink)}.where{font-size:11.5px;color:var(--ink3)}.where:before{content:'· ';}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
 <div id="confirm"><div class="cb"><h3>End this session?</h3><p><b id="cft"></b><br><br>
 <span id="cfx">Only this pane closes; other panes in the tab stay.</span> The transcript is kept so you can resume later.</p>
@@ -3599,8 +3644,12 @@ function snap(){document.querySelectorAll('main .card').forEach(function(c){card
   var m=document.querySelector('main'),t=document.querySelector('.tiles'),b=document.querySelector('.subbar');
   LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
 snap();
-try{var seen=sessionStorage.getItem('spyhop_ver'),cur=document.documentElement.dataset.ver;  // 이 탭이 전에 본 버전과 다르면 한 번 알린다(다시 읽기든, 보드가 잠깐 꺼졌다 켜진 뒤든)
-  if(seen&&cur&&seen!==cur)setTimeout(function(){toast('Spyhop updated to v'+cur+' (was v'+seen+')',6000)},400);sessionStorage.setItem('spyhop_ver',cur)}catch(e){}
+var verT=null;document.addEventListener('mouseover',function(e){var v=e.target.closest&&e.target.closest('#ver.new');if(!v||verT)return;  // 새 버전 배지에 1초 머물면 확인한 것으로 본다(스쳐 지나가는 건 무시)
+  verT=setTimeout(function(){verT=null;var n=document.getElementById('ver');if(!n||!n.matches(':hover'))return;
+    fetch('http://127.0.0.1:47613/update-seen?k=__TOKEN__',{method:'POST'}).catch(function(){});n.dataset.seen='1'},1000)});
+document.addEventListener('mouseout',function(e){var v=e.target.closest&&e.target.closest('#ver');if(!v)return;
+  if(verT&&!v.contains(e.relatedTarget)){clearTimeout(verT);verT=null}  // 1초 전에 나가면 확인 아님
+  if(v.dataset.seen&&!v.contains(e.relatedTarget)){v.className='ver';v.textContent='v'+document.documentElement.dataset.ver}});  // 확인한 뒤 마우스를 떼면 이 탭도 바로 평소 모양으로
 function live(){
   if(drag||press||naming)return Promise.resolve();  // 끄는 중·새 칸 이름을 짓는 중에는 다시 그리지 않는다
   return fetch('http://127.0.0.1:47613/?auto=1',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(txt){
@@ -3610,6 +3659,8 @@ function live(){
     if(newVer||(cs&&document.documentElement.dataset.code&&cs!==document.documentElement.dataset.code)){  // 코드나 버전이 바뀌었으면 다시 읽는다
       location.reload();return true}
     var th=d.documentElement.dataset.theme;if(th&&th!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=th;
+    var nv2=d.getElementById('ver'),ov2=document.getElementById('ver');  // 다른 탭에서 확인했으면 여기도 강조가 꺼진다
+    if(nv2&&ov2&&nv2.className!==ov2.className&&!ov2.matches(':hover'))ov2.outerHTML=nv2.outerHTML;
     var nt=d.querySelector('.tiles'),ot=document.querySelector('.tiles');
     if(nt&&ot&&nt.innerHTML!==LAST.tiles){ot.innerHTML=nt.innerHTML;LAST.tiles=nt.innerHTML}
     var pend={},gp=document.getElementById('grouping');if(gp){var gr0=gp.getBoundingClientRect();gp.querySelectorAll('.gpop a').forEach(function(a){pend[a.dataset.log||a.dataset.h]=gr0})}  // 분류 중이던 세션은 알약 자리에서 날아온다
