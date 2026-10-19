@@ -2294,6 +2294,9 @@ def _build():
     sort = load_config().get('sort', 'recent')  # 카드 순서. recent: 최근에 내 차례가 된 것부터 · wait: 오래 기다린 것부터. 칸 순서도 이걸 따른다
     if sort not in ('recent', 'wait'):
         sort = 'recent'
+    filt = load_config().get('filter', 'all')  # 보여 줄 카드: all · wait(My turn) · busy(Working). 숫자는 늘 전체 기준
+    if filt not in ('all', 'wait', 'busy'):
+        filt = 'all'
     for t in sorted(terms, key=lambda x: -(x.get('lastOutputAt') or 0)):
         w = worktrees.get(t['worktreeId'], {})
         if mode == 'ai':
@@ -2310,6 +2313,8 @@ def _build():
             if m:
                 sorting.append('<a href="%s" data-h="%s" data-log="%s"><i class="donut"></i>%s</a>' % m.groups())
             continue
+        if filt != 'all' and ('wait' if order[0] == 0 else 'busy') != filt:
+            continue  # 걸러진 카드는 그리지 않는다. 카드가 다 빠진 칸은 저절로 안 생긴다
         if sort == 'recent' and order[0] == 0:
             order = (0, -order[1])  # 최근에 내 차례가 된 것부터
         cols.setdefault((rank, ws), []).append((order, card))
@@ -2334,7 +2339,7 @@ def _build():
                     % (escape(colwid[key]), escape(key[1]), col_head(key[1], cards), ''.join(c for _, c in sorted(cards, key=lambda x: x[0])))
                     for key, cards in sorted(cols.items(), key=lambda kv: pos[kv[0][1]]))
     nfail = sum(1 for t in terms if t.get('_fail'))
-    tiles = ''.join('<span class="cnt %s"><b>%d</b>%s</span>' % (k, count[k], LABEL[k]) for k in ('wait', 'busy'))
+    tiles = ''
     if nfail:
         tiles += '<span class="cnt failt" title="Sessions whose summary failed (showing the last good one)"><b>%d</b>Failed</span>' % nfail
     if mode == 'ai':
@@ -2346,13 +2351,19 @@ def _build():
                              and not str(w.get('id', '')).startswith('term:')], ensure_ascii=False)  # 오르카 밖 폴더 · 터미널 칸으로는 옮길 수 없다
     legend = ('<div class="legend"><span><i class="lg done"></i>Done</span><span><i class="lg now"></i>Now</span>'
               '<span><i class="lg left"></i>Next</span><span><i class="lg side"></i>Intercept</span></div>')
-    # 헤더는 한 줄: 로고·이름 | (범고래 물결) | 숫자 두 개 · 설정. 범례와 갱신 시각은 오른쪽 아래로 뺀다
+    # 헤더는 한 줄: 로고·이름·버전 | (범고래 물결) | 설정. 숫자는 아래 탭으로 내려갔다
     head = ('<div class="brand"><b>Spyhop</b>%s</div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % (version_badge(), tiles)
             + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
-    sorter = ('<div class="tb" title="Sort cards"><div class="pill"><i class="knob"></i>%s</div></div>' % ''.join(
-        '<button class="%s" onclick="pillGo(this,\'%s\')">%s</button>' % ('on' if sort == k else '', k, label)
-        for k, label in (('recent', 'Newest'), ('wait', 'Longest wait'))))
+    n_all = count['wait'] + count['busy']
+    tabs = ''.join('<button class="tab %s%s" onclick="tabGo(this,\'%s\')">%s <b>%d</b></button>' % (k, ' on' if filt == k else '', k, label, n)
+                   for k, label, n in (('all', 'All', n_all), ('wait', LABEL['wait'], count['wait']), ('busy', LABEL['busy'], count['busy'])))
+    sorts = (('recent', 'Newest'), ('wait', 'Longest wait'))
+    sorter = ('<div class="vbar"><div class="tabs" role="tablist">%s</div><div class="sortm" title="Sort cards and columns">'
+              '<button class="sortb" onclick="sortOpen(event)"><span class="lab">Sort</span>%s <i>&#9662;</i></button><div class="menu">%s</div></div></div>'
+              % (tabs, dict(sorts)[sort], ''.join('<button class="%s" onclick="sortGo(\'%s\')">%s</button>' % ('on' if sort == k else '', k, label) for k, label in sorts)))
     note = '<p class="none">Sorting new sessions by topic…</p>' if sorting and not any(cols.values()) else ''  # 빈 주제 칸만 남아 있어도 보이게
+    if not note and filt != 'all' and n_all and not any(cols.values()):
+        note = '<p class="none">No sessions in %s right now. <a href="#" onclick="tabGo(null,\'all\');return false">Show all</a></p>' % LABEL[filt]
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<div id="board-note">%s</div><main>%s</main>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
@@ -2610,7 +2621,7 @@ def serve():
                     set_autostart(bool(req['autostart']))
                 if req.get('group_by') == 'ai':
                     _GROUPING['at'] = 0
-                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('location', 'orca', 'ai')), ('sort', ('recent', 'wait'))):
+                for key, allowed in (('refresh', REFRESH_OPTS), ('orcas', (True, False)), ('group_by', ('location', 'orca', 'ai')), ('sort', ('recent', 'wait')), ('filter', ('all', 'wait', 'busy'))):
                     if key in req:
                         if req[key] not in allowed:
                             return self.send(400, b'bad value')
@@ -3559,6 +3570,18 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 #confirm.on{display:flex}#confirm .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}
 #confirm h3{margin:0 0 6px;font-size:15px}#confirm p{margin:0 0 14px;color:var(--ink2);font-size:12.5px}
 #confirm .row2,#namer .row2,#picker .row2{display:flex;gap:8px;justify-content:flex-end}
+.vbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);padding:0 2px}
+.tab{font:600 13px -apple-system,sans-serif;color:var(--ink3);background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:8px 0 9px;cursor:pointer;display:inline-flex;gap:6px;align-items:baseline;white-space:nowrap;transition:color .15s,border-color .15s}
+.tab:hover{color:var(--ink2)}.tab b{font-weight:700;font-size:12px;color:var(--ink3)}.tab.wait b{color:var(--wait)}.tab.busy b{color:var(--busy)}
+.tab.on{color:var(--ink);border-bottom-color:var(--ink)}.tab.wait.on{border-bottom-color:var(--wait)}.tab.busy.on{border-bottom-color:var(--busy)}
+.sortm{position:relative}.sortb{font:500 12.5px -apple-system,sans-serif;color:var(--ink2);background:none;border:0;cursor:pointer;padding:5px 8px;border-radius:7px;white-space:nowrap}
+.sortb .lab{color:var(--ink3);margin-right:4px}.sortb i{font-style:normal;font-size:10px;color:var(--ink3);margin-left:2px}
+.sortb:hover,.sortm.open .sortb{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.sortm .menu{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 28px rgba(15,23,42,.16);padding:4px;min-width:150px}
+.sortm.open .menu{display:block}.sortm .menu button{display:block;width:100%;text-align:left;padding:7px 10px;border:0;border-radius:6px;background:none;font:500 12.5px -apple-system,sans-serif;color:var(--ink);cursor:pointer}
+.sortm .menu button:hover{background:color-mix(in srgb,var(--ink) 5%,transparent)}.sortm .menu button.on:after{content:"✓";float:right;color:var(--ink2)}
+#board-note .none a{color:var(--wait)}
 
 .ver{position:relative;display:inline-flex;align-items:center;gap:5px;margin-left:8px;font:500 10.5px -apple-system,sans-serif;color:var(--ink3);padding:1px 7px;border-radius:9px;border:1px solid transparent;vertical-align:1px}
 .ver.new{color:var(--ink2);border-color:color-mix(in srgb,var(--wait) 45%,transparent);background:color-mix(in srgb,var(--wait) 8%,transparent);cursor:default}
@@ -3762,13 +3785,20 @@ function loadMetrics(){if(location.hash!=='#settings')return;fetch('http://127.0
 loadMetrics();setInterval(loadMetrics,5000);addEventListener('hashchange',loadMetrics);document.addEventListener('mousedown',function(e){if(e.target.closest('.modal')&&!e.target.closest('.box')){e.preventDefault();closeModal()}});addEventListener('keydown',function(e){if(e.key==='Escape'&&location.hash&&location.hash!=='#')closeModal()});
 function pillPlace(){var p=document.querySelector('.pill');if(!p)return;var b=p.querySelector('.on')||p.querySelector('button'),k=p.querySelector('.knob');k.style.left=b.offsetLeft+'px';k.style.width=b.offsetWidth+'px'}
 function pillGo(b,v){if(b.classList.contains('on'))return;setCfg({sort:v},b);pillPlace()}
+function tabGo(b,v){if(b&&b.classList.contains('on'))return;var t=b||document.querySelector('.tabs .tab.'+v);setCfg({filter:v},t)}  // All / My turn / Working
+function sortOpen(e){e.stopPropagation();var m=e.currentTarget.parentNode;m.classList.toggle('open')}
+function sortGo(v){var m=document.querySelector('.sortm');if(m)m.classList.remove('open');
+  if(m&&m.querySelector('.menu .on')&&m.querySelector('.menu .on').getAttribute('onclick').indexOf("'"+v+"'")>=0)return;setCfg({sort:v})}
+document.addEventListener('click',function(e){var m=document.querySelector('.sortm.open');if(m&&!m.contains(e.target))m.classList.remove('open')});
+addEventListener('keydown',function(e){var m=document.querySelector('.sortm.open');if(m&&e.key==='Escape')m.classList.remove('open')});
 addEventListener('load',pillPlace);
 function setCfg(o,btn){if(btn){btn.parentNode.querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b===btn)})}
   var stop=busy();
   return fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify(o)})
-  .then(function(r){toast(r.ok?'Saved':'Could not save');if(r.ok&&'orcas' in o){var s=document.querySelector('.sea');if(s)s.style.display=o.orcas?'':'none'}
+  .then(function(r){if(!r.ok||!('sort' in o||'filter' in o))toast(r.ok?'Saved':'Could not save');  // 정렬·필터는 화면이 바로 바뀌니 '저장됨'은 띄우지 않는다
+    if(r.ok&&'orcas' in o){var s=document.querySelector('.sea');if(s)s.style.display=o.orcas?'':'none'}
     if(r.ok&&'refresh' in o){clearInterval(RT);RT=setInterval(function(){if(!document.hidden)live()},o.refresh*1000)}
-    if(r.ok&&'group_by' in o){location.hash='';return live()}if(r.ok&&'sort' in o)return live()})
+    if(r.ok&&'group_by' in o){location.hash='';return live()}if(r.ok&&('sort' in o||'filter' in o))return live()})
   .catch(function(){toast('Board server is not running')}).then(stop)}
 function setTheme(t){document.documentElement.dataset.theme=t;
   document.querySelectorAll('.th').forEach(function(b){b.classList.toggle('on',b.dataset.id===t)});
@@ -3827,7 +3857,8 @@ function live(){
     if(nt&&ot&&nt.innerHTML!==LAST.tiles){ot.innerHTML=nt.innerHTML;LAST.tiles=nt.innerHTML}
     var pend={},gp=document.getElementById('grouping');if(gp){var gr0=gp.getBoundingClientRect();gp.querySelectorAll('.gpop a').forEach(function(a){pend[a.dataset.log||a.dataset.h]=gr0})}  // 분류 중이던 세션은 알약 자리에서 날아온다
     var nb=d.querySelector('.subbar'),ob=document.querySelector('.subbar');
-    if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace()}
+    if(nb&&ob&&nb.innerHTML!==LAST.sub){var so=!!ob.querySelector('.sortm.open');ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace();  // 갱신 시각이 바뀌어 아래 줄을 다시 그려도
+      if(so){var sm=ob.querySelector('.sortm');if(sm)sm.classList.add('open')}}  // 열어 둔 정렬 메뉴는 열린 채로
     var note=d.getElementById('board-note'),oldNote=document.getElementById('board-note');
     if(note&&oldNote&&note.innerHTML!==oldNote.innerHTML)oldNote.innerHTML=note.innerHTML;
     var nm=d.querySelector('main'),om=document.querySelector('main');
