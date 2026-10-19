@@ -3633,7 +3633,8 @@ addEventListener('load',pillPlace);
 function setCfg(o,btn){if(btn){btn.parentNode.querySelectorAll('button').forEach(function(b){b.classList.toggle('on',b===btn)})}
   var stop=busy();
   return fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify(o)})
-  .then(function(r){if(!r.ok||!('sort' in o||'filter' in o))toast(r.ok?'Saved':'Could not save');  // 정렬·필터는 화면이 바로 바뀌니 '저장됨'은 띄우지 않는다if(r.ok&&'orcas' in o){var s=document.querySelector('.sea');if(s)s.style.display=o.orcas?'':'none'}
+  .then(function(r){if(!r.ok||!('sort' in o||'filter' in o))toast(r.ok?'Saved':'Could not save');  // 정렬·필터는 화면이 바로 바뀌니 '저장됨'은 띄우지 않는다
+    if(r.ok&&'orcas' in o){var s=document.querySelector('.sea');if(s)s.style.display=o.orcas?'':'none'}
     if(r.ok&&'refresh' in o){clearInterval(RT);RT=setInterval(function(){if(!document.hidden)live()},o.refresh*1000)}
     if(r.ok&&'group_by' in o){location.hash='';return live()}if(r.ok&&('sort' in o||'filter' in o))return live()})
   .catch(function(){toast('Board server is not running')}).then(stop)}
