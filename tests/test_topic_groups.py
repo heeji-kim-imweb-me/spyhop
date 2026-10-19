@@ -77,6 +77,12 @@ class TopicGroupsTest(unittest.TestCase):
         model.assert_not_called()
         self.assertEqual(B.load_groups(), {'groups': ['First'], 'assign': {'manual': {'g': 'First', 'manual': True}}})
 
+    def test_model_change_regroups_but_keeps_manual(self):
+        B._GROUPING['at'] = B.time.time()
+        B.regroup_all()
+        self.assertEqual(B.load_groups(), {'groups': ['First'], 'assign': {'manual': {'g': 'First', 'manual': True}}})
+        self.assertEqual(B._GROUPING['at'], 0)
+
     def test_assigned_session_never_calls_model_again(self):
         with patch.object(B, 'llm') as model:
             for _ in range(3):
