@@ -2189,7 +2189,7 @@ def _build():
     note = '<p class="none">Sorting new sessions by topic…</p>' if sorting and not any(cols.values()) else ''  # 빈 주제 칸만 남아 있어도 보이게
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s">' % (current_theme(), CODE_STAMP), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
-        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + note + '<main>%s</main>%s' % (board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
+        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<div id="board-note">%s</div><main>%s</main>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
         f.write(html)
@@ -3174,6 +3174,7 @@ background:color-mix(in srgb,var(--st) 10%,var(--card));border:1px solid color-m
 .tile.wait b,.tile.busy b{font-weight:800}
 .pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;margin-right:4px;color:#fff}
 .pill.wait{background:var(--wait)}.pill.busy{background:var(--busy)}.pill.done{background:var(--done)}
+.subbar{flex-wrap:wrap}.tb{flex:none}.tb button{white-space:nowrap}
 main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;align-items:start;overflow-x:auto;scrollbar-gutter:stable;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}.col{scroll-snap-align:start}
 .col{background:var(--col);border-radius:10px;padding:10px 8px;min-width:0}
 .col{container-type:inline-size}
@@ -3544,10 +3545,13 @@ function live(){
     var pend={},gp=document.getElementById('grouping');if(gp){var gr0=gp.getBoundingClientRect();gp.querySelectorAll('.gpop a').forEach(function(a){pend[a.dataset.log||a.dataset.h]=gr0})}  // 분류 중이던 세션은 알약 자리에서 날아온다
     var nb=d.querySelector('.subbar'),ob=document.querySelector('.subbar');
     if(nb&&ob&&nb.innerHTML!==LAST.sub){ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace()}
+    var note=d.getElementById('board-note'),oldNote=document.getElementById('board-note');
+    if(note&&oldNote&&note.innerHTML!==oldNote.innerHTML)oldNote.innerHTML=note.innerHTML;
     var nm=d.querySelector('main'),om=document.querySelector('main');
     var hov=om&&om.querySelector('.card:hover');if(!hov)HOLD=0;else if(!HOLD)HOLD=Date.now();
     if(nm&&om&&nm.innerHTML!==LAST.main&&!(HOLD&&Date.now()-HOLD<10000)){  // 카드에 마우스를 올려 둔 동안(최대 10초)은 칸·카드를 옮기지 않는다(누르려던 카드가 도망가지 않게)
-      var y=scrollY,x=om.scrollLeft,old=cardHtml,was={},cw={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
+      var y=scrollY,x=om.scrollLeft,old=cardHtml,was={},cw={},sc={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
+      om.querySelectorAll('.col').forEach(function(c){sc[c.dataset.wid]=c.scrollTop});
       var many=om.querySelectorAll('.card').length>120;if(!many){om.querySelectorAll('.card').forEach(function(c){was[key(c)]=c.getBoundingClientRect()});
         om.querySelectorAll('.col').forEach(function(c){cw[c.dataset.name]=c.getBoundingClientRect()})}
       om.setAttribute('style',nm.getAttribute('style')||'');om.innerHTML=nm.innerHTML;LAST.main=nm.innerHTML;
@@ -3555,6 +3559,7 @@ function live(){
         if(old[c.dataset.h]===undefined)c.classList.add('fresh');else if(old[c.dataset.h]!==c.outerHTML){c.classList.add('changed');
           if(c.dataset.st==='wait'&&/data-st="busy"/.test(old[c.dataset.h]))ended.push(c)}});
       holdMoves();scrollTo(0,y);om.scrollLeft=x;fit();
+      om.querySelectorAll('.col').forEach(function(c){c.scrollTop=sc[c.dataset.wid]||0;if(c.onscroll)c.onscroll()});
       // 칸이 자리를 바꾸면 칸이 통째로 미끄러지고, 카드는 칸 안에서 움직인 만큼만 움직인다(카드가 하나씩 화면을 가로지르지 않게)
       var cd={},nowAt={};if(!many)om.querySelectorAll('.card').forEach(function(c){nowAt[c.dataset.h]=c.getBoundingClientRect()});  // 칸 움직임을 걸기 전에 카드 새 자리를 먼저 잰다
       if(!many&&om.animate)om.querySelectorAll('.col').forEach(function(c){var a=cw[c.dataset.name];if(!a)return;var b=c.getBoundingClientRect(),dx=a.left-b.left,dy=a.top-b.top;
