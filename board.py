@@ -3632,6 +3632,7 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 @keyframes verglow{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--wait) 22%,transparent)}}
 .vtip{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:50;white-space:nowrap;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:500 11.5px -apple-system,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.18)}
 .ver.new:hover .vtip{display:block}.vtip b{font-weight:700}.vtip a{display:block;margin-top:4px;color:var(--wait);text-decoration:none;font-weight:600}
+.vtip:after{content:"";position:absolute;left:0;right:0;top:-9px;height:9px} /* 배지와 말풍선 사이에서도 hover 유지 */
 .vtip:before{content:"";position:absolute;left:14px;top:-5px;width:8px;height:8px;background:var(--card);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
 @media (prefers-reduced-motion:reduce){.ver .dot{animation:none}}
 #picker{display:none;position:fixed;inset:0;z-index:45;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
