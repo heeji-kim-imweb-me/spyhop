@@ -134,16 +134,16 @@ class BoardUITest(unittest.TestCase):
         self.assertEqual(result['after'], 0)
         self.assertLessEqual(result['total'], result['height'])
 
-    def test_sort_buttons_stay_on_one_line_at_phone_width(self):
+    def test_tabs_and_sort_fit_phone_width(self):
         result = self.browser('assigned', '''
-            await tick();const buttons=Array.from(document.querySelectorAll('.tb button'),b=>b.getBoundingClientRect());
-            const knob=document.querySelector('.tb .knob').getBoundingClientRect();
-            const result={width:innerWidth,ys:buttons.map(b=>b.y),heights:buttons.map(b=>b.height),knobHeight:knob.height}
+            await tick();const tabs=Array.from(document.querySelectorAll('.tabs .tab'),b=>b.getBoundingClientRect());
+            const sort=document.querySelector('.sortb').getBoundingClientRect();
+            const result={width:innerWidth,ys:tabs.map(b=>Math.round(b.y)),right:Math.max(sort.right,...tabs.map(b=>b.right)),scroll:document.documentElement.scrollWidth}
         ''', width=390)
         self.assertEqual(result['width'], 390)
-        self.assertEqual(result['ys'][0], result['ys'][1])
-        self.assertLessEqual(result['knobHeight'], max(result['heights']) + 2)
-
+        self.assertEqual(len(set(result['ys'])), 1)  # 탭 셋이 한 줄
+        self.assertLessEqual(result['right'], 390)   # 정렬 메뉴까지 화면 안
+        self.assertLessEqual(result['scroll'], 390)  # 가로 스크롤 없음
 
 if __name__ == '__main__':
     unittest.main()
