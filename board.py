@@ -2284,6 +2284,15 @@ def prune_groups(g, live):
     return new
 
 
+def regroup_all():
+    """AI 주제를 처음부터 다시 나누게 한다. 손으로 옮긴 카드(manual)와 그 칸 이름만 남긴다."""
+    g = load_groups()
+    keep = {k: v for k, v in g['assign'].items() if v.get('manual')}
+    used = {v['g'] for v in keep.values()}
+    save_groups({'groups': [n for n in g['groups'] if n in used], 'assign': keep})
+    _GROUPING['at'] = 0  # 1분 기다리지 않고 다음 그릴 때 바로 묻는다
+
+
 def same_group(name, groups):
     """새 칸 이름이 기존 칸과 같으면(대소문자·띄어쓰기 무시) 기존 이름을 쓴다. 같은 칸이 둘 생기지 않게."""
     name = ' '.join(str(name or '').split())[:24]
@@ -2432,6 +2441,8 @@ def serve():
                 if 'summarizer' in req:
                     if req['summarizer'] not in [m['id'] for p in summarizers() for m in p['models']]:
                         return self.send(400, b'unavailable')
+                    if req['summarizer'] != current_summarizer():
+                        regroup_all()  # 요약 모델이 바뀌면 AI 주제를 처음부터 다시 나눈다
                     save_config(summarizer=req['summarizer'])
                 try:
                     build()
