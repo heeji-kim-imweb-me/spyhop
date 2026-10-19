@@ -2378,8 +2378,18 @@ def _build():
               '<button class="sortb" onclick="sortOpen(event)"><span class="lab">Sort</span>%s <i>&#9662;</i></button><div class="menu">%s</div></div></div>'
               % (tabs, dict(sorts)[sort], ''.join('<button class="%s" onclick="sortGo(\'%s\')">%s</button>' % ('on' if sort == k else '', k, label) for k, label in sorts)))
     note = '<p class="none">Sorting new sessions by topic…</p>' if sorting and not any(cols.values()) else ''  # 빈 주제 칸만 남아 있어도 보이게
-    if not note and filt != 'all' and n_all and not any(cols.values()):
-        note = '<p class="none">No sessions in %s right now. <a href="#" onclick="tabGo(null,\'all\');return false">Show all</a></p>' % LABEL[filt]
+    if not note and filt != 'all' and not any(cols.values()):
+        title, detail, mark = (
+            ('Nothing working right now', 'Switch to All to see your other sessions.',
+             '<path d="M9 8v8m6-8v8"/>') if filt == 'busy' else
+            ('No sessions waiting for you', 'Your sessions will appear here when it is your turn.',
+             '<path d="m8 12 3 3 5-6"/>'))
+        note = ('<section class="filter-empty %s" aria-label="%s"><div class="empty-icon" aria-hidden="true">'
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" '
+                'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>%s</svg></div>'
+                '<h2>%s</h2><p>%s</p><button onclick="tabGo(null,\'all\')">Show all sessions '
+                '<span>%d</span><span aria-hidden="true">&rarr;</span></button></section>'
+                % (filt, LABEL[filt], mark, title, detail, n_all))
     foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
     html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<div id="board-note">%s</div><main>%s</main>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
@@ -3550,6 +3560,16 @@ border:1px solid color-mix(in srgb,var(--st) 25%,transparent);border-radius:2px 
 .n.open i{background:var(--open);color:#fff}.n.open .nc{border-color:var(--open)}.n.open em{color:var(--open);font-weight:700}
 .bar{height:4px;background:var(--col);border-radius:2px;overflow:hidden}.bar u{display:block;height:100%;background:var(--done)}
 .none{color:var(--ink3);font-size:12px;margin:4px}
+.filter-empty{--accent:var(--wait);display:flex;flex-direction:column;align-items:center;text-align:center;max-width:520px;margin:clamp(28px,8vh,88px) auto;padding:36px 24px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+.filter-empty.busy{--accent:var(--busy)}
+.empty-icon{display:grid;place-items:center;width:56px;height:56px;margin-bottom:18px;border-radius:18px;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+.empty-icon svg{width:30px;height:30px}
+.filter-empty h2{margin:0 0 8px;font-size:18px;letter-spacing:-.02em;color:var(--ink)}
+.filter-empty p{max-width:320px;margin:0;color:var(--ink2);font-size:12px;line-height:1.7}
+.filter-empty button{display:inline-flex;align-items:center;gap:9px;margin-top:24px;padding:10px 14px;border:1px solid var(--line);border-radius:9px;background:var(--col);color:var(--ink);font:600 12px/1.4 inherit;font-family:inherit;cursor:pointer}
+.filter-empty button:hover{border-color:var(--accent)}
+.filter-empty button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.filter-empty button span:first-child{padding:1px 6px;border-radius:5px;background:var(--card);color:var(--accent);font-size:11px}
 .modal{display:none;position:fixed;inset:0;z-index:9}.modal:target{display:block}.card{transition:transform .15s ease,box-shadow .15s ease,border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(15,23,42,.10)}.card:active{transform:translateY(0) scale(.995)}.card.changed{animation:changed 1.2s ease}.card.fresh{animation:fresh .35s ease-out}@keyframes changed{0%{box-shadow:0 0 0 2px color-mix(in srgb,var(--st) 55%,transparent)}100%{box-shadow:0 0 0 0 transparent}}@keyframes fresh{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}.modal:target .bg{animation:fadein .16s ease-out} .modal:target .box{animation:popin .18s ease-out}@keyframes fadein{from{opacity:0}to{opacity:1}}@keyframes popin{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}button,.gear,.x,.pills button,.th{transition:background-color .15s ease,color .15s ease,transform .1s ease,border-color .15s ease}button:active,.gear:active,.th:active{transform:scale(.96)}.sb u,.m i,.n i{transition:background-color .4s ease,width .4s ease}@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .bg{position:absolute;inset:0;background:rgba(9,30,66,.5)}
 .box{position:relative;margin:3vh auto;width:min(940px,94vw);max-height:94vh;overflow:auto;background:var(--card);
