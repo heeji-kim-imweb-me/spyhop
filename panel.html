@@ -9,7 +9,9 @@
 --ink2:#a8b2bf;--ink3:#76808d;--left:#3d444c;--chip:#31363c;--wait:#5fc796;--busy:#ee9cc2}}
 *{box-sizing:border-box}html,body{margin:0;width:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);
 font:12.5px/1.4 -apple-system,"Apple SD Gothic Neo",sans-serif;-webkit-user-select:none;user-select:none}
-.wrap{padding:14px 14px 10px}
+html,body{height:100%;overflow:hidden}
+.wrap{padding:14px 14px 10px;height:100%;display:flex;flex-direction:column}  /* 머리·숫자·버튼은 고정, 세션 목록만 스크롤 */
+#list{flex:1;min-height:0;overflow-y:auto;margin:0 -4px;padding:0 4px}
 .top{display:flex;align-items:center;gap:8px;margin-bottom:12px}
 .logo{width:22px;height:22px;border-radius:6px;overflow:hidden;background:none;display:flex;align-items:center;justify-content:center}
 .top b{font-size:14px;flex:1}.top small{color:var(--ink3);font-size:11px}
@@ -40,7 +42,7 @@ font:12.5px/1.4 -apple-system,"Apple SD Gothic Neo",sans-serif;-webkit-user-sele
 border-radius:5px;padding:0 6px;background:var(--card);opacity:0;transition:opacity .15s}
 .row:hover .x{opacity:1}.x:hover{color:var(--wait);border-color:var(--wait)}.x.ask{opacity:1;color:#fff;background:var(--wait);border-color:var(--wait)}
 .empty{color:var(--ink3);text-align:center;padding:28px 0}
-.foot{display:flex;gap:8px;margin-top:4px}
+.foot{display:flex;gap:8px;margin-top:8px;flex:none}
 .btn{flex:1;text-align:center;font-weight:600;font-size:12px;padding:7px 0;border-radius:8px;cursor:pointer;
 background:var(--card);border:1px solid var(--line);color:var(--ink)}
 .btn:hover{background:color-mix(in srgb,var(--ink) 6%,var(--card))}
