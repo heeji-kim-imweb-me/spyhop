@@ -1120,8 +1120,9 @@ def focus_outside(pid):
                     'if tty of t is "%s" then\nset selected of t to true\nset index of w to 1\nreturn "ok"\nend if\n'
                     'end repeat\nend repeat\nend tell' % tty, 'ok') and _open_app('Terminal') and 'tab' or app('Terminal')
     if tp == 'iTerm.app':
-        return _osa('tell application "iTerm2"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
-                    'if tty of s is "%s" then\nselect w\ntell t to select\ntell s to select\nactivate\nreturn "ok"\nend if\n'
+        return _osa('tell application "iTerm2"\nactivate\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in sessions of t\n'
+                    'if tty of s is "%s" then\nset wid to id of w\ntell s to select\n'
+                    'select window id wid\nreturn "ok"\nend if\n'
                     'end repeat\nend repeat\nend repeat\nend tell' % tty, 'ok') and 'tab' or app('iTerm')
     if tp == 'WezTerm':
         wz = find_bin('wezterm') or '/Applications/WezTerm.app/Contents/MacOS/wezterm'
@@ -1132,7 +1133,16 @@ def focus_outside(pid):
                                                capture_output=True, timeout=5).returncode == 0
         except (OSError, ValueError, subprocess.SubprocessError):
             ok = False
-        return 'tab' if _open_app('WezTerm') and ok else app('WezTerm')
+        if ok:
+            # pane 선택은 창을 올리지 않는다. 고유한 창 제목으로 해당 창만 앞으로 가져온다.
+            title = pane.get('title')
+            if title:
+                script = ('tell application "System Events" to tell process "WezTerm"\n'
+                          'set targets to every window whose name is %s\nif (count targets) is not 1 then return "ambiguous"\n'
+                          'set frontmost to true\nperform action "AXRaise" of item 1 of targets\nreturn "ok"\nend tell') % json.dumps(title, ensure_ascii=False)
+                if _osa(script, 'ok'):
+                    return 'tab'
+        return app('WezTerm')
     if tp == 'ghostty':
         return 'tab' if _ghostty_focus(a) else app('Ghostty')
     name = {'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
