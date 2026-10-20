@@ -46,6 +46,15 @@ for mode, name, h, mh in (('orca', 'board', 600, 442), ('orca', 'bars', 500, 351
     shot(D.B.OUT, 1280, h, name + '.png', 1600, 'PNG')
     shot(D.B.OUT, 460, mh, 'm-%s.webp' % name, 720, 'WEBP')
 
+# 한 판 섹션: My turn 탭만 고른 보드
+_cfg = D.B.load_config
+D.B.load_config = lambda: dict(_cfg(), filter='wait')
+D.patch('orca')
+D.B.build()
+shot(D.B.OUT, 1280, 600, 'myturn.png', 1600, 'PNG')
+shot(D.B.OUT, 460, 442, 'm-myturn.webp', 720, 'WEBP')
+D.B.load_config = _cfg
+
 # 상세 창: 교차검증 도우미가 붙은 인증서 교체 세션을 연 모습
 D.patch('orca')
 D.B.build()
