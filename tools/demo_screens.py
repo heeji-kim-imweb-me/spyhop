@@ -105,11 +105,12 @@ def setup():
                       'steps': [{'label': a, 'state': b, 'detail': c} for a, b, c in flow],
                       'items': [{'label': a, 'state': b, 'detail': ''} for a, b in todo]}
     i, title, _, _ = HELPER
-    log = os.path.join(TMP, 'helper.jsonl')
-    open(log, 'w').write('{}\n')
-    terms.append({'handle': 'term_demoh', 'tabId': 'tab%d' % i, 'leafId': 'leafh', 'worktreeId': SESSIONS[i][0], 'title': title,
-                  'ptyId': SESSIONS[i][0] + '@@x', 'lastOutputAt': (NOW - 60) * 1000, 'log': log, '_model': 'GPT-6.1-Sol', '_mins': 3})
-    agents['tab%d:leafh' % i] = {'state': 'done', 'agentType': 'codex', 'stateStartedAt': (NOW - 180) * 1000}
+    if i < len(SESSIONS):  # 시험이 세션 목록을 줄여 쓰면 도우미를 붙일 세션이 없다
+        log = os.path.join(TMP, 'helper.jsonl')
+        open(log, 'w').write('{}\n')
+        terms.append({'handle': 'term_demoh', 'tabId': 'tab%d' % i, 'leafId': 'leafh', 'worktreeId': SESSIONS[i][0], 'title': title,
+                      'ptyId': SESSIONS[i][0] + '@@x', 'lastOutputAt': (NOW - 60) * 1000, 'log': log, '_model': 'GPT-6.1-Sol', '_mins': 3})
+        agents['tab%d:leafh' % i] = {'state': 'done', 'agentType': 'codex', 'stateStartedAt': (NOW - 180) * 1000}
     folder, app, st, model, mins, title, summary, reply, flow, todo = OUTSIDE
     log = os.path.join(TMP, 'session-%d.jsonl' % len(SESSIONS))
     open(log, 'w').write('{}\n')
