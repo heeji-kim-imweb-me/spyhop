@@ -13,7 +13,7 @@ import board as B
 class TerminalFocusTest(unittest.TestCase):
     def focus(self, replies, raised=False):
         agent = {'pid': 42, 'tty': 'ttys001', 'term_program': 'WezTerm'}
-        with patch.object(B, 'agent_procs', return_value={42: agent}), patch.object(B, 'find_bin', return_value='/qa/wezterm'), patch.object(B, '_open_app', return_value=True), patch.object(B, '_osa', return_value=raised), patch.object(B.subprocess, 'run', side_effect=replies):
+        with patch.object(B, 'WIN', False), patch.object(B, 'agent_procs', return_value={42: agent}), patch.object(B, 'find_bin', return_value='/qa/wezterm'), patch.object(B, '_open_app', return_value=True), patch.object(B, '_osa', return_value=raised), patch.object(B.subprocess, 'run', side_effect=replies):
             return B.focus_outside(42)
 
     def pane(self):

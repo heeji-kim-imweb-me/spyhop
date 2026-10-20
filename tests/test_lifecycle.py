@@ -14,6 +14,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import board as B
 
 
+def can_symlink():
+    """Windows 는 개발자 모드나 관리자 권한이 없으면 심볼릭 링크를 못 만든다."""
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            os.symlink(__file__, os.path.join(d, 'link'))
+            return True
+        except OSError:
+            return False
+
+
+NO_SYMLINK = unittest.skipUnless(can_symlink(), 'symlinks need Developer Mode or admin rights on Windows')
+
+
 class WatcherIdentityTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='spyhop-identity-')
@@ -60,12 +73,14 @@ class WatcherIdentityTest(unittest.TestCase):
         self.assertFalse(B.watching())
         self.assertIsNone(p.poll())
 
+    @NO_SYMLINK
     def test_board_started_through_symlink_is_recognized(self):
         alias = self.root / 'alias.py'
         alias.symlink_to(self.script)
         _, record = self.start([sys.executable, str(alias), '--watch'])
         self.assertIsNotNone(record)
 
+    @NO_SYMLINK
     def test_running_brew_opt_board_survives_link_retarget_and_can_be_replaced(self):
         old = self.root / 'brew/Cellar/spyhop/0.5.0/libexec/board.py'
         new = self.root / 'brew/Cellar/spyhop/0.6.0/libexec/board.py'
@@ -91,8 +106,9 @@ class WatcherIdentityTest(unittest.TestCase):
         self.assertTrue(B.watching())  # 새 형식의 시작 시각도 그대로 검증
         threading.Thread(target=p.wait, daemon=True).start()
         B.stop_if_outdated()
-        self.assertEqual(p.wait(timeout=5), -15)
+        self.assertEqual(p.wait(timeout=5), 15 if B.WIN else -15)  # Windows 는 신호 대신 종료 코드 15 로 끝난다
 
+    @NO_SYMLINK
     def test_retargeted_arbitrary_symlink_is_not_trusted(self):
         alias = self.root / 'alias.py'
         alias.symlink_to(self.script)
@@ -107,7 +123,8 @@ class WatcherIdentityTest(unittest.TestCase):
         self.assertIsNone(p.poll())
 
     def test_unrelated_live_pid_is_not_signalled(self):
-        p = subprocess.Popen(['/bin/sleep', '60'])
+        sleeper = ['ping', '-n', '60', '127.0.0.1'] if B.WIN else ['/bin/sleep', '60']  # 파이썬이 아닌 아무 프로그램
+        p = subprocess.Popen(sleeper, stdout=subprocess.DEVNULL)
         self.processes.append(p)
         self.pidfile.write_text('%d %s' % (p.pid, self.script))
         self.assertFalse(B.watching())
@@ -125,7 +142,25 @@ class WatcherIdentityTest(unittest.TestCase):
         self.assertIsNotNone(record)
         threading.Thread(target=p.wait, daemon=True).start()
         B.stop_if_outdated()
-        self.assertEqual(p.wait(timeout=5), -15)
+        self.assertEqual(p.wait(timeout=5), 15 if B.WIN else -15)  # Windows 는 신호 대신 종료 코드 15 로 끝난다
+
+    def test_board_in_folder_with_space_is_recognized(self):
+        folder = self.root / 'with space'
+        folder.mkdir()
+        script = folder / 'board.py'
+        script.write_bytes(self.script.read_bytes())
+        p = subprocess.Popen([sys.executable, str(script), '--watch'])
+        self.processes.append(p)
+        self.pidfile.write_text('%d %s' % (p.pid, script), encoding='utf-8')
+        record = None
+        for _ in range(100):
+            record = B.watcher_record()
+            if record:
+                break
+            time.sleep(.01)
+        self.assertIsNotNone(record)
+        self.pidfile.write_text('%d %s %s' % (p.pid, script, record[2]), encoding='utf-8')
+        self.assertEqual(B.watcher_record(), (p.pid, str(script), record[2]))
 
     def test_missing_and_invalid_records_are_ignored(self):
         self.assertFalse(B.watching())

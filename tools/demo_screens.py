@@ -142,6 +142,8 @@ def patch(mode):
                                   'subject': HELPER[2], 'body': HELPER[3], 'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(NOW - 60))}]}
         return {}
     B.orca = fake_orca
+    real_find_bin = B.find_bin
+    B.find_bin = lambda name: '/demo/orca' if name == 'orca' else real_find_bin(name)  # 오르카가 없는 컴퓨터에서도 가짜 오르카를 쓴다
     B.agent_procs = lambda: {}             # 이 맥에서 실제로 도는 세션이 데모 화면에 섞이지 않게
     B.outside_terms = lambda: ([dict(outside)], dict(owt))
     B.orca_agents = lambda: agents

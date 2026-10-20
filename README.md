@@ -47,6 +47,25 @@ You need macOS, Homebrew, and a logged-in `claude` or `codex` CLI (Spyhop uses i
 4. Click a card to see every step, the last reply and its TODO list. **Go to session** jumps to that pane or tab.
 5. Optional, menu bar: `brew install --cask swiftbar`, then run `spyhop` once more. The orca icon shows how many sessions are waiting for you.
 
+### Windows (preview)
+
+You need Windows 10 or 11, Python 3.9+ (`winget install Python.Python.3.12`), and a logged-in `claude` or `codex` CLI.
+
+```powershell
+git clone https://github.com/leeleelee3264/spyhop
+.\spyhop\spyhop.cmd
+```
+
+The board opens in your default browser at `http://127.0.0.1:47613/`. `spyhop.cmd doctor` works as on macOS.
+
+- Sessions in Windows Terminal, VS Code, PowerShell or cmd are grouped by folder and terminal. Sessions the **Claude desktop app** runs show up too, under `folder · Claude app`.
+- **Go to session** brings that terminal or app window to the front. It cannot pick the exact tab.
+- **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays.
+- Summaries, AI topic grouping and **Start at login** (a `Spyhop` entry under `HKCU\...\CurrentVersion\Run`) work as on macOS.
+- Not on Windows yet: Orca, the menu bar, moving sessions, and automatic updates.
+- DeepSeek reads its key from the `DEEPSEEK_API_KEY` environment variable instead of the Keychain.
+- To run the tests on Windows, use UTF-8 mode: `python -X utf8 -m unittest discover -s tests`.
+
 ## How to
 
 ### Update

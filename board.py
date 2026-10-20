@@ -23,7 +23,12 @@ from html import escape
 
 import orca_art  # 범고래 그림 원본 (같은 폴더)
 
-BASE = '/tmp/progress-board'
+WIN = sys.platform == 'win32'
+if WIN:
+    import tempfile
+    import winplat  # ps · lsof · osascript · launchctl 대신 쓰는 Windows API (같은 폴더)
+
+BASE = os.path.join(tempfile.gettempdir(), 'progress-board') if WIN else '/tmp/progress-board'
 AUTO = os.path.join(BASE, 'auto')      # 대화 기록으로 자동 생성한 단계
 OUT = os.path.join(BASE, 'index.html')
 PIDFILE = os.path.join(BASE, 'watch.pid')
@@ -52,9 +57,12 @@ def system_lang():
         return _SYSLANG['code']
     code = ''
     try:
-        out = subprocess.run(['defaults', 'read', '-g', 'AppleLanguages'], capture_output=True, text=True, timeout=5).stdout
-        m = re.search(r'"?([A-Za-z]{2,3})[-_"\s,]', out)
-        code = m.group(1).lower() if m else ''
+        if WIN:
+            code = winplat.lang_code()
+        else:
+            out = subprocess.run(['defaults', 'read', '-g', 'AppleLanguages'], capture_output=True, text=True, timeout=5).stdout
+            m = re.search(r'"?([A-Za-z]{2,3})[-_"\s,]', out)
+            code = m.group(1).lower() if m else ''
     except (OSError, subprocess.SubprocessError):
         pass
     code = code or (os.environ.get('LANG') or 'en')[:2].lower()
@@ -71,10 +79,16 @@ def mask(text):
     return SECRET.sub('[가림]', text)
 
 
+def deepseek_key():
+    if WIN:  # Windows 에는 키체인이 없다
+        return os.environ.get('DEEPSEEK_API_KEY', '').strip()
+    return subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api', '-w'],
+                          capture_output=True, text=True).stdout.strip()
+
+
 def deepseek(system, user):
     import urllib.request
-    key = subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api', '-w'],
-                         capture_output=True, text=True).stdout.strip()
+    key = deepseek_key()
     req = urllib.request.Request(DEEPSEEK_URL, data=json.dumps({
         'model': MODEL, 'max_tokens': 4000, 'thinking': {'type': 'disabled'},
         'system': system, 'messages': [{'role': 'user', 'content': user}]}).encode(),
@@ -97,11 +111,19 @@ def deepseek(system, user):
 # 저장을 끄고, 도구는 쓰지 못하게 막는다.
 CONFIG = os.path.expanduser('~/.spyhop/config.json')
 EXTRA_PATH = [os.path.expanduser('~/.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']
+if WIN:
+    EXTRA_PATH = [os.path.expanduser('~/.local/bin'), os.path.join(os.environ.get('APPDATA', ''), 'npm')]
 
 
 def find_bin(name):
     import shutil
     return shutil.which(name, path=os.pathsep.join([os.environ.get('PATH', '')] + EXTRA_PATH))
+
+
+def cli(name):
+    """CLI 를 부르는 명령 앞부분. Windows 의 npm 설치판(.cmd)은 줄바꿈이 든 인자를 망가뜨려서 안의 node 스크립트를 직접 부른다."""
+    p = find_bin(name)
+    return winplat.npm_shim(p) if WIN else [p]
 
 
 def load_config():
@@ -196,7 +218,8 @@ def _codex_models():
 
 def _find_summarizers():
     out = []
-    if subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api'], capture_output=True).returncode == 0:
+    if (bool(deepseek_key()) if WIN else
+            subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api'], capture_output=True).returncode == 0):
         out.append({'id': 'deepseek', 'label': 'DeepSeek (API)', 'models': [{'id': 'deepseek:' + MODEL, 'name': pretty_model(MODEL)}]})
     if find_bin('claude'):
         out.append({'id': 'claude', 'label': 'Claude (claude CLI)', 'models': _claude_models()})
@@ -225,10 +248,10 @@ def summarizer_name(sid):
 
 
 def claude_cli(system, user, model):
-    r = subprocess.run([find_bin('claude'), '-p', '--model', model, '--no-session-persistence',
-                        '--system-prompt', system, '--output-format', 'text',
-                        '--disallowedTools', 'Bash,Read,Write,Edit,MultiEdit,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit'],
-                       input=user, capture_output=True, text=True, timeout=300, cwd=BASE)
+    # --tools '' 는 내장 도구를 모두 끈다. 이름으로 막는 --disallowedTools 는 없는 도구 이름(예: MultiEdit)이 있으면 실행 자체가 거절된다
+    r = subprocess.run(cli('claude') + ['-p', '--model', model, '--no-session-persistence',
+                                        '--system-prompt', system, '--output-format', 'text', '--tools', ''],
+                       input=user, capture_output=True, text=True, encoding='utf-8', timeout=300, cwd=BASE)
     if r.returncode:
         raise RuntimeError('claude: ' + (r.stderr or r.stdout)[:200])
     return r.stdout
@@ -236,14 +259,23 @@ def claude_cli(system, user, model):
 
 def codex_cli(system, user, model):
     import tempfile
-    with tempfile.NamedTemporaryFile('r', suffix='.txt', dir=BASE) as out:
-        r = subprocess.run([find_bin('codex'), 'exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only',
-                            '--color', 'never', '-o', out.name] + (['-m', model] if model else []) +
+    # 열어 둔 채로 이름을 넘기면 Windows 에서는 codex 가 그 파일에 쓰지 못한다. 닫아 두고 이름만 넘긴 뒤 직접 지운다
+    fd, out = tempfile.mkstemp(suffix='.txt', dir=BASE)
+    os.close(fd)
+    try:
+        r = subprocess.run(cli('codex') + ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only',
+                                           '--color', 'never', '-o', out] + (['-m', model] if model else []) +
                            [system + '\n\n도구나 명령을 쓰지 말고, 아래 <stdin> 의 내용만 읽고 바로 JSON 으로 답하라.'],
-                           input=user, capture_output=True, text=True, timeout=300, cwd=BASE)
+                           input=user, capture_output=True, text=True, encoding='utf-8', timeout=300, cwd=BASE)
         if r.returncode:
             raise RuntimeError('codex: ' + (r.stderr or r.stdout)[-200:])
-        return out.read()
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+    finally:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
 
 
 def llm(system, user, sid=None):
@@ -356,6 +388,15 @@ def text_of(content):
 _FILE_CACHE = {}
 
 
+def check_alive(pid):
+    """os.kill(pid, 0) 과 같다(없으면 ProcessLookupError). Windows 에서 os.kill(pid, 0) 은 확인이 아니라 그 프로그램에 Ctrl+C 를 보낸다."""
+    if WIN:
+        if not winplat.alive(pid):
+            raise ProcessLookupError(pid)
+        return
+    os.kill(int(pid), 0)
+
+
 def per_file(fn):
     """파일이 그대로면(크기·수정 시각·inode 가 같으면) 다시 읽지 않는다. 파일마다 마지막 값 하나만 둔다."""
     def wrap(path):
@@ -395,7 +436,7 @@ def live_claude_sessions(worktree_path=None):
         try:
             with open(f, encoding='utf-8') as fh:
                 d = json.load(fh)
-            os.kill(int(d['pid']), 0)  # 프로세스가 살아 있는 것만
+            check_alive(int(d['pid']))  # 프로세스가 살아 있는 것만
         except (OSError, ValueError, KeyError):
             continue
         cwd = d.get('cwd')
@@ -801,6 +842,8 @@ def _ps_start(tokens):
 
 def _agent_rows():
     """(pid, ppid, tty, start, comm) — 가볍게 2초마다 불러도 되는 목록"""
+    if WIN:
+        return winplat.process_rows()
     try:
         out = subprocess.run(['ps', '-axo', 'pid=,ppid=,tty=,lstart=,comm='], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
@@ -817,6 +860,10 @@ def _agent_rows():
 def proc_kind(comm):
     """실행 파일 경로 → 'claude' / 'codex' / None. 클로드 설치판은 실행 파일 이름이 버전 번호일 수 있다 (…/claude/versions/2.1.296)"""
     base = os.path.basename(comm)
+    if WIN:  # claude.exe · codex.exe. Claude 데스크톱 앱(Electron) 자체도 claude.exe 라서 뺀다
+        base = re.sub(r'\.exe$', '', base.lower())
+        if base == 'claude' and winplat.is_desktop_app(comm):
+            return None
     if base in ('claude', 'codex'):
         return base
     if re.search(r'/claude/versions/\d[\w.-]*$', comm):
@@ -931,6 +978,20 @@ def _by_pid(lsof_out):
     return out
 
 
+def codex_recent_rollouts(days=7):
+    """Windows 에서 '누가 열어 두었나' 물어볼 후보: 최근 며칠 안에 쓰인 Codex 기록 (CODEX_HOME 포함)."""
+    homes = {os.path.expanduser('~/.codex'), os.environ.get('CODEX_HOME') or os.path.expanduser('~/.codex')}
+    out, now = [], time.time()
+    for home in homes:
+        for f in glob.glob(os.path.join(home, 'sessions', '*', '*', '*', 'rollout-*.jsonl')):
+            try:
+                if now - os.path.getmtime(f) <= days * 86400:
+                    out.append(f)
+            except OSError:
+                pass
+    return out
+
+
 def agent_procs():
     """살아 있는 클로드·Codex 프로그램과 그 세션. {pid: {...}}. 결과는 1초 안에 다시 부르면 그대로 준다."""
     if time.time() - _PROC_CACHE['at'] < 1 and _PROC_CACHE['data'] is not None:
@@ -966,7 +1027,10 @@ def agent_procs():
         return {}
     # 실행 인자: Codex 서버(app-server)를 가려내고 resume 대상만 뽑는다 (요청 문장이 들어 있을 수 있어 그 밖엔 안 남긴다)
     try:
-        args = subprocess.run(['ps', '-o', 'pid=,args=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+        if WIN:
+            args = '\n'.join('%d %s' % (pid, winplat.command_line(pid).replace('\n', ' ')) for pid in agents)
+        else:
+            args = subprocess.run(['ps', '-o', 'pid=,args=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         args = ''
     for line in args.splitlines():
@@ -974,7 +1038,7 @@ def agent_procs():
         if len(p) < 2 or int(p[0]) not in agents:
             continue
         a = agents[int(p[0])]
-        if a['kind'] == 'codex' and ' app-server' in ' ' + p[1]:
+        if a['kind'] == 'codex' and (' app-server' in ' ' + p[1] or ' exec-server' in ' ' + p[1]):
             daemons.append(a['pid'])
             del agents[a['pid']]
             continue
@@ -982,9 +1046,13 @@ def agent_procs():
         a['resume'] = m.group(1) if m else None
     # 환경 변수: 오르카 창 표식과 Codex 기록 위치만 꺼낸다 (나머지는 버린다)
     try:
-        env = subprocess.run(['ps', '-E', '-o', 'pid=,command=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+        env = '' if WIN else subprocess.run(['ps', '-E', '-o', 'pid=,command=', '-p', ','.join(map(str, agents))],
+                                            capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         env = ''
+    if WIN:  # 다른 프로그램의 환경 변수는 읽지 않는다. 어느 창에서 도는지는 조상 프로그램으로 정한다
+        for a in agents.values():
+            a['term_program'] = winplat.terminal_of(a['pid'])[1] or None
     for line in env.splitlines():
         p = line.strip().split(None, 1)
         if len(p) < 2 or int(p[0]) not in agents:
@@ -997,9 +1065,13 @@ def agent_procs():
             a[key.lower()] = m.group(1) if m else None
         if a.get('term_program') not in (None, 'Orca', 'tmux'):
             a['orca_pane_key'] = None  # 오르카에서 띄운 다른 터미널은 오르카 표식을 물려받는다 → 그 터미널 세션으로 본다
-    for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
-        if pid in agents and paths:
-            agents[pid]['cwd'] = paths[0]
+    if WIN:
+        for pid, a in agents.items():
+            a['cwd'] = winplat.cwd_of(pid) or a.get('cwd')
+    else:
+        for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
+            if pid in agents and paths:
+                agents[pid]['cwd'] = paths[0]
     # 클로드: 실행 기록 → 대화 번호 → 기록 파일
     for a in agents.values():
         if a['kind'] != 'claude':
@@ -1014,12 +1086,16 @@ def agent_procs():
             ps = calendar.timegm(time.strptime(d.get('procStart', ''), '%a %b %d %H:%M:%S %Y'))
         except ValueError:
             ps = 0
+        if WIN and str(d.get('procStart', '')).isdigit():  # Windows 는 FILETIME (1601년부터 100ns 단위)
+            ps = int(d['procStart']) / 1e7 - 11644473600
         if ps and a['start'] and abs(ps - a['start']) > 5:
             a['why'] = 'claude:stale-registration'
             continue
         a['busy'] = d.get('status') == 'busy'
         sid = d.get('sessionId')
         cwd = d.get('cwd') or a.get('cwd') or ''
+        if not a.get('cwd'):
+            a['cwd'] = cwd
         f = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), sid))
         if not os.path.exists(f):
             f = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % sid))), None)
@@ -1030,11 +1106,15 @@ def agent_procs():
     # Codex: 열어 둔 기록 파일(프로그램 자신 또는 Codex 서버)이 후보다
     codex = [a for a in agents.values() if a['kind'] == 'codex']
     if codex:
-        held = _by_pid(_lsof([a['pid'] for a in codex] + daemons, []))
+        if WIN:  # lsof 대신 Restart Manager: 최근 기록 파일 중 누가 열어 두었나
+            mine_ = {a['pid'] for a in codex} | set(daemons)
+            held = {pid: p for pid, p in winplat.held_by(codex_recent_rollouts()).items() if pid in mine_}
+        else:
+            held = _by_pid(_lsof([a['pid'] for a in codex] + daemons, []))
         own = {}
         loaded = set()
         for pid, paths in held.items():
-            rolls = [x for x in paths if re.search(r'/sessions/.*rollout-.*\.jsonl$', x)]
+            rolls = [x for x in paths if re.search(r'[/\\]sessions[/\\].*rollout-.*\.jsonl$', x)]
             if pid in daemons:
                 loaded.update(rolls)
             elif rolls:
@@ -1111,6 +1191,8 @@ def focus_outside(pid):
     a = agent_procs().get(pid)
     if not a:
         return ''
+    if WIN:  # 탭까지는 못 고르고, 그 세션이 도는 창(터미널·Claude 앱)을 앞으로
+        return winplat.focus(pid)
 
     def app(name):
         return 'app' if _open_app(name) else ''
@@ -2710,7 +2792,7 @@ def serve():
                     os.kill(pid, signal.SIGTERM)
                     for _ in range(30):
                         time.sleep(.1)
-                        os.kill(pid, 0)
+                        check_alive(pid)
                 except ProcessLookupError:
                     _PROC_CACHE['at'] = 0
                     WAKE.set()
@@ -2878,7 +2960,7 @@ def session_cwd(log):
             with open(f, encoding='utf-8') as fh:
                 d = json.load(fh)
             if d.get('sessionId') == sid and d.get('cwd'):
-                os.kill(int(d['pid']), 0)
+                check_alive(int(d['pid']))
                 return d['cwd']
         except (OSError, ValueError, KeyError):
             continue
@@ -2919,21 +3001,41 @@ def claude_pid(session_id):
             with open(f, encoding='utf-8') as fh:
                 d = json.load(fh)
             if d.get('sessionId') == session_id:
-                os.kill(int(d['pid']), 0)
+                check_alive(int(d['pid']))
                 return int(d['pid'])
         except (OSError, ValueError, KeyError):
             continue
     return None
 
 
+def read_pidfile(pidfile=None):
+    """'pid 경로 [시작 시각]' → (pid, 경로, 시작 시각 또는 None). 경로에 빈칸이 있어도 된다 (예: Windows 의 '바탕 화면')."""
+    with open(pidfile or PIDFILE, encoding='utf-8') as f:
+        pid, rest = f.read().strip().split(None, 1)
+    path, _, last = rest.rpartition(' ')
+    try:
+        return int(pid), path, float(last)
+    except ValueError:
+        return int(pid), rest, None  # 옛 두 칸 기록
+
+
 def watcher_record(pidfile=None):
     """PID 번호만 믿지 않고 실행 파일·감시 인자·시작 시각을 확인한다. 옛 두 칸 기록도 읽는다."""
     try:
-        with open(pidfile or PIDFILE) as f:
-            parts = f.read().split()
-        pid, path = int(parts[0]), parts[1]
+        pid, path, born = read_pidfile(pidfile)
+        parts = [pid, path] + ([born] if born is not None else [])
         if pid <= 0 or os.path.basename(path) != 'board.py':
             return None
+        if WIN:
+            if not os.path.basename(winplat.exe_path(pid)).lower().startswith('python'):
+                return None
+            start = winplat.start_time(pid)
+            argv = winplat.argv(pid)
+            if not start or len(parts) > 2 and float(parts[2]) != start:
+                return None
+            if len(argv) < 3 or argv[-1] != '--watch' or os.path.realpath(argv[-2]) != os.path.realpath(path):
+                return None
+            return pid, path, start
         p = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart=,comm='],
                            capture_output=True, text=True, timeout=5).stdout.split(None, 5)
         if len(p) != 6 or not os.path.basename(p[5].strip()).lower().startswith('python'):
@@ -3016,8 +3118,11 @@ def switch_if_upgraded():
         return
     sys.stderr.write('board: brew upgrade 감지, %s 로 바꿈\n' % new)
     try:
-        subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        if WIN:
+            winplat.spawn_detached(winplat.python_cmd() + [new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
     except OSError as e:
         sys.stderr.write('board: 새 버전 실행 실패, 다음 점검에서 재시도: %s\n' % e)
 
@@ -3042,7 +3147,7 @@ def stop_if_outdated():
     note_update(running)
     for _ in range(50):  # 최대 5초, 내려가길 기다린다
         try:
-            os.kill(pid, 0)
+            check_alive(pid)
         except OSError:
             return
         time.sleep(0.1)
@@ -3082,11 +3187,16 @@ HERE = re.sub(r'/Cellar/spyhop/[^/]+', '/opt/spyhop', os.path.dirname(os.path.ab
 
 
 def autostart_on():
+    if WIN:
+        return winplat.autostart_on()
     return os.path.exists(PLIST)
 
 
 def set_autostart(on):
     """맥 로그인 때 보드를 켜는 LaunchAgent 를 등록/해제한다. 끌 때는 파일만 지워서 지금 돌고 있는 보드는 살려 둔다."""
+    if WIN:  # 현재 사용자의 Run 키에 등록한다
+        winplat.set_autostart(on, os.path.join(HERE, 'board.py'))
+        return
     if not on:
         if os.path.exists(PLIST):
             os.remove(PLIST)
@@ -3110,12 +3220,14 @@ def set_autostart(on):
 
 def open_board():
     """메뉴바의 'Open full board': 기본 브라우저로 보드를 연다."""
+    if WIN:
+        os.startfile('http://127.0.0.1:%d/' % PORT)
+        return
     subprocess.run(['open', 'http://127.0.0.1:%d/' % PORT])
 
 
 def watch():
     # 감시는 하나만 돈다. 두 개가 돌면 서로 다른 버전의 코드가 번갈아 보드를 덮어쓴다(실제로 겪음)
-    import fcntl
     global _LOCK
     os.umask(0o077)                    # 세션 요약·대화 일부가 담기므로 이 맥의 다른 사용자는 못 읽게
     os.makedirs(BASE, exist_ok=True)   # 맥을 막 켜면 /tmp 가 비어 있다
@@ -3124,12 +3236,16 @@ def watch():
     install_omp_extension()
     _LOCK = open(os.path.join(BASE, 'watch.lock'), 'w')
     try:
-        fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if WIN:
+            winplat.lock(_LOCK)
+        else:
+            import fcntl
+            fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         sys.stderr.write('board: 이미 다른 감시가 돌고 있어 종료\n')
         return
-    with open(PIDFILE, 'w') as f:
-        start = next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
+    with open(PIDFILE, 'w', encoding='utf-8') as f:
+        start = winplat.start_time(os.getpid()) if WIN else next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
         f.write('%d %s %s' % (os.getpid(), ME, start))
     serve()
     last_seen = time.time()
@@ -3158,13 +3274,17 @@ _LAST = {}
 
 
 def sample_metrics():
-    import resource
-    me, kids = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
-    cpu, now = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime, time.time()
-    try:
-        rss = int(subprocess.run(['ps', '-o', 'rss=', '-p', str(os.getpid())], capture_output=True, text=True).stdout.strip()) / 1024
-    except ValueError:
-        rss = 0
+    now = time.time()
+    if WIN:  # 자식(요약 CLI) 몫은 빠진다
+        cpu, rss = winplat.self_usage()
+    else:
+        import resource
+        me, kids = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
+        cpu = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
+        try:
+            rss = int(subprocess.run(['ps', '-o', 'rss=', '-p', str(os.getpid())], capture_output=True, text=True).stdout.strip()) / 1024
+        except ValueError:
+            rss = 0
     if _LAST:
         pct = (cpu - _LAST['cpu']) / max(now - _LAST['t'], 1e-6) / (os.cpu_count() or 1) * 100
         METRICS.append([round(now), round(pct, 2), round(rss, 1)])
@@ -3239,10 +3359,8 @@ def doctor(argv):
     # 1) 보드가 도는가, 어떤 코드로
     pid, running = None, ''
     try:
-        with open(PIDFILE) as f:
-            parts = f.read().split()
-        pid, running = int(parts[0]), (parts[1] if len(parts) > 1 else '')
-        os.kill(pid, 0)
+        pid, running, _ = read_pidfile()
+        check_alive(pid)
         alive = True
     except (OSError, ValueError, IndexError):
         alive = False
@@ -3367,9 +3485,13 @@ def main(argv):
     stop_if_outdated()
     if not watching():
         os.makedirs(BASE, exist_ok=True)  # 맥을 막 켜면 /tmp 가 비어 있다 (로그 파일을 열기 전에 폴더부터)
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'],
-                         stdout=subprocess.DEVNULL, stderr=open(os.path.join(BASE, 'watch.log'), 'a'),
-                         start_new_session=True)
+        log = open(os.path.join(BASE, 'watch.log'), 'a')
+        if WIN:  # 창 없이, 부른 터미널이 닫혀도 계속 돈다
+            winplat.spawn_detached(winplat.python_cmd() + [os.path.abspath(__file__), '--watch'],
+                                   stdout=subprocess.DEVNULL, stderr=log)
+        else:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'],
+                             stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
     print('board: ' + OUT)
 
 
