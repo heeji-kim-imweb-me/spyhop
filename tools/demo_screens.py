@@ -82,6 +82,10 @@ OUTSIDE = ('scripts', 'iTerm2', 'wait', 'GPT-6.1-Sol medium', 6, 'Nightly backup
             ('Schedule', 'now', 'Waiting: cron on the bastion or a CI schedule.')],
            [('Backup checker', 'done'), ('Schedule', 'open')])
 
+# 인증서 교체 세션이 오르카로 띄운 Codex 교차검증 창 하나 (카드 아래 도우미 한 줄, 상세 창의 Helpers)
+HELPER = (5, 'Cross-check cert rotation', 'Cross-check passed',
+          'The renewed certificate chains correctly from outside. The old one is still on the staging listener; remove it after the second swap.')
+
 GROUPS = {0: 'Payments', 1: 'Payments', 2: 'Frontend', 3: 'Frontend', 4: 'Infra', 5: 'Infra', 6: 'Infra'}
 
 
@@ -100,6 +104,12 @@ def setup():
                       'last_reply': reply,
                       'steps': [{'label': a, 'state': b, 'detail': c} for a, b, c in flow],
                       'items': [{'label': a, 'state': b, 'detail': ''} for a, b in todo]}
+    i, title, _, _ = HELPER
+    log = os.path.join(TMP, 'helper.jsonl')
+    open(log, 'w').write('{}\n')
+    terms.append({'handle': 'term_demoh', 'tabId': 'tab%d' % i, 'leafId': 'leafh', 'worktreeId': SESSIONS[i][0], 'title': title,
+                  'ptyId': SESSIONS[i][0] + '@@x', 'lastOutputAt': (NOW - 60) * 1000, 'log': log, '_model': 'GPT-6.1-Sol', '_mins': 3})
+    agents['tab%d:leafh' % i] = {'state': 'done', 'agentType': 'codex', 'stateStartedAt': (NOW - 180) * 1000}
     folder, app, st, model, mins, title, summary, reply, flow, todo = OUTSIDE
     log = os.path.join(TMP, 'session-%d.jsonl' % len(SESSIONS))
     open(log, 'w').write('{}\n')
@@ -124,6 +134,11 @@ def patch(mode):
             return {'worktrees': [{'id': w, 'displayName': n, 'path': '/demo/' + n, 'sortOrder': o} for w, n, o in WORKTREES]}
         if args[:2] == ('terminal', 'list'):
             return {'terminals': [dict(t) for t in terms]}
+        if args[:2] == ('orchestration', 'run-list'):
+            return {'runs': [{'id': 'run1', 'coordinator_pane_key': 'tab%d:leaf%d' % (HELPER[0], HELPER[0])}]}
+        if args[:2] == ('orchestration', 'inbox'):
+            return {'messages': [{'sender_pane_key': 'tab%d:leafh' % HELPER[0], 'run_id': 'run1', 'type': 'worker_done',
+                                  'subject': HELPER[2], 'body': HELPER[3], 'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(NOW - 60))}]}
         return {}
     B.orca = fake_orca
     B.agent_procs = lambda: {}             # 이 맥에서 실제로 도는 세션이 데모 화면에 섞이지 않게
