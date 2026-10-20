@@ -2286,7 +2286,7 @@ def _build():
     for t in raw:  # 작업 창은 부른 카드가 보드에 있어야 보인다
         if t['_tr'].get('out') == 'helper' and t['_tr'].get('parent') not in on_board:
             t['_tr']['out'] = 'helper-parent-not-on-board'
-    trace = {'code': os.path.realpath(__file__),
+    trace = {'code': ME,
              'inputs': {'terminals': len(raw), 'worktrees': len(worktrees), 'orca_agents': len(agents), 'drawn_panes': len(shown)},
              'raw': raw}
 
@@ -2561,7 +2561,9 @@ CARD_ACTS = ('<div class="cact"><button type="button" class="ce">End session</bu
              'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg></button></div>')
 PORT = 47613
 CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))
-_V = re.search(r'/Cellar/spyhop/([^/]+)/', os.path.realpath(__file__))
+# 이 보드가 뜰 때의 진짜 코드 위치. 로그인 자동 시작은 opt 링크로 띄워서, brew upgrade 뒤에 다시 풀면 새 버전을 가리킨다
+ME = os.path.realpath(__file__)
+_V = re.search(r'/Cellar/spyhop/([^/]+)/', ME)
 VERSION = _V.group(1) if _V else 'dev'  # brew 설치본은 폴더 이름이 곧 버전. 레포에서 돌리면 dev  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
 SEA = '<div class="sea" aria-hidden="true"></div><script>window.ORCA="<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 36 64\\" width=\\"100%\\" height=\\"100%\\" aria-hidden=\\"true\\"><g stroke=\\"currentColor\\" stroke-width=\\".7\\" stroke-linejoin=\\"round\\"><path fill=\\"#10131a\\" d=\\"M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z\\"/><path fill=\\"#9299a5\\" stroke=\\"none\\" d=\\"M9 40Q13 36 16 40L15 46Q11 44 9 40Z\\"/><path fill=\\"#10131a\\" d=\\"M24 29Q32 33 32 40Q27 39 22 33Z\\"/><path fill=\\"none\\" d=\\"M25 10Q27 11 29 10\\"/><circle cx=\\"24\\" cy=\\"16\\" r=\\".8\\" fill=\\"#10131a\\" stroke=\\"none\\"/></g></svg>";(function(){var sea=document.querySelector(".sea");if(!sea)return;function fitSea(){var h=sea.parentNode.getBoundingClientRect(),a=document.querySelector(".brand").getBoundingClientRect().right-h.left+16,b=h.right-document.querySelector(".tiles").getBoundingClientRect().left+16;sea.style.left=a+"px";sea.style.right=b+"px"}fitSea();addEventListener("resize",fitSea);function pop(){var o=document.createElement("div");o.className="orca";o.innerHTML=window.ORCA;var w=sea.getBoundingClientRect().width-30;if(w<=0)return;o.style.left=(Math.random()*w)+"px";sea.appendChild(o);setTimeout(function(){o.remove()},3200)}setTimeout(pop,400)})()</script>'  # 열 때 한 번 헤더에서, 그 뒤엔 세션이 일을 끝낼 때만 그 카드 위로 범고래가 수직으로 고개를 내밀어 둘러본다(spyhop)
 PANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'panel.html')
@@ -2996,7 +2998,7 @@ def version_badge():
 def installed_board():
     """brew 로 깔린 지금 버전의 board.py 경로. brew upgrade 를 하면 opt 링크가 새 버전 폴더를 가리킨다.
     brew 설치본으로 돌 때만 본다(레포에서 돌리는 개발용 보드는 brew 버전으로 바꾸지 않는다)."""
-    me = os.path.realpath(__file__)
+    me = ME
     if '/Cellar/spyhop/' not in me:
         return None
     for prefix in ('/opt/homebrew', '/usr/local'):
@@ -3029,7 +3031,7 @@ def stop_if_outdated():
     if not record:
         return
     pid, running, _ = record
-    if running == os.path.realpath(__file__):
+    if running == ME:
         return
     if watcher_record() != record:  # 확인 사이에 PID가 재사용됐으면 신호를 보내지 않는다
         return
@@ -3128,7 +3130,7 @@ def watch():
         return
     with open(PIDFILE, 'w') as f:
         start = next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
-        f.write('%d %s %s' % (os.getpid(), os.path.realpath(__file__), start))
+        f.write('%d %s %s' % (os.getpid(), ME, start))
     serve()
     last_seen = time.time()
     while time.time() - last_seen < IDLE_EXIT:
