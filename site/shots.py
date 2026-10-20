@@ -18,12 +18,12 @@ FROZEN = ('.orca{animation:none!important;transform:translateY(45%)!important}*{
           '.modal *,.card,.slot{animation:none!important}')
 
 
-def shot(html, w, h, out, width, fmt):
+def shot(html, w, h, out, width, fmt, hash_='#x'):
     page = os.path.join(D.TMP, 'shot.html')
     s = open(html, encoding='utf-8').read().replace('location.reload()', '0').replace(
         "fetch('http://127.0.0.1:47613/gen'", "(function(){return new Promise(function(){})})(''")
     open(page, 'w', encoding='utf-8').write(s.replace('</head>', '<style>%s</style></head>' % FROZEN))
-    url = 'file://' + page + '#x'
+    url = 'file://' + page + hash_
     if w < 600:  # 헤드리스 크롬은 아주 좁은 창을 실제보다 넓게 그려서, 휴대폰 폭은 iframe 에 담아 찍는다
         frame = os.path.join(D.TMP, 'frame.html')
         open(frame, 'w').write('<html><body style="margin:0"><iframe src="%s" style="width:%dpx;height:%dpx;border:0;display:block">'
@@ -45,3 +45,12 @@ for mode, name, h, mh in (('orca', 'board', 600, 442), ('orca', 'bars', 500, 351
     D.B.build()
     shot(D.B.OUT, 1280, h, name + '.png', 1600, 'PNG')
     shot(D.B.OUT, 460, mh, 'm-%s.webp' % name, 720, 'WEBP')
+
+# 상세 창: 교차검증 도우미가 붙은 인증서 교체 세션을 연 모습
+D.patch('orca')
+D.B.build()
+html = open(D.B.OUT, encoding='utf-8').read()
+parts = html.split('<div class="modal ')[1:]
+modal = '#' + next(x for x in parts if 'Rotate expiring TLS' in x.split('<div class="modal', 1)[0]).split('id="', 1)[1].split('"', 1)[0]
+shot(D.B.OUT, 1280, 680, 'detail.png', 1600, 'PNG', modal)
+shot(D.B.OUT, 460, 748, 'm-detail.webp', 720, 'WEBP', modal)
