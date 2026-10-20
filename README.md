@@ -43,7 +43,7 @@ You need macOS, Homebrew, and a logged-in `claude` or `codex` CLI (Spyhop uses i
    ```
 
 2. The board opens in Orca as a **Spyhop** workspace if you have it, and always at `http://127.0.0.1:47613/`.
-3. Start or keep a Claude Code or Codex session running anywhere (Orca, Terminal, iTerm2, Ghostty, WezTerm). It shows up as a card within a few seconds, and its steps fill in once the first summary is done.
+3. Start or keep a Claude Code or Codex session running anywhere (Orca, Terminal, iTerm2, Ghostty, WezTerm, or the Claude desktop app's Code tab). It shows up as a card within a few seconds, and its steps fill in once the first summary is done.
 4. Click a card to see every step, the last reply and its TODO list. **Go to session** jumps to that pane or tab.
 5. Optional, menu bar: `brew install --cask swiftbar`, then run `spyhop` once more. The orca icon shows how many sessions are waiting for you.
 
@@ -101,16 +101,16 @@ brew uninstall spyhop && rm -rf ~/.spyhop
 
 ### What works where
 
-| | Orca | Terminal, iTerm2, Ghostty, WezTerm | Other terminals |
-|---|---|---|---|
-| Card, steps, summary, detail view | ✅ | ✅ | ✅ |
-| Columns (Group by: Location) | Orca workspaces | folder and terminal (e.g. `workspace · iTerm2`) | folder and terminal |
-| Go to session | the exact pane | the exact tab | brings the app to the front |
-| End session | closes that split pane | stops the AI program, the tab stays | stops the AI program, the tab stays |
-| Drag a card to move the session to another workspace | ✅ | ❌ | ❌ |
-| Cross-check line under a card (panes started through Orca) | ✅ | ❌ | ❌ |
-| AI topic grouping | ✅ | ✅ | ✅ |
-| `spyhop doctor` | ✅ | ✅ | ✅ |
+| | Orca | Terminal, iTerm2, Ghostty, WezTerm | Claude desktop app (Code tab) | Other terminals |
+|---|---|---|---|---|
+| Card, steps, summary, detail view | ✅ | ✅ | ✅ | ✅ |
+| Columns (Group by: Location) | Orca workspaces | folder and terminal (e.g. `workspace · iTerm2`) | folder (`workspace · Claude App`) | folder and terminal |
+| Go to session | the exact pane | the exact tab | that session in the app | brings the app to the front |
+| End session | closes that split pane | stops the AI program, the tab stays | stops the AI program, the session stays in the sidebar | stops the AI program, the tab stays |
+| Drag a card to move the session to another workspace | ✅ | ❌ | ❌ | ❌ |
+| Cross-check line under a card (panes started through Orca) | ✅ | ❌ | ❌ | ❌ |
+| AI topic grouping | ✅ | ✅ | ✅ | ✅ |
+| `spyhop doctor` | ✅ | ✅ | ✅ | ✅ |
 
 ### On the board
 
