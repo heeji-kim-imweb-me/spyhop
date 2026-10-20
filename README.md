@@ -128,7 +128,7 @@ The status extension is installed at `~/.omp/agent/extensions/spyhop-status.ts` 
 
 ### Files
 
-Settings, summaries and logs live in `~/.spyhop`. The full list of files is in [docs/details.md](docs/details.md#files).
+Settings and topic groups live in `~/.spyhop`; summaries and board state in `/tmp/progress-board/`. More in [docs/details.md](docs/details.md#at-a-glance).
 
 ## How it works
 
