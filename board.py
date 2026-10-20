@@ -1156,6 +1156,7 @@ TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'W
 
 # Claude 데스크톱 앱이 남기는 세션 기록 (Code 탭 · Cowork). 앱은 한동안 안 쓴 Code 탭 세션의 프로그램을 내리고,
 # Cowork 는 가상 머신 안에서 돌아서 이 컴퓨터의 프로그램 목록에 안 보인다. 그래서 앱의 세션 기록으로 찾는다.
+# 요즘 Cowork 는 세션 기록을 가상 머신 디스크(vm_bundles/…/rootfs.vhdx) 안에 둬서, 이 컴퓨터에 기록이 남은 예전 세션만 찾을 수 있다.
 CLAUDE_APP_DIR = (os.path.join(os.environ.get('APPDATA', ''), 'Claude') if WIN
                   else os.path.expanduser('~/Library/Application Support/Claude'))
 APP_RECENT = 12 * 3600       # 보관하지 않았고 이 시간 안에 쓴 앱 세션만 보드에 올린다 (사이드바에는 수백 개가 남아 있다)

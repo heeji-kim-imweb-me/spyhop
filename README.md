@@ -59,7 +59,8 @@ git clone https://github.com/leeleelee3264/spyhop
 The board opens in your default browser at `http://127.0.0.1:47613/`. `spyhop.cmd doctor` works as on macOS.
 
 - Sessions in Windows Terminal, VS Code, PowerShell or cmd are grouped by folder and terminal. Sessions the **Claude desktop app** runs show up too, under `folder · Claude app`.
-- **Claude app Code tab and Cowork sessions** you used in the last 12 hours show up even when the app has put them to sleep (no program running), read from the app's own session records. Archived ones are left out. Cowork sessions go under `folder · Cowork`, or `Cowork` when no folder was picked. This works on macOS too. Chat conversations are not on your computer, so they cannot be shown.
+- **Claude app Code tab sessions** you used in the last 12 hours show up even when the app has put them to sleep (no program running), read from the app's own session records. Archived ones are left out. This works on macOS too.
+- **Cowork** sessions show up only when the app keeps their records on your computer (`local-agent-mode-sessions`), under `folder · Cowork` or `Cowork`. Recent Cowork versions keep sessions inside the Cowork virtual machine's disk, so those cannot be shown. Chat conversations are not on your computer either.
 - **Go to session** brings that terminal or app window to the front. It cannot pick the exact tab.
 - **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays.
 - Summaries, AI topic grouping and **Start at login** (a `Spyhop` entry under `HKCU\...\CurrentVersion\Run`) work as on macOS.
