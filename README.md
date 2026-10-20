@@ -27,6 +27,7 @@
 
 - **All sessions in one place.** Every Claude Code, Codex and OMP session you have open becomes a card on one board, with the ones waiting for you on top.
 - **Progress for each session.** Spyhop reads the transcript and lays the work out as steps: what's done, what it's on now, what's next.
+- **Grouped by topic.** Switch to AI topics and the AI puts sessions doing related work in one column, by what the work is about rather than which folder it runs in.
 
 **Contents:** [Get started](#get-started) · [How to](#how-to) · [Reference](#reference) · [How it works](#how-it-works) · [Roadmap](#roadmap)
 
