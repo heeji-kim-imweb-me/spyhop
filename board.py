@@ -1154,10 +1154,94 @@ TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'W
               'vscode': 'VS Code', 'tmux': 'tmux', 'WarpTerminal': 'Warp', 'Hyper': 'Hyper', 'kitty': 'kitty', 'alacritty': 'Alacritty'}
 
 
+# Claude 데스크톱 앱이 남기는 세션 기록 (Code 탭 · Cowork). 앱은 한동안 안 쓴 Code 탭 세션의 프로그램을 내리고,
+# Cowork 는 가상 머신 안에서 돌아서 이 컴퓨터의 프로그램 목록에 안 보인다. 그래서 앱의 세션 기록으로 찾는다.
+CLAUDE_APP_DIR = (os.path.join(os.environ.get('APPDATA', ''), 'Claude') if WIN
+                  else os.path.expanduser('~/Library/Application Support/Claude'))
+APP_RECENT = 12 * 3600       # 보관하지 않았고 이 시간 안에 쓴 앱 세션만 보드에 올린다 (사이드바에는 수백 개가 남아 있다)
+COWORK_BUSY_QUIET = 10 * 60  # Cowork 가 턴을 끝냈다는 기록 없이 이만큼 조용하면 멈춘 것으로 보고 내 차례로 둔다
+
+
+def _cowork_busy(folder):
+    """Cowork 의 audit.jsonl 마지막 기록이 result 면 턴이 끝난 것(내 차례), 아니면 일하는 중."""
+    audit = os.path.join(folder, 'audit.jsonl')
+    try:
+        if time.time() - os.path.getmtime(audit) > COWORK_BUSY_QUIET:
+            return False
+        with open(audit, 'rb') as fh:
+            fh.seek(max(0, fh.seek(0, 2) - 65536))
+            lines = fh.read().decode('utf-8', 'ignore').strip().splitlines()
+        return json.loads(lines[-1]).get('type') != 'result'
+    except (OSError, ValueError, IndexError, AttributeError):
+        return False
+
+
+def app_sessions(live_ids=(), now=None):
+    """Claude 앱의 Code 탭·Cowork 세션 중 프로그램이 안 떠 있는 것. live_ids(지금 떠 있는 대화 번호)는 뺀다.
+    [{'kind': 'code'|'cowork', 'id', 'cli', 'log', 'cwd', 'busy', 'last', 'title'}]"""
+    now = now or time.time()
+    out = []
+    for kind, sub in (('code', 'claude-code-sessions'), ('cowork', 'local-agent-mode-sessions')):
+        for f in glob.glob(os.path.join(CLAUDE_APP_DIR, sub, '*', '*', 'local_*.json')):
+            try:
+                if now - os.path.getmtime(f) > APP_RECENT:  # 활동하면 이 파일도 고쳐 쓴다. 오래된 것은 열어 보지 않는다
+                    continue
+                with open(f, encoding='utf-8') as fh:
+                    d = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(d, dict):
+                continue
+            cli, cwd = d.get('cliSessionId'), d.get('cwd') or ''
+            last = (d.get('lastActivityAt') or 0) / 1000
+            if not isinstance(cli, str) or not cli or cli in live_ids or d.get('isArchived') or now - last > APP_RECENT:
+                continue
+            busy = False
+            if kind == 'code':
+                log = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), cli))
+                if not os.path.exists(log):
+                    log = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % cli))), None)
+            else:  # Cowork: cwd 는 세션 폴더 안의 outputs. 대화 기록은 세션 폴더의 .claude 안에 있다
+                folder = os.path.dirname(cwd)
+                log = next(iter(glob.glob(os.path.join(folder, '.claude', 'projects', '*', cli + '.jsonl'))), None)
+                busy = _cowork_busy(folder)
+                picked = [x for x in d.get('userSelectedFolders') or [] if isinstance(x, str)]
+                cwd = picked[0] if picked else ''
+            if log:
+                out.append({'kind': kind, 'id': d.get('sessionId') or cli, 'cli': cli, 'log': log, 'cwd': cwd,
+                            'busy': busy, 'last': last, 'title': d.get('title') or ''})
+    return out
+
+
+def focus_claude_app():
+    """Claude 앱을 앞으로 (앱 안의 그 세션까지는 못 고른다)."""
+    if WIN:
+        return winplat.focus_desktop_app()
+    return 'app' if _open_app('Claude') else ''
+
+
 def outside_terms():
-    """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널)."""
+    """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널).
+    프로그램 없이 Claude 앱 기록으로만 찾은 세션(Code 탭 · Cowork)도 같이 만든다."""
     out, wts = [], {}
-    for a in agent_procs().values():
+    procs = agent_procs()
+    live = {os.path.basename(a['log'])[:-6] for a in procs.values() if a.get('log')}
+    for s in app_sessions(live):
+        label = 'Cowork' if s['kind'] == 'cowork' else 'Claude app'
+        cwd = s['cwd']
+        wid = 'term:%s:%s' % (label, cwd)
+        wts[wid] = {'id': wid, 'displayName': '%s · %s' % (os.path.basename(cwd), label) if cwd else label,
+                    'path': cwd, 'sortOrder': -1}
+        a = {'pid': 0, 'kind': 'claude', 'start': s['last'], 'busy': s['busy'], 'log': s['log'], 'cwd': cwd,
+             'how': 'claude-app:%s-session-record' % s['kind'], 'term_program': label, 'app_session': s['id']}
+        try:
+            last = os.path.getmtime(s['log']) * 1000
+        except OSError:
+            last = s['last'] * 1000
+        out.append({'handle': 'proc_app_%s' % re.sub(r'[^A-Za-z0-9_-]', '', s['id']), 'title': '', 'tabId': 'proc',
+                    'leafId': 'app_' + s['id'], 'worktreeId': wid, 'worktreePath': cwd, 'ptyId': '', 'lastOutputAt': last,
+                    '_proc': a, '_ext': label, 'agent': {'state': 'working' if s['busy'] else 'done'}})
+    for a in procs.values():
         if a.get('orca_pane_key') or a.get('tty') in (None, '??'):
             continue  # 오르카 창이거나, 화면 없는 프로그램(서버·백그라운드)
         cwd = a.get('cwd') or ''
@@ -2707,6 +2791,8 @@ def serve():
                 known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
                 if h not in known:  # 지금 목록에 있는 창만 이동시킨다
                     return self.send(404, b'unknown')
+                if h.startswith('proc_app_'):  # Claude 앱 세션: 앱을 앞으로
+                    return self.send(200, (focus_claude_app() or 'fail').encode())
                 if h.startswith('proc_'):  # 결과를 글로 돌려준다: tab(그 탭까지) / app(앱만) / fail
                     return self.send(200, (focus_outside(int(h[5:])) or 'fail').encode())
                 r = subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
@@ -2784,6 +2870,8 @@ def serve():
             known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
             if h not in known:
                 return self.send(404, b'unknown')
+            if h.startswith('proc_app_'):  # 앱 기록으로만 찾은 세션은 끝낼 프로그램이 없다
+                return self.send(409, b'This session lives in the Claude app. End or archive it there.')
             if h.startswith('proc_'):  # 오르카 밖 세션: 그 AI 프로그램만 끝낸다(터미널 탭은 남는다). 지금 보드가 찾은 claude/codex 일 때만
                 pid = int(h[5:])
                 if pid not in agent_procs():

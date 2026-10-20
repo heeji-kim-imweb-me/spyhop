@@ -390,6 +390,18 @@ def focus(pid):
     return 'app' if u32.SetForegroundWindow(hwnd) else ''
 
 
+def focus_desktop_app():
+    """Claude 데스크톱 앱 창을 앞으로. 'app' 또는 ''."""
+    for pid, hwnd in _top_windows().items():
+        if is_desktop_app(exe_path(pid)):
+            if u32.IsIconic(hwnd):
+                u32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            u32.keybd_event(0x12, 0, 0, 0)
+            u32.keybd_event(0x12, 0, 2, 0)
+            return 'app' if u32.SetForegroundWindow(hwnd) else ''
+    return ''
+
+
 # ---------- 그 밖 ----------
 
 def lang_code():
