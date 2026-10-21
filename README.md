@@ -58,10 +58,11 @@ git clone https://github.com/leeleelee3264/spyhop
 
 The board opens in your default browser at `http://127.0.0.1:47613/`. `spyhop.cmd doctor` works as on macOS.
 
-A **tray icon** appears next to the clock, like the macOS menu bar item. It shows how many sessions are waiting for you (gray when the board is off). Click it to open the small board panel; right-click it to see every session and jump to one. It also restarts the board when Claude or Codex runs. Choose **Hide tray icon** in its menu to remove it; `spyhop.cmd` brings it back.
+A **tray icon** appears next to the clock, like the macOS menu bar item. It shows how many sessions are waiting for you (gray when the board is off). Click it to open the small board panel (clicking again brings the same panel back to the front); right-click it to see every session and jump to one. It also restarts the board when Claude or Codex runs. Choose **Quit tray icon** in its menu to remove it; `spyhop.cmd` brings it back.
 
 - Sessions in Windows Terminal, VS Code, PowerShell or cmd are grouped by folder and terminal. Sessions the **Claude desktop app** runs show up too, under `folder · Claude app`.
 - **Claude app Code tab sessions** you used in the last 12 hours show up even when the app has put them to sleep (no program running), read from the app's own session records. Archived ones are left out. This works on macOS too.
+- **Codex desktop app** threads (Codex inside the ChatGPT app, or the IDE extension) you used in the last 12 hours show up under `folder · Codex app`, read from Codex's `state_N.sqlite`. Only threads you started are shown; imported threads, sub-agents and `codex exec` runs are left out. ChatGPT chat conversations are not on your computer, so they cannot be shown.
 - **Cowork** sessions show up only when the app keeps their records on your computer (`local-agent-mode-sessions`), under `folder · Cowork` or `Cowork`. Recent Cowork versions keep sessions inside the Cowork virtual machine's disk, so those cannot be shown. Chat conversations are not on your computer either.
 - **Go to session** brings that terminal or app window to the front. It cannot pick the exact tab.
 - **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays.

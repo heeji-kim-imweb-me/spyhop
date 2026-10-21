@@ -97,6 +97,44 @@ class AppSessionsTest(unittest.TestCase):
             self.assertTrue(t['_proc']['log'])
             self.assertEqual(t['agent']['state'], 'done')
 
+    def codex_db(self, rows):
+        """가짜 Codex 앱 상태 DB. rows: (id, source, thread_source, originator, archived, ago, busy)"""
+        import sqlite3
+        home = self.root / 'codex'
+        (home / 'sessions').mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(str(home / 'state_5.sqlite'))
+        db.execute('create table threads (id text, rollout_path text, cwd text, updated_at integer, source text, '
+                   'thread_source text, originator text, title text, archived integer)')
+        for tid, source, tsrc, origin, archived, ago, busy in rows:
+            log = home / 'sessions' / ('rollout-x-%s.jsonl' % tid)
+            log.write_text('{"type":"task_started"}\n' + ('' if busy else '{"type":"task_complete"}\n'), encoding='utf-8')
+            db.execute('insert into threads values (?,?,?,?,?,?,?,?,?)',
+                       (tid, str(log), '/w/automation', int(NOW - ago), source, tsrc, origin, 'T', archived))
+        db.commit()
+        db.close()
+        return str(home)
+
+    def test_codex_app_threads_opened_by_the_user_only(self):
+        home = self.codex_db([
+            ('t-user', 'vscode', 'user', 'Codex Desktop', 0, 60, True),
+            ('t-old-version', 'vscode', None, None, 0, 60, False),
+            ('t-imported', 'vscode', None, 'Codex Desktop', 0, 60, False),
+            ('t-archived', 'vscode', 'user', 'Codex Desktop', 1, 60, False),
+            ('t-stale', 'vscode', 'user', 'Codex Desktop', 0, B.APP_RECENT + 60, False),
+            ('t-exec', 'exec', 'user', 'codex_exec', 0, 60, False),
+            ('t-tui', 'cli', 'user', 'codex-tui', 0, 60, False),
+        ])
+        found = {s['id']: s for s in B.codex_app_sessions(now=NOW, home=home)}
+        self.assertEqual(set(found), {'t-user', 't-old-version'})
+        self.assertTrue(found['t-user']['busy'])  # 마지막 턴이 아직 안 끝났다
+        self.assertFalse(found['t-old-version']['busy'])
+        self.assertEqual(found['t-user']['kind'], 'codex-app')
+
+    def test_codex_app_threads_held_by_a_program_are_not_listed_twice(self):
+        home = self.codex_db([('t-user', 'vscode', 'user', 'Codex Desktop', 0, 60, False)])
+        self.assertEqual(B.codex_app_sessions(live_ids={'rollout-x-t-user'}, now=NOW, home=home), [])
+        self.assertEqual(B.codex_app_sessions(now=NOW, home=str(self.root / 'no-codex')), [])
+
     def test_broken_records_are_skipped(self):
         bad = self.app / 'claude-code-sessions' / 'acct' / 'org' / 'local_bad.json'
         bad.parent.mkdir(parents=True)

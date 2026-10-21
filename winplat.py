@@ -402,6 +402,19 @@ def focus_desktop_app():
     return ''
 
 
+def focus_codex_app():
+    """Codex 데스크톱 앱 창을 앞으로. 이 앱은 OpenAI.Codex 패키지 안의 ChatGPT.exe 다. 'app' 또는 ''."""
+    for pid, hwnd in _top_windows().items():
+        path = exe_path(pid)
+        if os.path.basename(path).lower() == 'chatgpt.exe' or '\\OpenAI.Codex_' in path:
+            if u32.IsIconic(hwnd):
+                u32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            u32.keybd_event(0x12, 0, 0, 0)
+            u32.keybd_event(0x12, 0, 2, 0)
+            return 'app' if u32.SetForegroundWindow(hwnd) else ''
+    return ''
+
+
 # ---------- 그 밖 ----------
 
 def lang_code():

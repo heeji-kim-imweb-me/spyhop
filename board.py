@@ -1214,11 +1214,52 @@ def app_sessions(live_ids=(), now=None):
     return out
 
 
-def focus_claude_app():
-    """Claude 앱을 앞으로 (앱 안의 그 세션까지는 못 고른다)."""
+def codex_app_sessions(live_ids=(), now=None, home=None):
+    """Codex 데스크톱 앱(ChatGPT 앱 안의 Codex)·IDE 확장 스레드 중 프로그램이 안 붙잡고 있는 것.
+    앱은 스레드를 ~/.codex/state_N.sqlite 에 적는다. 사용자가 연 것만(가져온 스레드·하위 에이전트·codex exec 는 뺀다)."""
+    import sqlite3
+    now = now or time.time()
+    home = home or os.environ.get('CODEX_HOME') or os.path.expanduser('~/.codex')
+    dbs = sorted(glob.glob(os.path.join(home, 'state_*.sqlite')), key=lambda p: int(re.sub(r'\D', '', os.path.basename(p)) or 0))
+    if not dbs:
+        return []
+    try:
+        db = sqlite3.connect('file:%s?mode=ro' % dbs[-1].replace(os.sep, '/'), uri=True, timeout=1)
+        try:
+            cols = {r[1] for r in db.execute('pragma table_info(threads)')}
+            pick = lambda c: c if c in cols else 'NULL'  # noqa: E731  (버전마다 열이 다를 수 있다)
+            rows = db.execute('select id, rollout_path, cwd, updated_at, %s, %s, %s from threads '
+                              "where source = 'vscode' and updated_at >= ? and coalesce(%s, 0) = 0"
+                              % (pick('thread_source'), pick('originator'), pick('title'), pick('archived')),
+                              (now - APP_RECENT,)).fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error as e:
+        sys.stderr.write('codex app threads: %s\n' % e)
+        return []
+    out = []
+    for tid, log, cwd, updated, source, originator, title in rows:
+        # 'user' = 사용자가 연 스레드. 예전 버전은 둘 다 비어 있다. 발신 앱은 있는데 출처가 비면 가져온 스레드다
+        if not (source == 'user' or (source is None and originator is None)):
+            continue
+        if not log or not os.path.exists(log) or os.path.basename(log)[:-6] in live_ids:
+            continue
+        busy = False
+        try:
+            if now - os.path.getmtime(log) < COWORK_BUSY_QUIET:
+                busy = not codex_turn_done(log)
+        except OSError:
+            pass
+        out.append({'kind': 'codex-app', 'id': tid, 'cli': tid, 'log': log, 'cwd': cwd or '', 'busy': busy,
+                    'last': updated, 'title': title or ''})
+    return out
+
+
+def focus_claude_app(kind='code'):
+    """그 세션을 돌리는 데스크톱 앱(Claude 또는 Codex)을 앞으로 (앱 안의 그 세션까지는 못 고른다)."""
     if WIN:
-        return winplat.focus_desktop_app()
-    return 'app' if _open_app('Claude') else ''
+        return winplat.focus_codex_app() if kind == 'codex-app' else winplat.focus_desktop_app()
+    return 'app' if _open_app('Codex' if kind == 'codex-app' else 'Claude') else ''
 
 
 def outside_terms():
@@ -1227,14 +1268,14 @@ def outside_terms():
     out, wts = [], {}
     procs = agent_procs()
     live = {os.path.basename(a['log'])[:-6] for a in procs.values() if a.get('log')}
-    for s in app_sessions(live):
-        label = 'Cowork' if s['kind'] == 'cowork' else 'Claude app'
+    for s in app_sessions(live) + codex_app_sessions(live):
+        label = {'cowork': 'Cowork', 'codex-app': 'Codex app'}.get(s['kind'], 'Claude app')
         cwd = s['cwd']
         wid = 'term:%s:%s' % (label, cwd)
         wts[wid] = {'id': wid, 'displayName': '%s · %s' % (os.path.basename(cwd), label) if cwd else label,
                     'path': cwd, 'sortOrder': -1}
-        a = {'pid': 0, 'kind': 'claude', 'start': s['last'], 'busy': s['busy'], 'log': s['log'], 'cwd': cwd,
-             'how': 'claude-app:%s-session-record' % s['kind'], 'term_program': label, 'app_session': s['id']}
+        a = {'pid': 0, 'kind': 'codex' if s['kind'] == 'codex-app' else 'claude', 'app_kind': s['kind'], 'start': s['last'], 'busy': s['busy'], 'log': s['log'], 'cwd': cwd,
+             'how': 'desktop-app:%s-session-record' % s['kind'], 'term_program': label, 'app_session': s['id']}
         try:
             last = os.path.getmtime(s['log']) * 1000
         except OSError:
@@ -2775,7 +2816,10 @@ def serve():
                         BUILD_LOCK.release()
                 return self.send(200, open(OUT, 'rb').read(), 'text/html; charset=utf-8')
             if u.path == '/panel':
-                page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1).replace('__TOKEN__', token()).replace('__LOGO__', orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1)) \
+                page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1)
+                if WIN:  # 보드 서버가 브라우저를 열면 백그라운드라 창이 뒤에 숨는다. 앞에 있는 패널 창이 직접 연다
+                    page = page.replace('<div class="btn" onclick="fetch(\'/open-board\')">Open full board</div>',
+                                        '<a class="btn" href="/" target="_blank" rel="noopener" style="text-decoration:none">Open full board</a>').replace('__TOKEN__', token()).replace('__LOGO__', orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1)) \
                     .replace('<html lang="ko">', '<html lang="ko" data-theme="%s">' % current_theme(), 1)
                 return self.send(200, page.encode(), 'text/html; charset=utf-8')
             if u.path == '/metrics':
@@ -2792,8 +2836,9 @@ def serve():
                 known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
                 if h not in known:  # 지금 목록에 있는 창만 이동시킨다
                     return self.send(404, b'unknown')
-                if h.startswith('proc_app_'):  # Claude 앱 세션: 앱을 앞으로
-                    return self.send(200, (focus_claude_app() or 'fail').encode())
+                if h.startswith('proc_app_'):  # 데스크톱 앱 세션: 그 앱을 앞으로
+                    kind = next((t['_proc'].get('app_kind') for t in outside_terms()[0] if t['handle'] == h), 'code')
+                    return self.send(200, (focus_claude_app(kind) or 'fail').encode())
                 if h.startswith('proc_'):  # 결과를 글로 돌려준다: tab(그 탭까지) / app(앱만) / fail
                     return self.send(200, (focus_outside(int(h[5:])) or 'fail').encode())
                 r = subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
@@ -2872,7 +2917,7 @@ def serve():
             if h not in known:
                 return self.send(404, b'unknown')
             if h.startswith('proc_app_'):  # 앱 기록으로만 찾은 세션은 끝낼 프로그램이 없다
-                return self.send(409, b'This session lives in the Claude app. End or archive it there.')
+                return self.send(409, b'This session lives in a desktop app (Claude or Codex). End or archive it there.')
             if h.startswith('proc_'):  # 오르카 밖 세션: 그 AI 프로그램만 끝낸다(터미널 탭은 남는다). 지금 보드가 찾은 claude/codex 일 때만
                 pid = int(h[5:])
                 if pid not in agent_procs():
@@ -3478,7 +3523,8 @@ def doctor(argv):
     # 2) 오르카
     ob = find_bin('orca')
     if not ob:
-        say('  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty and WezTerm still are')
+        say('  orca:          not used on Windows' if WIN else
+            '  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty and WezTerm still are')
     else:
         try:
             ok = subprocess.run([ob, 'status', '--json'], capture_output=True, text=True, timeout=10).returncode == 0
@@ -3675,13 +3721,14 @@ def render_settings():
                       '<button class="%s" onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
                       % ('on' if group_mode() == k else '', k, label)
                       for k, label in (('location', 'Location'), ('ai', 'AI topics'))))
-            + sec('Orca animation', 'Orcas spyhop in the header',
+            + sec(*(('Whale animation', 'A whale (orca) spyhops in the header') if WIN else ('Orca animation', 'Orcas spyhop in the header')),
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({orcas:this.checked})"><i></i></label>' % (' checked' if orcas_on() else ''))
-            + sec('Start at login', 'Run the board and the tray icon when you log in to this PC' if WIN else 'Run the board when you log in to this Mac',
+            + sec('Start at login', 'Run the board and the tray icon when you sign in to Windows' if WIN else 'Run the board when you log in to this Mac',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({autostart:this.checked})"><i></i></label>' % (' checked' if autostart_on() else ''))
             + sec('Update every', 'Longer uses less CPU and fewer model calls',
                   pills('refresh', REFRESH_OPTS, refresh_sec(), lambda v: '%ds' % v))
-            + sec('Resource usage', 'CPU includes orca and model calls; memory is the board process',
+            + sec('Resource usage', 'CPU and memory of the board process (model calls are not counted)' if WIN
+                  else 'CPU includes orca and model calls; memory is the board process',
                   '<div class="mets"><div class="met"><span>CPU</span><b id="mcpu">–</b><svg id="scpu" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>'
                   '<div class="met"><span>Memory</span><b id="mmem">–</b><svg id="smem" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div></div>')
             + '</div></div>')

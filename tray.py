@@ -106,6 +106,13 @@ u32.AllowSetForegroundWindow.argtypes = [W.DWORD]
 u32.GetWindowTextW.argtypes = [W.HWND, W.LPWSTR, ctypes.c_int]
 u32.GetWindowRect.argtypes = [W.HWND, ctypes.POINTER(W.RECT)]
 u32.DestroyWindow.argtypes = [W.HWND]
+u32.IsWindow.argtypes = [W.HWND]
+u32.IsWindowVisible.argtypes = [W.HWND]
+u32.IsIconic.argtypes = [W.HWND]
+u32.ShowWindow.argtypes = [W.HWND, ctypes.c_int]
+u32.GetWindow.restype = W.HWND
+u32.GetWindow.argtypes = [W.HWND, W.UINT]
+u32.GetWindowThreadProcessId.argtypes = [W.HWND, ctypes.POINTER(W.DWORD)]
 u32.GetSystemMetrics.argtypes = [ctypes.c_int]
 gdi.GetStockObject.argtypes = [ctypes.c_int]
 shell32.Shell_NotifyIconW.argtypes = [W.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
@@ -223,27 +230,46 @@ def edge():
     return None
 
 
-def open_panel():
-    """작은 보드 패널을 오른쪽 아래(트레이 옆)에 연다. 이미 열려 있으면 앞으로."""
-    for pid, hwnd in winplat._top_windows().items():
-        if os.path.basename(winplat.exe_path(pid)).lower() == 'msedge.exe':
-            title = ctypes.create_unicode_buffer(256)
-            u32.GetWindowTextW(hwnd, title, 256)
-            r = W.RECT()
-            u32.GetWindowRect(hwnd, ctypes.byref(r))
-            if title.value == 'Spyhop' and r.right - r.left < 600:  # 패널 창 (전체 보드보다 좁다)
-                u32.SetForegroundWindow(hwnd)
-                return
+def edge_windows():
+    """보이는 Edge 최상위 창들. Edge 는 창 여러 개를 한 프로그램이 다 가지고 있어서 창마다 센다."""
+    out = []
+
+    def cb(hwnd, _):
+        if u32.IsWindowVisible(hwnd) and not u32.GetWindow(hwnd, 4):  # 4 = GW_OWNER
+            pid = W.DWORD()
+            u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if os.path.basename(winplat.exe_path(pid.value)).lower() == 'msedge.exe':
+                out.append(hwnd)
+        return True
+    u32.EnumWindows(winplat.WNDENUMPROC(cb), 0)
+    return out
+
+
+def bring_front(hwnd):
+    if u32.IsIconic(hwnd):
+        u32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    u32.SetForegroundWindow(hwnd)
+
+
+def launch_panel():
+    """작은 보드 패널을 오른쪽 아래(트레이 옆)에 연다. 새로 생긴 패널 창(없으면 None)을 돌려준다."""
     exe = edge()
     if not exe:
         os.startfile(PANEL_URL)
-        return
+        return None
+    before = set(edge_windows())
     work = W.RECT()
     u32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)  # SPI_GETWORKAREA
     w, h = 380, 560
     subprocess.Popen([exe, '--app=' + PANEL_URL, '--window-size=%d,%d' % (w, h),
                       '--window-position=%d,%d' % (max(0, work.right - w - 12), max(0, work.bottom - h - 12))],
                      creationflags=winplat.CREATE_NO_WINDOW)
+    for _ in range(40):  # 창이 뜰 때까지 최대 4초
+        time.sleep(.1)
+        new = [x for x in edge_windows() if x not in before]
+        if new:
+            return new[0]
+    return None
 
 
 def go(handle):
@@ -268,6 +294,7 @@ class Tray:
         self.key = None
         self.sessions = []
         self.ensured = 0
+        self.panel = None  # 트레이가 연 패널 창. 다시 누르면 새로 열지 않고 이 창을 앞으로
         self.nid = NOTIFYICONDATAW()
         self.nid.cbSize = ctypes.sizeof(NOTIFYICONDATAW)
         self.nid.hWnd = self.hwnd
@@ -299,6 +326,12 @@ class Tray:
         if old:
             u32.DestroyIcon(old)
 
+    def open_panel(self):
+        if self.panel and u32.IsWindow(self.panel) and u32.IsWindowVisible(self.panel):
+            bring_front(self.panel)
+            return
+        self.panel = launch_panel()
+
     def menu(self):
         up, ss = read_state()
         m = u32.CreatePopupMenu()
@@ -324,7 +357,7 @@ class Tray:
             u32.AppendMenuW(m, MF_STRING | MF_GRAYED, 0, 'Board is off · starts when Claude or Codex runs')
             u32.AppendMenuW(m, MF_STRING, ID_START, 'Start the board now')
         u32.AppendMenuW(m, MF_SEPARATOR, 0, None)
-        u32.AppendMenuW(m, MF_STRING, ID_QUIT, 'Hide tray icon')
+        u32.AppendMenuW(m, MF_STRING, ID_QUIT, 'Quit tray icon (spyhop brings it back)')
         pt = W.POINT()
         u32.GetCursorPos(ctypes.byref(pt))
         u32.SetForegroundWindow(self.hwnd)  # 이렇게 해야 바깥을 누르면 메뉴가 닫힌다
@@ -334,7 +367,7 @@ class Tray:
         if cmd >= ID_SESSION and cmd - ID_SESSION < len(ss):
             go(ss[cmd - ID_SESSION]['handle'])
         elif cmd == ID_OPEN_PANEL:
-            open_panel()
+            self.open_panel()
         elif cmd == ID_OPEN_BOARD:
             os.startfile(BOARD_URL)
         elif cmd == ID_START:
@@ -347,7 +380,7 @@ class Tray:
             if msg == WM_TRAY:
                 if lp == WM_LBUTTONUP:
                     if read_state()[0]:
-                        open_panel()
+                        self.open_panel()
                     else:
                         self.menu()
                 elif lp in (WM_RBUTTONUP, WM_CONTEXTMENU):
