@@ -2392,7 +2392,7 @@ def _build():
     ver = version_badge()
     foot = '<div class="subbar"><h1>%s</h1>%s%s%s<small>updated %s</small></div>' % (
         {'all': 'All'}.get(filt) or LABEL[filt], ver if 'ver new' in ver else '', grouping, legend, time.strftime('%H:%M:%S'))
-    html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
+    html = TEMPLATE.replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
         .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', '<div id="sc">' + foot + '<div id="board-note">%s</div><main>%s</main></div>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
@@ -2623,6 +2623,8 @@ def serve():
                     return self.send(200, str(int(os.path.getmtime(OUT) * 1000)).encode())
                 except OSError:
                     return self.send(200, b'0')
+            if u.path in ('/', '/board', '/panel') and not from_app(self.headers):  # 브라우저로는 열리지 않는다: 앱 창만 이름표를 달고 온다
+                return self.send(200, APP_ONLY_HTML.encode(), 'text/html; charset=utf-8')
             if u.path in ('/', '/board'):
                 # 새로고침이면 그 자리에서 다시 그린다. 단, 이미 그리는 중이거나 방금(3초 안) 그렸으면 기다리지 않고 지금 화면을 준다
                 # (요청마다 줄 서서 그리면, 맥이 바쁠 때 탭 여러 개의 새로고침이 쌓여 페이지가 멈춘다)
@@ -3093,7 +3095,6 @@ def stop_if_outdated():
         time.sleep(0.1)
 
 
-LOADER = os.path.expanduser('~/.spyhop/open.html')
 LOADER_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Spyhop</title><link rel="icon" href="__FAV__">
 <style>html,body{margin:0;height:100%;font:13px -apple-system,sans-serif;background:#f4f5f8;color:#44546f}
 @media (prefers-color-scheme:dark){html,body{background:#161a1d;color:#9fadbc}}
@@ -3108,17 +3109,6 @@ var f=document.getElementById('f'),w=document.getElementById('w'),up=false,miss=
   if(++miss>15)document.getElementById('m').textContent='Waiting for the board server · it starts at login or when Claude or Codex runs'})
 .then(function(){setTimeout(chk,up?10000:2000)})})()
 </script></body></html>""".replace('__FAV__', 'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2032%2032%22%3E%3Cdefs%3E%3CclipPath%20id=%22t%22%3E%3Crect%20width=%2232%22%20height=%2226.2%22/%3E%3C/clipPath%3E%3C/defs%3E%3Crect%20width=%2232%22%20height=%2232%22%20rx=%228%22%20fill=%22%233182f6%22/%3E%3Cg%20clip-path=%22url%28%23t%29%22%3E%3Cg%20transform=%22translate%281.5%202%29%20scale%28.82%29%22%3E%3Cg%20stroke=%22%230b1220%22%20stroke-width=%22.7%22%20stroke-linejoin=%22round%22%3E%3Cpath%20fill=%22%2310131a%22%20d=%22M22%203C28%203%2030%209%2029%2017L28%2036C28%2047%2025%2055%2021%2059L28%2062L19%2061L11%2063L16%2057C10%2048%207%2037%208%2024C8%2013%2012%206%2018%204Q20%203%2022%203Z%22/%3E%3Cpath%20fill=%22%23fff%22%20stroke=%22none%22%20d=%22M28%2010Q30%2014%2028%2023L26%2039Q22%2042%2021%2035L23%2023Q27%2018%2028%2010Z%22/%3E%3Cpath%20fill=%22%23fff%22%20stroke=%22none%22%20d=%22M15%2012C12%2013%2012%2017%2015%2018C18%2019%2021%2016%2021%2013C20%2011%2017%2011%2015%2012Z%22/%3E%3Cpath%20fill=%22%2310131a%22%20d=%22M24%2029Q32%2033%2032%2040Q27%2039%2022%2033Z%22/%3E%3Ccircle%20cx=%2224%22%20cy=%2216%22%20r=%22.8%22%20fill=%22%2310131a%22%20stroke=%22none%22/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cpath%20d=%22M3%2027.2%20Q7%2025.3%2011%2027.2%20T19%2027.2%20T27%2027.2%22%20fill=%22none%22%20stroke=%22%23fff%22%20stroke-width=%222.2%22%20stroke-linecap=%22round%22/%3E%3C/svg%3E')
-
-
-def write_loader():
-    """서버가 꺼져 있어도 열리는 안내 페이지. 오르카 탭은 이 파일을 열고, 서버가 뜨면 보드로 넘어간다."""
-    try:
-        os.makedirs(os.path.dirname(LOADER), exist_ok=True)
-        if not os.path.exists(LOADER) or open(LOADER, encoding='utf-8').read() != LOADER_HTML:
-            with open(LOADER, 'w', encoding='utf-8') as f:
-                f.write(LOADER_HTML)
-    except OSError:
-        pass
 
 
 PLIST = os.path.expanduser('~/Library/LaunchAgents/com.spyhop.board.plist')
@@ -3165,10 +3155,21 @@ def installed_app():
 
 
 def open_board():
-    """메뉴바의 'Open full board': Spyhop.app 이 깔려 있으면 앱 창으로, 없으면 기본 브라우저로 보드를 연다."""
+    """메뉴바의 'Open full board': 앱 창으로 연다. 브라우저로는 열지 않는다(보드는 앱 안에서만 쓴다)"""
     app = installed_app()
-    if not app or subprocess.run(['open', '-a', app], capture_output=True).returncode != 0:
-        subprocess.run(['open', 'http://127.0.0.1:%d/' % PORT])
+    if app:
+        subprocess.run(['open', '-a', app], capture_output=True)
+
+
+APP_UA = 'Spyhop/'  # 앱 창(WKWebView)이 사용자 에이전트 끝에 붙이는 이름표. 보안 잠금이 아니라 「브라우저로 쓰는 것이 아니다」를 정하는 표시
+APP_ONLY_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Spyhop</title>
+<style>html,body{margin:0;height:100%;font:14px -apple-system,sans-serif;background:#f4f5f8;color:#44546f;display:flex;align-items:center;justify-content:center;text-align:center}
+@media (prefers-color-scheme:dark){html,body{background:#161a1d;color:#9fadbc}}b{display:block;font-size:17px;margin-bottom:6px}</style></head>
+<body><div><b>Spyhop is a Mac app now</b>Open Spyhop from Applications or the menu bar.</div></body></html>"""
+
+
+def from_app(headers):
+    return APP_UA in (headers.get('User-Agent') or '')
 
 
 def watch():
@@ -3178,7 +3179,6 @@ def watch():
     os.umask(0o077)                    # 세션 요약·대화 일부가 담기므로 이 맥의 다른 사용자는 못 읽게
     os.makedirs(BASE, exist_ok=True)   # 맥을 막 켜면 /tmp 가 비어 있다
     os.chmod(BASE, 0o700)
-    write_loader()
     install_omp_extension()
     _LOCK = open(os.path.join(BASE, 'watch.lock'), 'w')
     try:
@@ -3421,7 +3421,6 @@ def main(argv):
         watch()
         return
     install_omp_extension()
-    write_loader()
     stop_if_outdated()
     if not watching():
         os.makedirs(BASE, exist_ok=True)  # 맥을 막 켜면 /tmp 가 비어 있다 (로그 파일을 열기 전에 폴더부터)
@@ -4079,7 +4078,7 @@ function live(){
     var gr=!!document.getElementById('grouping');if(gr&&!window.gStop)window.gStop=busy();if(!gr&&window.gStop){window.gStop();window.gStop=null}
     if(gr)setTimeout(live,2500);
     return true  // 새 화면을 실제로 반영했다
-  }).catch(function(){if(window.top===window)location.href='__LOADER__';return false})}
+  }).catch(function(){return false})}
 var RT=setInterval(function(){if(!document.hidden)live()},__REFRESH_MS__),GEN=null;
 setInterval(function(){if(document.hidden||drag||press)return;  // 새 세션·끝난 세션은 서버가 2초 안에 다시 그리니, 그걸 바로 따라간다
   fetch('http://127.0.0.1:47613/gen',{cache:'no-store'}).then(function(r){return r.text()}).then(function(g){if(g===GEN)return;
