@@ -102,14 +102,16 @@ enum Board {
         let ours = realPath(script)  // board.py 의 os.path.realpath 와 같게(NSString 쪽은 /private 를 떼어 버린다)
         // 앱을 다른 자리로 옮겼으면(옛 자리에 코드가 없음) 그 서버를 넘겨받는다. 다른 자리에 앱이 따로 남아 있거나 brew 설치본이면 건드리지 않는다
         let moved = path != ours && path.hasSuffix(".app/Contents/Resources/spyhop/board.py") && !FileManager.default.fileExists(atPath: path)
-        guard path == ours || moved else { return }
+        // brew 로 깔던 옛 브라우저판 서버도 넘겨받는다(브라우저판은 더 이상 쓰지 않는다). 다른 자리의 앱은 건드리지 않는다
+        let legacy = path.contains("/Cellar/spyhop/") || path.contains("/opt/spyhop/")
+        guard path == ours || moved || legacy else { return }
         // 이 서버가 쓴 state.json 이 있어야 판단한다(막 떠서 첫 화면을 만드는 중이거나, 지난번 다른 서버가 남긴 파일이면 건너뜀)
         guard let st = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: stateFile)))) as? [String: Any],
               let at = st["at"] as? Double, at >= started else { return }
         let running = st["version"] as? String  // 없으면 version 을 쓰기 전의 옛 코드
         let mod = ((try? FileManager.default.attributesOfItem(atPath: script))?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         // 버전이 다르면(릴리즈 교체) 또는 같은 버전이라도 코드 파일이 서버보다 새것이면(개발 빌드) 바뀐 것이다
-        guard moved || running != bundleVersion || mod > started + 1 else { return }
+        guard moved || legacy || running != bundleVersion || mod > started + 1 else { return }
         // 번호가 다른 프로그램에 다시 쓰였을 수 있어 시작 시각과 실행 인자까지 서버가 남긴 기록과 맞춰 본다(board.py 와 같은 기준)
         guard let born = startTime(pid), abs(born - started) < 2,
               let args = output("/bin/ps", ["-o", "args=", "-p", String(pid)])?.trimmingCharacters(in: .whitespacesAndNewlines),

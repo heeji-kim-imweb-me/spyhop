@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         removeSwiftBarPlugin()
         Board.ensure()
         setupStatusItem()
+        offerLegacyCleanup()
         // 로그인 때 뜬 것이면 창은 열지 않고 메뉴바에만 (예전 SwiftBar 처럼 Dock 에도 안 보인다)
         if CommandLine.arguments.contains("--login") { NSApp.setActivationPolicy(.accessory) } else { showWindow() }
         tick()
@@ -261,6 +262,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: link),
               dest.hasSuffix("/menubar/spyhop.5s.py") else { return }
         try? FileManager.default.removeItem(atPath: link)
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.ameba.SwiftBar").isEmpty {  // 떠 있는 SwiftBar 가 우리 아이콘을 바로 내리게
+            NSWorkspace.shared.open(URL(string: "swiftbar://refreshallplugins")!)
+        }
+    }
+
+    static let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// 브라우저판(brew)에서 넘어온 사람에게 한 번만 묻는다: 옛 브라우저판과, Spyhop 때문에만 깔았던 SwiftBar 를 지울지.
+    /// 서버·로그인 항목·메뉴바 플러그인은 묻지 않고 앱이 이미 넘겨받았다. 여기서는 지우는 것만 묻는다
+    func offerLegacyCleanup() {
+        let at = Bundle.main.bundlePath
+        guard at.hasPrefix("/Applications/") || at.hasPrefix(NSHomeDirectory() + "/Applications/"),
+              !UserDefaults.standard.bool(forKey: "legacyCleanupAsked"), let brew = Self.brew else { return }
+        let fm = FileManager.default
+        let prefix = (brew as NSString).deletingLastPathComponent.replacingOccurrences(of: "/bin", with: "")
+        let oldBoard = fm.fileExists(atPath: prefix + "/Cellar/spyhop")
+        // SwiftBar 의 플러그인 폴더가 `spyhop` 명령이 정해 준 우리 폴더이고, 거기 다른 플러그인이 없으면 Spyhop 때문에만 깔린 것이다
+        let ours = NSHomeDirectory() + "/.config/spyhop/swiftbar"
+        let dir = UserDefaults(suiteName: "com.ameba.SwiftBar")?.string(forKey: "PluginDirectory").map { ($0 as NSString).expandingTildeInPath }
+        let swiftBar = fm.fileExists(atPath: "/Applications/SwiftBar.app") && dir == ours
+            && ((try? fm.contentsOfDirectory(atPath: ours))?.filter { !$0.hasPrefix(".") }.isEmpty ?? true)
+        guard oldBoard || swiftBar else { return }
+        UserDefaults.standard.set(true, forKey: "legacyCleanupAsked")
+        let a = NSAlert()
+        a.messageText = "Clean up the old Spyhop?"
+        var lines = ["Spyhop now runs as this app. You no longer need:"]
+        if oldBoard { lines.append("• the old browser version (brew formula)") }
+        if swiftBar { lines.append("• SwiftBar, which only showed the Spyhop menu bar icon") }
+        a.informativeText = lines.joined(separator: "\n")
+        a.addButton(withTitle: "Clean Up")
+        a.addButton(withTitle: "Keep")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        DispatchQueue.global().async {
+            var env = ProcessInfo.processInfo.environment
+            env["HOMEBREW_NO_AUTO_UPDATE"] = "1"
+            func brewRun(_ args: [String]) {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: brew)
+                p.arguments = args
+                p.environment = env
+                p.standardOutput = FileHandle.nullDevice
+                p.standardError = FileHandle.nullDevice
+                try? p.run()
+                p.waitUntilExit()
+            }
+            if swiftBar {
+                NSRunningApplication.runningApplications(withBundleIdentifier: "com.ameba.SwiftBar").forEach { $0.terminate() }
+                if fm.fileExists(atPath: prefix + "/Caskroom/swiftbar") { brewRun(["uninstall", "--cask", "swiftbar"]) }
+                else { NSWorkspace.shared.recycle([URL(fileURLWithPath: "/Applications/SwiftBar.app")]) }
+                try? fm.removeItem(atPath: ours)
+            }
+            if oldBoard { brewRun(["uninstall", "--formula", "--force", "spyhop"]) }
+        }
     }
 
     func needMove() {
