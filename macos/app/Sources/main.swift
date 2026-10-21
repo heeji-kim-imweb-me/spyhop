@@ -63,12 +63,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         NSApp.setActivationPolicy(.regular)  // 창이 있을 때만 Dock·Cmd-Tab 에 보인다
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
             w.title = "Spyhop"
+            // 제목줄을 따로 두지 않고 보드 헤더가 창 맨 위에 온다. 빈 도구 막대(작은 높이)로 신호등을 헤더 가운데에 맞춘다.
+            // 큰 도구 막대(.unified)는 macOS 26 에서 헤더 둘레에 유리 테두리와 빈 알약을 그려서 쓰지 않는다
+            w.titleVisibility = .hidden
+            w.titlebarAppearsTransparent = true
+            w.toolbar = NSToolbar(identifier: "board")
+            w.toolbarStyle = .unifiedCompact
+            w.titlebarSeparatorStyle = .none
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.minSize = NSSize(width: 420, height: 320)
-            let v = WebHost.shared.makeWebView(frame: w.contentView!.bounds)
+            let v = WebHost.shared.makeWebView(frame: w.contentView!.bounds, board: true)
             v.autoresizingMask = [.width, .height]
             w.contentView!.addSubview(v)
             let z = UserDefaults.standard.double(forKey: Self.zoomKey)
@@ -82,11 +89,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// 앱 메뉴 「Settings… ⌘,」: 보드 창을 열고 그 안의 설정 창을 띄운다(보드의 톱니바퀴와 같은 창)
+    @objc func openSettings() {
+        let opened = window == nil
+        showWindow()
+        let js = "var f=document.getElementById('f');if(f&&f.contentWindow&&f.style.display!=='none')f.contentWindow.postMessage('spyhop:settings','*')"
+        // 창을 막 열었으면 보드를 불러올 때까지 조금 기다린다
+        for d in opened ? [1.0, 2.5] : [0.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + d) { [weak self] in self?.boardView?.evaluateJavaScript(js) }
+        }
+    }
+
     // 창이 다른 앱·다른 데스크톱에 완전히 가려지면 웹 화면을 숨겨 쉬게 한다. 브라우저가 가려진 탭을 멈추는 것과 같게
     // (그대로 두면 WebKit 이 가려진 채로 계속 그린다. 실측 CPU 30%대 → 1% 아래)
     func windowDidChangeOcclusionState(_ n: Notification) {
         guard let w = n.object as? NSWindow, w === window else { return }
         boardView?.isHidden = !w.occlusionState.contains(.visible)
+    }
+
+    // 전체 화면에서는 빈 도구 막대가 회색 띠로 헤더(탭·정렬·설정)를 덮는다. 그동안만 숨긴다
+    func windowWillEnterFullScreen(_ n: Notification) {
+        guard let w = n.object as? NSWindow, w === window else { return }
+        w.toolbar?.isVisible = false
+    }
+
+    func windowDidExitFullScreen(_ n: Notification) {
+        guard let w = n.object as? NSWindow, w === window else { return }
+        w.toolbar?.isVisible = true
     }
 
     func windowWillClose(_ n: Notification) {
@@ -99,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         }
     }
 
-    var boardView: WKWebView? { window?.contentView?.subviews.first as? WKWebView }
+    var boardView: WKWebView? { window?.contentView?.subviews.lazy.compactMap { $0 as? WKWebView }.first }  // 도구 막대가 생기면 맨 앞 자식이 웹 화면이 아닐 수 있다
 
     @objc func reload() {
         guard let v = boardView else { return }
@@ -150,7 +179,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         vc.view = v
         popover.contentViewController = vc
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        vc.view.window?.makeKey()
+        // 다른 앱(또는 보드 창)이 전체 화면이면 패널이 그 공간 위에 뜨지 못하고 바탕 공간에 떠서 안 보인다.
+        // 어느 공간·전체 화면 위에도 뜨게 하고 앞으로 올린다(메뉴바 앱들이 쓰는 방식)
+        if let pw = vc.view.window {
+            pw.collectionBehavior.formUnion([.canJoinAllSpaces, .fullScreenAuxiliary])
+            pw.orderFrontRegardless()
+            pw.makeKey()
+        }
     }
 
     func popoverDidClose(_ n: Notification) {
@@ -250,6 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         let main = NSMenu()
         let app = NSMenu()
         app.addItem(withTitle: "About Spyhop", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(.separator())
+        app.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         app.addItem(.separator())
         app.addItem(withTitle: "Hide Spyhop", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Quit Spyhop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
