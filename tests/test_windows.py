@@ -90,6 +90,8 @@ class WinPlatTest(unittest.TestCase):
         self.assertIsNone(B.proc_kind(str(app / 'claude.exe')))
         self.assertEqual(B.proc_kind(str(cli / 'claude.exe')), 'claude')
         self.assertEqual(B.proc_kind(r'C:\x\vendor\bin\codex.exe'), 'codex')
+        # 실행 중에 자동 업데이트된 claude: 돌고 있는 파일 이름이 claude.exe.old.<시각> 으로 바뀐다
+        self.assertEqual(B.proc_kind(str(cli / 'claude.exe.old.1792550068234')), 'claude')
         self.assertIsNone(B.proc_kind(r'C:\Windows\System32\cmd.exe'))
 
     def test_npm_shim_calls_the_node_script(self):

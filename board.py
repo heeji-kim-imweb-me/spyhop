@@ -861,7 +861,8 @@ def proc_kind(comm):
     """실행 파일 경로 → 'claude' / 'codex' / None. 클로드 설치판은 실행 파일 이름이 버전 번호일 수 있다 (…/claude/versions/2.1.296)"""
     base = os.path.basename(comm)
     if WIN:  # claude.exe · codex.exe. Claude 데스크톱 앱(Electron) 자체도 claude.exe 라서 뺀다
-        base = re.sub(r'\.exe$', '', base.lower())
+        # 실행 중에 자동 업데이트되면 Windows 는 돌고 있는 파일을 못 덮어써서 claude.exe.old.<시각> 으로 이름을 바꿔 둔다
+        base = re.sub(r'\.exe(\.old\.\d+)?$', '', base.lower())
         if base == 'claude' and winplat.is_desktop_app(comm):
             return None
     if base in ('claude', 'codex'):

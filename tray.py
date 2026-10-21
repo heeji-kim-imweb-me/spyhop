@@ -357,7 +357,7 @@ class Tray:
             u32.AppendMenuW(m, MF_STRING | MF_GRAYED, 0, 'Board is off · starts when Claude or Codex runs')
             u32.AppendMenuW(m, MF_STRING, ID_START, 'Start the board now')
         u32.AppendMenuW(m, MF_SEPARATOR, 0, None)
-        u32.AppendMenuW(m, MF_STRING, ID_QUIT, 'Quit tray icon (spyhop brings it back)')
+        u32.AppendMenuW(m, MF_STRING, ID_QUIT, 'Hide tray icon')
         pt = W.POINT()
         u32.GetCursorPos(ctypes.byref(pt))
         u32.SetForegroundWindow(self.hwnd)  # 이렇게 해야 바깥을 누르면 메뉴가 닫힌다
