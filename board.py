@@ -2399,7 +2399,10 @@ def _build():
     os.replace(OUT + '.%d.tmp' % os.getpid(), OUT)
     infos = sorted((t['_info'] for t in terms if t.get('_info')), key=lambda i: (i['ws'], i['order']))
     check_board(terms)
-    save_json(STATE, {'at': time.time(), 'sessions': infos})
+    t = current_theme()
+    # version: 앱이 업데이트 뒤 「어디서 올라왔는지」를 적을 때, appearance: 앱 창 제목줄을 테마 밝기에 맞출 때 쓴다
+    save_json(STATE, {'at': time.time(), 'version': VERSION, 'appearance': 'dark' if t in DARK_THEMES else 'system' if t == 'classic' else 'light',
+                      'sessions': infos})
     try:  # 진단 기록은 보드와 상태를 다 쓴 뒤에 남긴다. 여기서 실패해도 보드는 그대로 간다
         save_json(TRACE, {'at': time.time(), 'code': trace['code'], 'inputs': trace['inputs'], 'panes': [x['_tr'] for x in trace['raw']]})
     except Exception as e:
@@ -2563,8 +2566,34 @@ PORT = 47613
 CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))
 # 이 보드가 뜰 때의 진짜 코드 위치. 로그인 자동 시작은 opt 링크로 띄워서, brew upgrade 뒤에 다시 풀면 새 버전을 가리킨다
 ME = os.path.realpath(__file__)
-_V = re.search(r'/Cellar/spyhop/([^/]+)/', ME)
-VERSION = _V.group(1) if _V else 'dev'  # brew 설치본은 폴더 이름이 곧 버전. 레포에서 돌리면 dev  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
+
+
+def version_of(path):
+    """코드 위치로 버전을 안다. brew 설치본은 Cellar 폴더 이름, Spyhop.app 안의 코드는 앱의 Info.plist. 둘 다 아니면 None"""
+    m = re.search(r'/Cellar/spyhop/([^/]+)/', path or '')
+    if m:
+        return m.group(1)
+    m = re.match(r'(.*\.app)/Contents/Resources/spyhop/', path or '')
+    if m:
+        try:
+            import plistlib
+            with open(m.group(1) + '/Contents/Info.plist', 'rb') as f:
+                return plistlib.load(f).get('CFBundleShortVersionString') or None
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+def install_kind(path):
+    """'brew' / 'app'(Spyhop.app 안) / 'dev'(레포 등)"""
+    if '/Cellar/spyhop/' in (path or ''):
+        return 'brew'
+    if re.search(r'\.app/Contents/Resources/spyhop/', path or ''):
+        return 'app'
+    return 'dev'
+
+
+VERSION = version_of(ME) or 'dev'  # 레포에서 돌리면 dev  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
 SEA = '<div class="sea" aria-hidden="true"></div><script>window.ORCA="<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 36 64\\" width=\\"100%\\" height=\\"100%\\" aria-hidden=\\"true\\"><g stroke=\\"currentColor\\" stroke-width=\\".7\\" stroke-linejoin=\\"round\\"><path fill=\\"#10131a\\" d=\\"M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z\\"/><path fill=\\"#9299a5\\" stroke=\\"none\\" d=\\"M9 40Q13 36 16 40L15 46Q11 44 9 40Z\\"/><path fill=\\"#10131a\\" d=\\"M24 29Q32 33 32 40Q27 39 22 33Z\\"/><path fill=\\"none\\" d=\\"M25 10Q27 11 29 10\\"/><circle cx=\\"24\\" cy=\\"16\\" r=\\".8\\" fill=\\"#10131a\\" stroke=\\"none\\"/></g></svg>";(function(){var sea=document.querySelector(".sea");if(!sea)return;function fitSea(){var h=sea.parentNode.getBoundingClientRect(),a=document.querySelector(".brand").getBoundingClientRect().right-h.left+16,b=h.right-document.querySelector(".tiles").getBoundingClientRect().left+16;sea.style.left=a+"px";sea.style.right=b+"px"}fitSea();addEventListener("resize",fitSea);function pop(){var o=document.createElement("div");o.className="orca";o.innerHTML=window.ORCA;var w=sea.getBoundingClientRect().width-30;if(w<=0)return;o.style.left=(Math.random()*w)+"px";sea.appendChild(o);setTimeout(function(){o.remove()},3200)}setTimeout(pop,400)})()</script>'  # 열 때 한 번 헤더에서, 그 뒤엔 세션이 일을 끝낼 때만 그 카드 위로 범고래가 수직으로 고개를 내밀어 둘러본다(spyhop)
 PANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'panel.html')
 
@@ -2926,12 +2955,23 @@ def claude_pid(session_id):
     return None
 
 
+def read_pidfile(pidfile=None):
+    """「pid 경로 시작시각」(옛 기록은 「pid 경로」). 경로에 빈칸이 있을 수 있어 앞뒤 칸으로 자른다"""
+    with open(pidfile or PIDFILE) as f:
+        parts = f.read().split(' ')
+    parts = [p.strip() for p in parts]
+    if len(parts) >= 3:
+        try:
+            return int(parts[0]), ' '.join(parts[1:-1]), float(parts[-1])
+        except ValueError:
+            pass
+    return int(parts[0]), ' '.join(parts[1:]), None
+
+
 def watcher_record(pidfile=None):
     """PID 번호만 믿지 않고 실행 파일·감시 인자·시작 시각을 확인한다. 옛 두 칸 기록도 읽는다."""
     try:
-        with open(pidfile or PIDFILE) as f:
-            parts = f.read().split()
-        pid, path = int(parts[0]), parts[1]
+        pid, path, start_rec = read_pidfile(pidfile)
         if pid <= 0 or os.path.basename(path) != 'board.py':
             return None
         p = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart=,comm='],
@@ -2939,17 +2979,19 @@ def watcher_record(pidfile=None):
         if len(p) != 6 or not os.path.basename(p[5].strip()).lower().startswith('python'):
             return None
         start = _ps_start(p[:5])
-        if not start or len(parts) > 2 and float(parts[2]) != start:
+        if not start or start_rec is not None and start_rec != start:
             return None
         args = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
                               capture_output=True, text=True, timeout=5).stdout.strip()
-        argv = args.rsplit(None, 2)
-        if len(argv) != 3 or argv[-1] != '--watch':
+        if not args.endswith(' --watch'):
             return None
+        head = args[:-len(' --watch')]
         # brew가 opt 링크를 바꿔도 기존 감시의 실행 인자는 여전히 opt 경로다.
         opt_path = re.sub(r'/Cellar/spyhop/[^/]+/', '/opt/spyhop/', path)
-        if (os.path.realpath(argv[-2]) != os.path.realpath(path)
-                and (opt_path == path or os.path.normpath(argv[-2]) != opt_path)):
+        if head.endswith(' ' + path) or opt_path != path and head.endswith(' ' + opt_path):
+            return pid, path, start
+        argv = head.rsplit(None, 1)
+        if len(argv) != 2 or os.path.realpath(argv[-1]) != os.path.realpath(path):
             return None
         return pid, path, start
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
@@ -2965,10 +3007,10 @@ UPDATE_FILE = os.path.expanduser('~/.spyhop/update.json')  # 마지막 업데이
 
 def note_update(old_path):
     """옛 버전 보드를 새 버전으로 바꿀 때 한 번 적는다. 헤더 버전 배지가 이걸 보고 반짝인다."""
-    m = re.search(r'/Cellar/spyhop/([^/]+)/', old_path or '')
-    if not m or VERSION == 'dev' or m.group(1) == VERSION:
+    old = version_of(old_path)
+    if not old or VERSION == 'dev' or old == VERSION:
         return
-    save_json(UPDATE_FILE, {'from': m.group(1), 'to': VERSION, 'at': time.time(), 'seen': False})
+    save_json(UPDATE_FILE, {'from': old, 'to': VERSION, 'at': time.time(), 'seen': False})
 
 
 def load_update():
@@ -3033,6 +3075,8 @@ def stop_if_outdated():
     pid, running, _ = record
     if running == ME:
         return
+    if {install_kind(running), install_kind(ME)} == {'brew', 'app'}:  # brew 설치본과 Spyhop.app 은 서로의 서버를 내리지 않는다
+        return
     if watcher_record() != record:  # 확인 사이에 PID가 재사용됐으면 신호를 보내지 않는다
         return
     try:
@@ -3077,6 +3121,7 @@ def write_loader():
 
 
 PLIST = os.path.expanduser('~/Library/LaunchAgents/com.spyhop.board.plist')
+APP_PLIST = os.path.expanduser('~/Library/LaunchAgents/com.spyhop.app.plist')  # Spyhop.app 이 만드는, 앱을 메뉴바로 여는 로그인 항목
 # brew 로 깔면 버전마다 폴더가 바뀐다(Cellar/spyhop/<버전>). 로그인 자동 시작에는 늘 같은 opt 경로를 남긴다
 HERE = re.sub(r'/Cellar/spyhop/[^/]+', '/opt/spyhop', os.path.dirname(os.path.abspath(__file__)))
 
@@ -3088,8 +3133,9 @@ def autostart_on():
 def set_autostart(on):
     """맥 로그인 때 보드를 켜는 LaunchAgent 를 등록/해제한다. 끌 때는 파일만 지워서 지금 돌고 있는 보드는 살려 둔다."""
     if not on:
-        if os.path.exists(PLIST):
-            os.remove(PLIST)
+        for p in (PLIST, APP_PLIST):
+            if os.path.exists(p):
+                os.remove(p)
         return
     path = os.pathsep.join(['/usr/local/bin', '/opt/homebrew/bin', os.path.expanduser('~/.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin'])
     os.makedirs(os.path.dirname(PLIST), exist_ok=True)
@@ -3108,9 +3154,20 @@ def set_autostart(on):
     subprocess.run(['launchctl', 'bootstrap', 'gui/' + uid, PLIST], capture_output=True)  # 이미 보드가 돌고 있으면 새로 뜬 쪽은 바로 끝난다
 
 
+def installed_app():
+    """응용 프로그램 폴더에 깔린 Spyhop.app 경로, 없으면 None"""
+    for d in ('/Applications', os.path.expanduser('~/Applications')):
+        p = os.path.join(d, 'Spyhop.app')
+        if os.path.isdir(p):
+            return p
+    return None
+
+
 def open_board():
-    """메뉴바의 'Open full board': 기본 브라우저로 보드를 연다."""
-    subprocess.run(['open', 'http://127.0.0.1:%d/' % PORT])
+    """메뉴바의 'Open full board': Spyhop.app 이 깔려 있으면 앱 창으로, 없으면 기본 브라우저로 보드를 연다."""
+    app = installed_app()
+    if not app or subprocess.run(['open', '-a', app], capture_output=True).returncode != 0:
+        subprocess.run(['open', 'http://127.0.0.1:%d/' % PORT])
 
 
 def watch():
@@ -3224,8 +3281,10 @@ def _doctor_get(path, timeout=3):
 
 
 def _where(path):
-    m = re.search(r'/Cellar/spyhop/([^/]+)/', path or '')
-    return ('brew %s' % m.group(1)) if m else (path.replace(os.path.expanduser('~'), '~') if path else '?')
+    kind = install_kind(path)
+    if kind in ('brew', 'app') and version_of(path):
+        return '%s %s' % (kind, version_of(path))
+    return path.replace(os.path.expanduser('~'), '~') if path else '?'
 
 
 def doctor(argv):
@@ -3239,9 +3298,7 @@ def doctor(argv):
     # 1) 보드가 도는가, 어떤 코드로
     pid, running = None, ''
     try:
-        with open(PIDFILE) as f:
-            parts = f.read().split()
-        pid, running = int(parts[0]), (parts[1] if len(parts) > 1 else '')
+        pid, running, _ = read_pidfile()
         os.kill(pid, 0)
         alive = True
     except (OSError, ValueError, IndexError):
@@ -3251,7 +3308,7 @@ def doctor(argv):
     else:
         same = running == me
         say('  board:         running (pid %d) from %s%s' % (pid, _where(running),
-            '' if same else '  <-- DIFFERENT CODE than this doctor. Run: spyhop  (restarts it on this version)'))
+            '' if same else '  <-- DIFFERENT CODE than this doctor. Run: spyhop  (restarts it on this version; with Spyhop.app, quit and reopen the app)'))
     st = _doctor_get('/state.json')
     if isinstance(st, Exception):
         say('  board web:     not reachable on 127.0.0.1:%d (%s)' % (PORT, type(st).__name__))
@@ -3639,7 +3696,7 @@ dl{margin:6px 0 0}dt{font-size:11px;color:var(--ink3);margin-top:8px}dd{margin:2
 .ext{display:inline-block;margin-top:10px;font-size:12px}
 #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--card);font-size:12px;
 padding:6px 12px;border-radius:7px;opacity:0;transition:opacity .2s;z-index:20;pointer-events:none}#toast.on{opacity:.92}
-.card.dragging{opacity:.25}.card.floating{position:fixed;left:0;top:0;z-index:40;margin:0;pointer-events:none;box-shadow:0 14px 34px rgba(15,23,42,.28);will-change:transform}.floating{transform-origin:0 0}body.dragging-on{cursor:grabbing;user-select:none}.card.moving{position:relative;opacity:.85}.card.moving:after,#busy{content:"";background:linear-gradient(90deg,var(--wait),var(--wait)) no-repeat,color-mix(in srgb,var(--wait) 18%,transparent);background-size:35% 100%,100% 100%;animation:slide 1.1s cubic-bezier(.4,0,.2,1) infinite}.card.moving:after{position:absolute;left:10px;right:10px;bottom:4px;height:2px;border-radius:2px}@keyframes slide{from{background-position:-60% 0,0 0}to{background-position:160% 0,0 0}}#busy{position:fixed;left:0;right:0;top:0;height:2px;z-index:60;opacity:0;transition:opacity .25s ease;pointer-events:none}#busy.on{opacity:1}.card{position:relative}.col{transition:background-color .15s ease,box-shadow .15s ease}.col.drop{background:color-mix(in srgb,var(--wait) 12%,var(--col));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 55%,transparent)}.col.ghost{min-width:0;overflow:hidden;background:transparent;opacity:0;transition:opacity .2s ease,background-color .15s ease,border-color .15s ease}.col.ghost.open{opacity:1}.col.ghost h2{white-space:nowrap;color:var(--ink3)}.slot{margin-top:8px;padding:12px 10px;border:1.5px dashed var(--line);border-radius:8px;font-size:12px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .15s ease,border-color .15s ease,transform .15s ease}.slot.drop{border-color:var(--wait);color:var(--ink);background:color-mix(in srgb,var(--wait) 14%,var(--card));transform:scale(1.03)}main{transition:grid-template-columns .26s cubic-bezier(.2,.8,.2,1)}body.dragging-on .card:not(.dragging):hover{transform:none;box-shadow:none}#dropbar-unused{display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:25;background:var(--card);border:1px dashed var(--wait);
+.card.dragging{opacity:.25}.card.floating{position:fixed;left:0;top:0;z-index:40;margin:0;pointer-events:none;box-shadow:0 14px 34px rgba(15,23,42,.28);will-change:transform}.floating{transform-origin:0 0}body.dragging-on{cursor:grabbing;user-select:none}.card.moving{position:relative;opacity:.85}.card.moving:after,#busy{content:"";background:linear-gradient(90deg,var(--wait),var(--wait)) no-repeat,color-mix(in srgb,var(--wait) 18%,transparent);background-size:35% 100%,100% 100%;animation:slide 1.1s cubic-bezier(.4,0,.2,1) infinite}.card.moving:after{position:absolute;left:10px;right:10px;bottom:4px;height:2px;border-radius:2px}@keyframes slide{from{background-position:-60% 0,0 0}to{background-position:160% 0,0 0}}#busy{position:fixed;left:0;right:0;top:0;height:2px;z-index:60;opacity:0;transition:opacity .25s ease;pointer-events:none;animation-play-state:paused}#busy.on{opacity:1;animation-play-state:running}.card{position:relative}.col{transition:background-color .15s ease,box-shadow .15s ease}.col.drop{background:color-mix(in srgb,var(--wait) 12%,var(--col));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 55%,transparent)}.col.ghost{min-width:0;overflow:hidden;background:transparent;opacity:0;transition:opacity .2s ease,background-color .15s ease,border-color .15s ease}.col.ghost.open{opacity:1}.col.ghost h2{white-space:nowrap;color:var(--ink3)}.slot{margin-top:8px;padding:12px 10px;border:1.5px dashed var(--line);border-radius:8px;font-size:12px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .15s ease,border-color .15s ease,transform .15s ease}.slot.drop{border-color:var(--wait);color:var(--ink);background:color-mix(in srgb,var(--wait) 14%,var(--card));transform:scale(1.03)}main{transition:grid-template-columns .26s cubic-bezier(.2,.8,.2,1)}body.dragging-on .card:not(.dragging):hover{transform:none;box-shadow:none}#dropbar-unused{display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:25;background:var(--card);border:1px dashed var(--wait);
 border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 6px 24px rgba(60,20,50,.18)}
 #confirm{display:none;position:fixed;inset:0;z-index:30;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #confirm.on{display:flex}#confirm .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}
@@ -3660,13 +3717,14 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 
 .ver{position:relative;display:inline-flex;align-items:center;gap:5px;margin-left:8px;font:500 10.5px -apple-system,sans-serif;color:var(--ink3);padding:1px 7px;border-radius:9px;border:1px solid transparent;vertical-align:1px}
 .ver.new{color:var(--ink2);border-color:color-mix(in srgb,var(--wait) 45%,transparent);background:color-mix(in srgb,var(--wait) 8%,transparent);cursor:default}
-.ver .dot{width:6px;height:6px;border-radius:50%;background:var(--wait);animation:verglow 2.4s ease-in-out infinite}
-@keyframes verglow{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--wait) 22%,transparent)}}
+.ver .dot{position:relative;width:6px;height:6px}.ver .dot:after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--wait)}
+.ver .dot:before{content:"";position:absolute;inset:-4px;border-radius:50%;background:color-mix(in srgb,var(--wait) 22%,transparent);transform:scale(.43);animation:verglow 2.4s ease-in-out infinite}
+@keyframes verglow{50%{transform:scale(1)}} /* 그림자 퍼짐 대신 점 뒤 원을 키운다: 같은 모양(0→4px 고리)인데 WebKit(맥 앱 창)에서 매 프레임 다시 그리지 않는다 */
 .vtip{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:50;white-space:nowrap;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:500 11.5px -apple-system,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.18)}
 .ver.new:hover .vtip{display:block}.vtip b{font-weight:700}.vtip a{display:block;margin-top:4px;color:var(--wait);text-decoration:none;font-weight:600}
 .vtip:after{content:"";position:absolute;left:0;right:0;top:-9px;height:9px} /* 배지와 말풍선 사이에서도 hover 유지 */
 .vtip:before{content:"";position:absolute;left:14px;top:-5px;width:8px;height:8px;background:var(--card);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
-@media (prefers-reduced-motion:reduce){.ver .dot{animation:none}}
+@media (prefers-reduced-motion:reduce){.ver .dot:before{animation:none}}
 #picker{display:none;position:fixed;inset:0;z-index:45;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #picker.on{display:flex}#picker .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}#picker h3{margin:0 0 4px;font-size:15px}
 #picker .pk-sub{margin:0 0 12px;color:var(--ink3);font-size:12px}#pklist{max-height:50vh;overflow-y:auto;margin-bottom:12px}
