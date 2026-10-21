@@ -485,11 +485,12 @@ def autostart_on():
 
 
 def set_autostart(on, board):
-    """로그인 때 보드를 켠다 (현재 사용자 Run 키). 끌 때는 값만 지우고 지금 돌고 있는 보드는 둔다."""
+    """로그인 때 트레이 아이콘을 띄우고 보드도 켠다 (현재 사용자 Run 키). 끌 때는 값만 지우고 지금 돌고 있는 보드는 둔다."""
     import winreg
+    tray = os.path.join(os.path.dirname(board), 'tray.py')
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
         if on:
-            winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, '"%s" -X utf8 "%s" --ensure' % (windowed_python(), board))
+            winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, '"%s" -X utf8 "%s" --start-board' % (windowed_python(), tray))
         else:
             try:
                 winreg.DeleteValue(k, RUN_NAME)

@@ -58,13 +58,15 @@ git clone https://github.com/leeleelee3264/spyhop
 
 The board opens in your default browser at `http://127.0.0.1:47613/`. `spyhop.cmd doctor` works as on macOS.
 
+A **tray icon** appears next to the clock, like the macOS menu bar item. It shows how many sessions are waiting for you (gray when the board is off). Click it to open the small board panel; right-click it to see every session and jump to one. It also restarts the board when Claude or Codex runs. Choose **Hide tray icon** in its menu to remove it; `spyhop.cmd` brings it back.
+
 - Sessions in Windows Terminal, VS Code, PowerShell or cmd are grouped by folder and terminal. Sessions the **Claude desktop app** runs show up too, under `folder · Claude app`.
 - **Claude app Code tab sessions** you used in the last 12 hours show up even when the app has put them to sleep (no program running), read from the app's own session records. Archived ones are left out. This works on macOS too.
 - **Cowork** sessions show up only when the app keeps their records on your computer (`local-agent-mode-sessions`), under `folder · Cowork` or `Cowork`. Recent Cowork versions keep sessions inside the Cowork virtual machine's disk, so those cannot be shown. Chat conversations are not on your computer either.
 - **Go to session** brings that terminal or app window to the front. It cannot pick the exact tab.
 - **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays.
 - Summaries, AI topic grouping and **Start at login** (a `Spyhop` entry under `HKCU\...\CurrentVersion\Run`) work as on macOS.
-- Not on Windows yet: Orca, the menu bar, moving sessions, and automatic updates.
+- Not on Windows yet: Orca, moving sessions, and automatic updates.
 - DeepSeek reads its key from the `DEEPSEEK_API_KEY` environment variable instead of the Keychain.
 - To run the tests on Windows, use UTF-8 mode: `python -X utf8 -m unittest discover -s tests`.
 

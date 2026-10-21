@@ -1,4 +1,5 @@
 """Windows 에서 ps · lsof 대신 쓰는 것들(winplat)을 실제 자식 프로세스로 확인한다. 맥에서는 건너뛴다."""
+import json
 import os
 import subprocess
 import sys
@@ -99,6 +100,27 @@ class WinPlatTest(unittest.TestCase):
         shim = W.npm_shim(str(cmd))
         self.assertEqual(shim[1], str(npm / 'node_modules' / '@openai' / 'codex' / 'bin' / 'codex.js'))
         self.assertEqual(W.npm_shim(r'C:\bin\claude.exe'), [r'C:\bin\claude.exe'])
+
+    def test_tray_icon_and_state(self):
+        import tray as T
+        for text in ('·', '3', '99'):
+            icon = T.make_icon(text, T.BLUE)
+            self.assertTrue(icon, text)
+            T.u32.DestroyIcon(icon)
+        state = self.root / 'state.json'
+        old = B.STATE
+        try:
+            B.STATE = str(state)
+            self.assertEqual(T.read_state(), (False, []))  # 상태 파일이 없으면 보드가 꺼진 것
+            sessions = [{'handle': 'proc_1', 'status': 'wait'}, {'handle': 'proc_2', 'status': 'busy'}]
+            state.write_text(json.dumps({'at': time.time(), 'sessions': sessions}), encoding='utf-8')
+            self.assertEqual(T.read_state(), (True, sessions))
+            state.write_text(json.dumps({'at': time.time() - T.STALE - 5, 'sessions': sessions}), encoding='utf-8')
+            self.assertEqual(T.read_state(), (False, []))  # 오래 안 고친 상태는 꺼진 보드
+        finally:
+            B.STATE = old
+        self.assertEqual(T.waited(time.time()), 'now')
+        self.assertEqual(T.waited(time.time() - 300), '5m')
 
     def test_process_rows_include_this_python(self):
         rows = {r[0]: r for r in W.process_rows()}

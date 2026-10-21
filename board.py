@@ -3677,7 +3677,7 @@ def render_settings():
                       for k, label in (('location', 'Location'), ('ai', 'AI topics'))))
             + sec('Orca animation', 'Orcas spyhop in the header',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({orcas:this.checked})"><i></i></label>' % (' checked' if orcas_on() else ''))
-            + sec('Start at login', 'Run the board when you log in to this Mac',
+            + sec('Start at login', 'Run the board and the tray icon when you log in to this PC' if WIN else 'Run the board when you log in to this Mac',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({autostart:this.checked})"><i></i></label>' % (' checked' if autostart_on() else ''))
             + sec('Update every', 'Longer uses less CPU and fewer model calls',
                   pills('refresh', REFRESH_OPTS, refresh_sec(), lambda v: '%ds' % v))
