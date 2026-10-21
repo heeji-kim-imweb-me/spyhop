@@ -1183,7 +1183,7 @@ def _session_title(a):
 
 def _cmux_focus(a):
     """cmux 는 tty 대신 작업 공간·패널 ID 로 칸을 찾는다."""
-    if not a.get('cmux_workspace_id'):
+    if not (a.get('cmux_workspace_id') and a.get('cmux_panel_id')):
         return False
     cmux = find_bin('cmux') or '/Applications/cmux.app/Contents/Resources/bin/cmux'
     cmd = [cmux, 'focus-panel', '--panel', a['cmux_panel_id'], '--workspace', a['cmux_workspace_id']]
