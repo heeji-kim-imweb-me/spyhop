@@ -20,6 +20,8 @@ final class WebHost: NSObject, WKUIDelegate, WKNavigationDelegate, WKScriptMessa
         ucc.add(WeakHandler(self), name: "spyhopCopy")
         if board { ucc.add(WeakHandler(self), name: "spyhopChrome") }
         cfg.userContentController = ucc
+        // 보드 서버는 이 이름표를 단 요청에만 화면을 준다(브라우저로는 열리지 않게)
+        cfg.applicationNameForUserAgent = "Spyhop/" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "app")
         // 로더(file://)가 보드(http://127.0.0.1)를 iframe 으로 부르고, 꺼지면 다시 붙을 때까지 기다린다
         cfg.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
         let v: WKWebView = board ? BoardWebView(frame: frame, configuration: cfg) : WKWebView(frame: frame, configuration: cfg)
