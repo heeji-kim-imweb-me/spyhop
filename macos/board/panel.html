@@ -4,9 +4,9 @@
 <title>Spyhop</title><link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2032%2032%22%3E%3Cdefs%3E%3CclipPath%20id=%22t%22%3E%3Crect%20width=%2232%22%20height=%2226.2%22/%3E%3C/clipPath%3E%3C/defs%3E%3Crect%20width=%2232%22%20height=%2232%22%20rx=%228%22%20fill=%22%233182f6%22/%3E%3Cg%20clip-path=%22url%28%23t%29%22%3E%3Cg%20transform=%22translate%281.5%202%29%20scale%28.82%29%22%3E%3Cg%20stroke=%22%230b1220%22%20stroke-width=%22.7%22%20stroke-linejoin=%22round%22%3E%3Cpath%20fill=%22%2310131a%22%20d=%22M22%203C28%203%2030%209%2029%2017L28%2036C28%2047%2025%2055%2021%2059L28%2062L19%2061L11%2063L16%2057C10%2048%207%2037%208%2024C8%2013%2012%206%2018%204Q20%203%2022%203Z%22/%3E%3Cpath%20fill=%22%23fff%22%20stroke=%22none%22%20d=%22M28%2010Q30%2014%2028%2023L26%2039Q22%2042%2021%2035L23%2023Q27%2018%2028%2010Z%22/%3E%3Cpath%20fill=%22%23fff%22%20stroke=%22none%22%20d=%22M15%2012C12%2013%2012%2017%2015%2018C18%2019%2021%2016%2021%2013C20%2011%2017%2011%2015%2012Z%22/%3E%3Cpath%20fill=%22%2310131a%22%20d=%22M24%2029Q32%2033%2032%2040Q27%2039%2022%2033Z%22/%3E%3Ccircle%20cx=%2224%22%20cy=%2216%22%20r=%22.8%22%20fill=%22%2310131a%22%20stroke=%22none%22/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cpath%20d=%22M3%2027.2%20Q7%2025.3%2011%2027.2%20T19%2027.2%20T27%2027.2%22%20fill=%22none%22%20stroke=%22%23fff%22%20stroke-width=%222.2%22%20stroke-linecap=%22round%22/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f7f8fa;--card:#fff;--line:rgba(20,24,40,.08);--ink:#172b4d;--ink2:#44546f;--ink3:#8590a2;
---wait:#3fa877;--busy:#e283b0;--done:#5cb88f;--now:#d9a944;--left:#d3d8e0;--chip:#eef0f4}
+--wait:#2f81f7;--busy:#a371f7;--done:#5cb88f;--now:#d9a944;--left:#d3d8e0;--chip:#eef0f4}
 @media (prefers-color-scheme:dark){:root{--bg:#1c1f23;--card:#262a2f;--line:rgba(255,255,255,.07);--ink:#e6e9ee;
---ink2:#a8b2bf;--ink3:#76808d;--left:#3d444c;--chip:#31363c;--wait:#5fc796;--busy:#ee9cc2}}
+--ink2:#a8b2bf;--ink3:#76808d;--left:#3d444c;--chip:#31363c;--wait:#4493f8;--busy:#b78bf9}}
 *{box-sizing:border-box}html,body{margin:0;width:100%;overflow-x:hidden;background:var(--bg);color:var(--ink);
 font:12.5px/1.4 -apple-system,"Apple SD Gothic Neo",sans-serif;-webkit-user-select:none;user-select:none}
 html,body{height:100%;overflow:hidden}
@@ -16,16 +16,16 @@ html,body{height:100%;overflow:hidden}
 .logo{width:22px;height:22px;border-radius:6px;overflow:hidden;background:none;display:flex;align-items:center;justify-content:center}
 .top b{font-size:14px;flex:1}.top small{color:var(--ink3);font-size:11px}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
-.stat{min-width:0;background:var(--card);border-radius:10px;padding:9px 11px;border:1px solid var(--line)}
+.stat{min-width:0;background:var(--card);border-radius:12px;padding:9px 11px;border:1px solid var(--line)}
 .stat span{display:block;font-size:11px;color:var(--ink3);font-weight:600}
 .stat b{font-size:22px;line-height:1.15;font-weight:800}
 .stat.wait b{color:var(--wait)}.stat.busy b{color:var(--busy)}
 .sec{margin-bottom:12px}
 .sec h3{display:flex;justify-content:space-between;margin:0 2px 6px;font-size:10.5px;letter-spacing:.06em;color:var(--ink3);font-weight:700}
-.list{background:var(--card);border-radius:10px;border:1px solid var(--line);overflow:hidden}
+.list{background:var(--card);border-radius:12px;border:1px solid var(--line);overflow:hidden}
 .row{position:relative;padding:9px 11px 9px 14px;cursor:pointer;border-top:1px solid var(--line)}
-.row:first-child{border-top:0}.row:hover{background:color-mix(in srgb,var(--ink) 5%,transparent)}
-.row:before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--st)}
+.row:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--st)}.row{padding-left:16px}.row:first-child{border-top:0}.row:hover{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+
 .row.wait{--st:var(--wait)}.row.busy{--st:var(--busy)}
 .l1{display:flex;gap:8px;align-items:baseline}
 .t{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
