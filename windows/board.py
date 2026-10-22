@@ -2847,9 +2847,6 @@ def serve():
                 return self.send(200, open(OUT, 'rb').read(), 'text/html; charset=utf-8')
             if u.path == '/panel':
                 page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1)
-                if WIN:  # 보드 서버가 브라우저를 열면 백그라운드라 창이 뒤에 숨는다. 앞에 있는 패널 창이 직접 연다
-                    page = page.replace('<div class="btn" onclick="fetch(\'/open-board\')">Open full board</div>',
-                                        '<a class="btn" href="/" target="_blank" rel="noopener" style="text-decoration:none">Open full board</a>')
                 page = page.replace('__TOKEN__', token()).replace('__LOGO__', orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1)) \
                     .replace('<html lang="ko">', '<html lang="ko" data-theme="%s">' % current_theme(), 1)
                 return self.send(200, page.encode(), 'text/html; charset=utf-8')
@@ -3401,8 +3398,9 @@ def installed_app():
 
 def open_board():
     """메뉴바의 'Open full board': Spyhop.app 이 깔려 있으면 앱 창으로, 없으면 기본 브라우저로 보드를 연다."""
-    if WIN:
-        os.startfile('http://127.0.0.1:%d/' % PORT)
+    if WIN:  # 트레이가 떠 있으면 Spyhop 창(전용 Edge 앱 창)으로, 없으면 기본 브라우저로
+        if not winplat.ask_tray_to_open_board():
+            os.startfile('http://127.0.0.1:%d/' % PORT)
         return
     app = installed_app()
     if not app or subprocess.run(['open', '-a', app], capture_output=True).returncode != 0:
