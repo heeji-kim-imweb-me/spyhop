@@ -10,12 +10,12 @@ Reference for things the README doesn't need to say.
 | Platform | macOS, Python 3.9+ (standard library only, no `pip install`) |
 | Needs | one summarizer: `claude` or `codex` logged in, or a DeepSeek API key. The `orca` CLI is optional (adds workspace columns, moving and helper lines) |
 | DeepSeek (optional) | Faster summaries (about 6 s per session). Store a key once: `security add-generic-password -s deepseek-api -a "$USER" -w '<key>'` |
-| Start | `./spyhop`, or turn on **Start at login** in Settings |
+| Start | Open Spyhop, or turn on **Start at login** in Settings |
 | Stops | By itself after 30 minutes with no AI sessions open, and on logout |
 | Is it running? | `curl -s http://127.0.0.1:47613/state.json` returns JSON |
 | Logs | `/tmp/progress-board/watch.log` · `~/Library/Logs/spyhop.log` when started at login |
 | Settings / groups | `~/.spyhop/config.json` · `~/.spyhop/groups.json` · TODO check marks in `~/.spyhop/overrides.json` |
-| Diagnose | `spyhop doctor` (`--titles` to include titles) |
+| Diagnose | `/usr/bin/python3 /Applications/Spyhop.app/Contents/Resources/spyhop/board.py --doctor` (`--titles` to include titles) |
 | Request key | `/tmp/progress-board/token` (changing requests must carry it; only the board page has it) |
 | Cached summaries | `/tmp/progress-board/auto/<transcript>.json` (delete one to re-summarize that session from scratch) |
 | Port | `127.0.0.1:47613` (local only) |
@@ -69,8 +69,8 @@ Each product lives in its own folder and shares no code with the others.
 
 | Folder | Product |
 |---|---|
-| `macos/` | Spyhop.app. `app/` is the Swift shell, `board/` is the board the app bundles (`board.py`, `panel.html`, `orca_art.py`, its tests and `tools/demo_screens.py`), `build.sh` builds the app and DMG |
-| `legacy/mac-browser/` | The brew version (browser board and SwiftBar menu bar). Bug fixes only |
+| `macos/` | Spyhop.app, installed with `brew install leeleelee3264/tap/spyhop`. `app/` is the Swift shell, `board/` is the board the app bundles (`board.py`, `panel.html`, `orca_art.py`, its tests and `tools/demo_screens.py`), `build.sh` builds the app and DMG |
+| `legacy/mac-browser/` | The old browser version (browser board and SwiftBar menu bar). No longer released |
 | `docs/`, `site/` | README pictures, details and the intro page |
 
 Inside a board folder:

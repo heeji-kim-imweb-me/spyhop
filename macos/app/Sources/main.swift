@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         removeSwiftBarPlugin()
         Board.ensure()
         setupStatusItem()
+        offerLegacyCleanup()
         // 로그인 때 뜬 것이면 창은 열지 않고 메뉴바에만 (예전 SwiftBar 처럼 Dock 에도 안 보인다)
         if CommandLine.arguments.contains("--login") { NSApp.setActivationPolicy(.accessory) } else { showWindow() }
         tick()
@@ -261,6 +262,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         guard let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: link),
               dest.hasSuffix("/menubar/spyhop.5s.py") else { return }
         try? FileManager.default.removeItem(atPath: link)
+        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.ameba.SwiftBar").isEmpty {  // 떠 있는 SwiftBar 가 우리 아이콘을 바로 내리게
+            NSWorkspace.shared.open(URL(string: "swiftbar://refreshallplugins")!)
+        }
+    }
+
+    static let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// 브라우저판(brew)에서 넘어온 사람에게 한 번만 묻는다: 옛 브라우저판을 지울지.
+    /// 서버·로그인 항목·메뉴바 플러그인은 묻지 않고 앱이 이미 넘겨받았다. SwiftBar 는 다른 플러그인을 쓸 수 있어 건드리지 않는다
+    func offerLegacyCleanup() {
+        let at = Bundle.main.bundlePath
+        guard at.hasPrefix("/Applications/") || at.hasPrefix(NSHomeDirectory() + "/Applications/"),
+              !UserDefaults.standard.bool(forKey: "legacyCleanupAsked"), let brew = Self.brew else { return }
+        let prefix = (brew as NSString).deletingLastPathComponent.replacingOccurrences(of: "/bin", with: "")
+        guard FileManager.default.fileExists(atPath: prefix + "/Cellar/spyhop") else { return }
+        UserDefaults.standard.set(true, forKey: "legacyCleanupAsked")
+        let a = NSAlert()
+        a.messageText = "Remove the old Spyhop?"
+        a.informativeText = "Spyhop now runs as this app. The old browser version (brew formula) is no longer needed."
+        a.addButton(withTitle: "Remove")
+        a.addButton(withTitle: "Keep")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        DispatchQueue.global().async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: brew)
+            p.arguments = ["uninstall", "--formula", "--force", "spyhop"]
+            var env = ProcessInfo.processInfo.environment
+            env["HOMEBREW_NO_AUTO_UPDATE"] = "1"
+            p.environment = env
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            p.waitUntilExit()
+        }
     }
 
     func needMove() {
