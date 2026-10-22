@@ -1072,7 +1072,7 @@ def agent_procs():
 
 
 
-# ---------- 오르카 밖 터미널 (iTerm2 · 터미널 · Ghostty · WezTerm …) ----------
+# ---------- 오르카 밖 터미널 (iTerm2 · 터미널 · Ghostty · WezTerm · cmux …) ----------
 TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'WezTerm', 'ghostty': 'Ghostty',
               'vscode': 'VS Code', 'tmux': 'tmux', 'WarpTerminal': 'Warp', 'Hyper': 'Hyper', 'kitty': 'kitty', 'alacritty': 'Alacritty'}
 
@@ -1116,7 +1116,7 @@ def _osa(script, want=None):
 
 
 def focus_outside(pid):
-    """오르카 밖 세션의 창을 앞으로. 터미널마다 방법이 다르다(tty 로 찾는다).
+    """오르카 밖 세션의 창을 앞으로. 터미널마다 방법이 다르다(tty, cmux 는 패널 ID 로 찾는다).
     'tab' = 그 탭까지 갔다, 'app' = 탭은 못 찾고 앱만 앞으로, '' = 못 했다"""
     a = agent_procs().get(pid)
     if not a:
@@ -1181,19 +1181,6 @@ def _session_title(a):
     return custom or auto or ''
 
 
-def _cmux_focus(a):
-    """cmux 는 tty 대신 작업 공간·패널 ID 로 칸을 찾는다."""
-    if not (a.get('cmux_workspace_id') and a.get('cmux_panel_id')):
-        return False
-    cmux = find_bin('cmux') or '/Applications/cmux.app/Contents/Resources/bin/cmux'
-    cmd = [cmux, 'focus-panel', '--panel', a['cmux_panel_id'], '--workspace', a['cmux_workspace_id']]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return r.returncode == 0 and (r.stdout or '').startswith('OK') and _open_app('cmux')
-
-
 def _ghostty_focus(a):
     """Ghostty 는 tty 를 알려 주지 않는다. 같은 폴더에서 창 제목에 이 세션 이름이 보이는 칸을 찾아 그 칸으로 간다.
     폴더가 같은 칸이 하나뿐이면 그것."""
@@ -1212,6 +1199,19 @@ def _ghostty_focus(a):
         return False
     return _osa('tell application "Ghostty"\nrepeat with w in windows\nrepeat with t in tabs of w\nrepeat with s in terminals of t\n'
                 'if id of s is "%s" then\nfocus s\nreturn "ok"\nend if\nend repeat\nend repeat\nend repeat\nend tell' % pick[0], 'ok')
+
+
+def _cmux_focus(a):
+    """cmux 는 tty 대신 작업 공간·패널 ID 로 칸을 찾는다."""
+    if not (a.get('cmux_workspace_id') and a.get('cmux_panel_id')):
+        return False
+    cmux = find_bin('cmux') or '/Applications/cmux.app/Contents/Resources/bin/cmux'
+    cmd = [cmux, 'focus-panel', '--panel', a['cmux_panel_id'], '--workspace', a['cmux_workspace_id']]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and (r.stdout or '').startswith('OK') and _open_app('cmux')
 
 
 def _open_app(name):
@@ -3354,7 +3354,7 @@ def doctor(argv):
     # 2) 오르카
     ob = find_bin('orca')
     if not ob:
-        say('  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty and WezTerm still are')
+        say('  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty, WezTerm and cmux still are')
     else:
         try:
             ok = subprocess.run([ob, 'status', '--json'], capture_output=True, text=True, timeout=10).returncode == 0

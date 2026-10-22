@@ -149,7 +149,7 @@ More on timing, privacy and internals: [docs/details.md](docs/details.md).
 
 ## Roadmap
 
-- [x] Work without Orca: sessions in Terminal, iTerm2, Ghostty and WezTerm, grouped by folder and terminal.
+- [x] Work without Orca: sessions in Terminal, iTerm2, Ghostty, WezTerm and cmux, grouped by folder and terminal.
 - [x] A doctor (`board.py --doctor`) to explain missing or wrong cards.
 - [ ] A "reset groups" button for AI topics.
 - [ ] Moving a session to another workspace, made safe end to end.
