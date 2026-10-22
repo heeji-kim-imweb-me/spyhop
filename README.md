@@ -57,7 +57,7 @@ brew trust --cask leeleelee3264/tap/spyhop
 brew install --cask leeleelee3264/tap/spyhop
 ```
 
-When the app opens, it takes over the board server and **Start at login**, and removes the Spyhop icon from SwiftBar. It then offers once to remove the old browser version and SwiftBar (only if SwiftBar was there just for Spyhop). Settings, topic columns and checked TODOs are kept.
+When the app opens, it takes over the board server and **Start at login**, and removes the Spyhop icon from SwiftBar (SwiftBar itself stays; quit or uninstall it yourself if you no longer use it). It then offers once to remove the old browser version. Settings, topic columns and checked TODOs are kept.
 
 ## How to
 

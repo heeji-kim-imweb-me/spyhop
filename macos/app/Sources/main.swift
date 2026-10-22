@@ -269,52 +269,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     static let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { FileManager.default.isExecutableFile(atPath: $0) }
 
-    /// 브라우저판(brew)에서 넘어온 사람에게 한 번만 묻는다: 옛 브라우저판과, Spyhop 때문에만 깔았던 SwiftBar 를 지울지.
-    /// 서버·로그인 항목·메뉴바 플러그인은 묻지 않고 앱이 이미 넘겨받았다. 여기서는 지우는 것만 묻는다
+    /// 브라우저판(brew)에서 넘어온 사람에게 한 번만 묻는다: 옛 브라우저판을 지울지.
+    /// 서버·로그인 항목·메뉴바 플러그인은 묻지 않고 앱이 이미 넘겨받았다. SwiftBar 는 다른 플러그인을 쓸 수 있어 건드리지 않는다
     func offerLegacyCleanup() {
         let at = Bundle.main.bundlePath
         guard at.hasPrefix("/Applications/") || at.hasPrefix(NSHomeDirectory() + "/Applications/"),
               !UserDefaults.standard.bool(forKey: "legacyCleanupAsked"), let brew = Self.brew else { return }
-        let fm = FileManager.default
         let prefix = (brew as NSString).deletingLastPathComponent.replacingOccurrences(of: "/bin", with: "")
-        let oldBoard = fm.fileExists(atPath: prefix + "/Cellar/spyhop")
-        // SwiftBar 의 플러그인 폴더가 `spyhop` 명령이 정해 준 우리 폴더이고, 거기 다른 플러그인이 없으면 Spyhop 때문에만 깔린 것이다
-        let ours = NSHomeDirectory() + "/.config/spyhop/swiftbar"
-        let dir = UserDefaults(suiteName: "com.ameba.SwiftBar")?.string(forKey: "PluginDirectory").map { ($0 as NSString).expandingTildeInPath }
-        let swiftBar = fm.fileExists(atPath: "/Applications/SwiftBar.app") && dir == ours
-            && ((try? fm.contentsOfDirectory(atPath: ours))?.filter { !$0.hasPrefix(".") }.isEmpty ?? true)
-        guard oldBoard || swiftBar else { return }
+        guard FileManager.default.fileExists(atPath: prefix + "/Cellar/spyhop") else { return }
         UserDefaults.standard.set(true, forKey: "legacyCleanupAsked")
         let a = NSAlert()
-        a.messageText = "Clean up the old Spyhop?"
-        var lines = ["Spyhop now runs as this app. You no longer need:"]
-        if oldBoard { lines.append("• the old browser version (brew formula)") }
-        if swiftBar { lines.append("• SwiftBar, which only showed the Spyhop menu bar icon") }
-        a.informativeText = lines.joined(separator: "\n")
-        a.addButton(withTitle: "Clean Up")
+        a.messageText = "Remove the old Spyhop?"
+        a.informativeText = "Spyhop now runs as this app. The old browser version (brew formula) is no longer needed."
+        a.addButton(withTitle: "Remove")
         a.addButton(withTitle: "Keep")
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
         DispatchQueue.global().async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: brew)
+            p.arguments = ["uninstall", "--formula", "--force", "spyhop"]
             var env = ProcessInfo.processInfo.environment
             env["HOMEBREW_NO_AUTO_UPDATE"] = "1"
-            func brewRun(_ args: [String]) {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: brew)
-                p.arguments = args
-                p.environment = env
-                p.standardOutput = FileHandle.nullDevice
-                p.standardError = FileHandle.nullDevice
-                try? p.run()
-                p.waitUntilExit()
-            }
-            if swiftBar {
-                NSRunningApplication.runningApplications(withBundleIdentifier: "com.ameba.SwiftBar").forEach { $0.terminate() }
-                if fm.fileExists(atPath: prefix + "/Caskroom/swiftbar") { brewRun(["uninstall", "--cask", "swiftbar"]) }
-                else { NSWorkspace.shared.recycle([URL(fileURLWithPath: "/Applications/SwiftBar.app")]) }
-                try? fm.removeItem(atPath: ours)
-            }
-            if oldBoard { brewRun(["uninstall", "--formula", "--force", "spyhop"]) }
+            p.environment = env
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            p.waitUntilExit()
         }
     }
 
