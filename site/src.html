@@ -53,7 +53,7 @@ h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px}
 .btn.pri:hover{box-shadow:0 10px 28px color-mix(in srgb,var(--blue) 45%,transparent)}
 .btn.sec{background:var(--soft);color:var(--ink)}
 .btn.sec:hover{background:var(--line)}
-.btn code{background:rgba(255,255,255,.18);color:#fff;font-size:13px}
+.btn code{background:rgba(255,255,255,.18);color:#fff;font-size:13px}details code{word-break:break-all}
 .shot{margin:64px auto 0;max-width:1120px;border-radius:24px;overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--line);background:var(--card)}
 .shot img{display:block;width:100%;height:auto}img.crop{object-fit:cover;object-position:top;height:auto}
 .cap{font-size:14px;color:var(--ink3);margin-top:14px}
@@ -315,7 +315,7 @@ document.documentElement.classList.add('js');
 <tr><td data-en="End session">세션 끝내기</td><td data-en="closes that split pane">그 분할 창만 닫기</td><td data-en="stops the AI, the tab stays">AI만 끝내고 탭은 남김</td><td data-en="stops the AI, the tab stays">AI만 끝내고 탭은 남김</td></tr>
 <tr><td data-en="Drag to move to another workspace">끌어서 다른 워크스페이스로 옮기기</td><td>✅</td><td>❌</td><td>❌</td></tr>
 <tr><td data-en="Cross-check line under a card">카드 아래 교차검증 한 줄</td><td>✅</td><td>❌</td><td>❌</td></tr>
-<tr><td data-en="AI topic grouping · spyhop doctor">AI 주제 묶기 · spyhop doctor</td><td>✅</td><td>✅</td><td>✅</td></tr>
+<tr><td data-en="AI topic grouping · doctor">AI 주제 묶기 · doctor</td><td>✅</td><td>✅</td><td>✅</td></tr>
 </tbody></table></div>
 <p class="cap" data-en="tmux and SSH sessions outside Orca are not supported.">오르카 밖의 tmux·SSH 세션은 지원하지 않아요.</p>
 </div></section>
@@ -406,20 +406,17 @@ document.documentElement.classList.add('js');
 <section id="install"><div class="in center">
 <div class="eyebrow rv" data-en="Get started">시작하기</div>
 <h2 class="rv d1" data-en="Two commands and done">명령 두 줄이면 끝나요</h2>
-<p class="sub rv d2" data-en="You need a logged-in &lt;code&gt;claude&lt;/code&gt; or &lt;code&gt;codex&lt;/code&gt; CLI. With Orca, Spyhop opens as a Spyhop workspace; without it, it opens in your browser.">로그인된 <code>claude</code> 또는 <code>codex</code> CLI가 있으면 돼요. 오르카가 있으면 Spyhop 워크스페이스로, 없으면 브라우저로 열려요.</p>
+<p class="sub rv d2" data-en="You need a logged-in &lt;code&gt;claude&lt;/code&gt; or &lt;code&gt;codex&lt;/code&gt; CLI. Spyhop is a Mac app (macOS 13 or later): the board opens in its own window.">로그인된 <code>claude</code> 또는 <code>codex</code> CLI가 있으면 돼요. Spyhop은 맥 앱이라(macOS 13 이상) 보드가 앱 창으로 열려요.</p>
 <div class="term rv z" id="term">
 <button class="btn cp" type="button" onclick="copyCmd()" data-en="Copy">복사</button>
 <pre><span class="c" data-en="# install"># 설치</span>
 brew install leeleelee3264/tap/spyhop
-spyhop
+open -a Spyhop
 
 <span class="c" data-en="# update"># 업데이트</span>
-brew upgrade spyhop &amp;&amp; spyhop
-
-<span class="c" data-en="# menu bar icon (optional)"># 메뉴바 아이콘 (선택)</span>
-brew install --cask swiftbar &amp;&amp; spyhop</pre>
+brew upgrade --cask spyhop</pre>
 </div>
-<div class="mbar rv z d1"><div class="shot"><img src="{{panel}}" alt="메뉴바 패널. 내 차례·작업 중 세션 수와 세션 목록" data-en-alt="The menu bar panel: sessions waiting on you and working, with the list"></div><div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="With SwiftBar installed, the orca icon shows how many sessions are waiting on you. Click a row to jump straight to that session.">SwiftBar를 깔면 메뉴바의 범고래 아이콘에 내 차례인 세션 수가 떠요. 줄을 누르면 그 세션으로 바로 가요.</p></div></div>
+<div class="mbar rv z d1"><div class="shot"><img src="{{panel}}" alt="메뉴바 패널. 내 차례·작업 중 세션 수와 세션 목록" data-en-alt="The menu bar panel: sessions waiting on you and working, with the list"></div><div><h3 data-en="In the menu bar too">메뉴바에서도</h3><p data-en="The orca icon in the menu bar shows how many sessions are waiting on you, and stays there when you close the window. Click a row to jump straight to that session.">메뉴바의 범고래 아이콘에 내 차례인 세션 수가 떠요. 창을 닫아도 아이콘은 남아 있고, 줄을 누르면 그 세션으로 바로 가요.</p></div></div>
 </div></section>
 
 <!-- 질문 -->
@@ -428,7 +425,8 @@ brew install --cask swiftbar &amp;&amp; spyhop</pre>
 <h2 class="rv d1" data-en="FAQ">자주 묻는 질문</h2>
 <div class="faq rv">
 <details><summary data-en="Can I use it without Orca?">오르카 없이도 쓸 수 있나요?</summary><p data-en="Yes. Spyhop finds sessions from the running claude and codex processes, so sessions in Terminal, iTerm2, Ghostty and WezTerm show up too, grouped by folder and terminal. Go to session jumps to the exact tab in those four; other terminals are only brought to the front. Moving cards between columns needs Orca.">네. 실행 중인 claude·codex 프로그램에서 세션을 찾기 때문에 Terminal, iTerm2, Ghostty, WezTerm에서 띄운 세션도 폴더·터미널별로 보여요. 이 네 터미널은 세션으로 이동하면 그 탭까지 가고, 다른 터미널은 앱만 앞으로 가져와요. 카드를 다른 칸으로 옮기는 건 오르카에서만 돼요.</p></details>
-<details><summary data-en="A session is missing from the board.">세션이 보드에 안 보여요.</summary><p data-en="Run &lt;code&gt;spyhop doctor&lt;/code&gt;. It explains, card by card, how each session was found or why it was not, without printing titles. Also make sure you are up to date with &lt;code&gt;brew upgrade spyhop &amp;amp;&amp;amp; spyhop&lt;/code&gt;.">터미널에서 <code>spyhop doctor</code>를 실행해 보세요. 세션마다 어떻게 찾았는지, 못 찾았으면 왜인지 알려 줘요(제목은 기본으로 가려요). 최신 버전인지도 <code>brew upgrade spyhop &amp;&amp; spyhop</code>으로 확인해 주세요.</p></details>
+<details><summary data-en="A session is missing from the board.">세션이 보드에 안 보여요.</summary><p data-en="Run &lt;code&gt;/usr/bin/python3 /Applications/Spyhop.app/Contents/Resources/spyhop/board.py --doctor&lt;/code&gt; in a terminal. It explains, card by card, how each session was found or why it was not, without printing titles. Also make sure you are up to date with &lt;code&gt;brew upgrade --cask spyhop&lt;/code&gt;.">터미널에서 <code>/usr/bin/python3 /Applications/Spyhop.app/Contents/Resources/spyhop/board.py --doctor</code>를 실행해 보세요. 세션마다 어떻게 찾았는지, 못 찾았으면 왜인지 알려 줘요(제목은 기본으로 가려요). 최신 버전인지도 <code>brew upgrade --cask spyhop</code>으로 확인해 주세요.</p></details>
+<details><summary data-en="I used the browser version.">브라우저판을 쓰고 있었어요.</summary><p data-en="Run &lt;code&gt;brew update&lt;/code&gt;. Homebrew moves you to the app, or prints two commands to run. Open Spyhop once: it takes over the board and start at login, removes the Spyhop icon from SwiftBar and offers to remove the old version. Settings, topic columns and checked TODOs are kept. The browser version stays at 1.0.1."><code>brew update</code>를 실행하면 Homebrew가 앱으로 옮겨 주거나, 실행할 명령 두 줄을 알려 줘요. 앱을 한 번 열면 보드와 로그인 시 시작을 넘겨받고, SwiftBar의 Spyhop 아이콘을 떼고, 옛 버전을 지울지 물어요. 설정, 주제 칸, 체크한 TODO는 그대로예요. 브라우저판은 1.0.1에서 멈춰요.</p></details>
 <details><summary data-en="Does moving a card change the folder the AI works in?">카드를 옮기면 AI가 일하는 폴더도 바뀌나요?</summary><p data-en="No. Only the Orca pane moves; the AI keeps the same conversation in its original folder. If the folders differ, Spyhop tells you after the move.">아니요. 오르카 창만 그 워크스페이스로 옮겨 가고, AI는 원래 폴더에서 같은 대화를 이어 가요. 폴더가 다르면 옮긴 뒤 알려 드려요.</p></details>
 <details><summary data-en="Can I move a session while it is working?">일하는 중인 세션도 옮길 수 있나요?</summary><p data-en="No, it would cut the work off. Move it once it shows “My turn”.">안 돼요. 하던 일이 끊기니까 「My turn」이 된 뒤에 옮겨 주세요.</p></details>
 <details><summary data-en="Does it cost extra? What leaves my Mac?">돈이 더 드나요? 무엇이 밖으로 나가나요?</summary><p data-en="No new account or key. Spyhop summarizes with the claude or codex CLI you are already logged in to, so it counts toward that usage. Only sessions whose transcript changed are summarized, at most once a minute each, and only the new part is sent; idle sessions send nothing. Measured over 30 minutes with 6 sessions: 53 summaries, about 4,500 characters each. The only thing that leaves your Mac is that transcript, sent to the model you picked, with anything that looks like a key or token masked.">새로 가입하거나 키를 받을 필요는 없어요. 이미 로그인해 둔 claude 또는 codex CLI로 요약해서 그 사용량에 포함돼요. 대화 기록이 바뀐 세션만, 새로 쌓인 부분만 보내고(세션당 1분에 한 번까지) 쉬는 세션은 아무것도 안 보내요. 세션 6개로 30분 재 보니 요약 53번, 한 번에 약 4,500자였어요. 밖으로 나가는 건 고른 모델에 보내는 대화 기록뿐이고, 키·토큰처럼 보이는 값은 가려서 보내요.</p></details>
@@ -456,7 +454,7 @@ brew install --cask swiftbar &amp;&amp; spyhop</pre>
 })();
 </script>
 <script>
-function copyCmd(){var t='brew install leeleelee3264/tap/spyhop && spyhop',e=document.getElementById('toast');
+function copyCmd(){var t='brew install leeleelee3264/tap/spyhop && open -a Spyhop',e=document.getElementById('toast');
   function done(){e.classList.add('on');setTimeout(function(){e.classList.remove('on')},1600)}
   if(navigator.clipboard)navigator.clipboard.writeText(t).then(done,done);else done()}
 var calm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
