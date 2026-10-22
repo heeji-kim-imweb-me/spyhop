@@ -332,6 +332,26 @@ def board_rect(hwnd):
     return work.left + (work.right - work.left - w) // 2, work.top + (work.bottom - work.top - h) // 2, w, h
 
 
+PANEL_TITLE = 'Spyhop panel'  # panel.html 의 <title>. 보드는 'Spyhop'
+
+
+def window_title(hwnd):
+    buf = ctypes.create_unicode_buffer(256)
+    u32.GetWindowTextW(hwnd, buf, 256)
+    return buf.value
+
+
+def is_panel(hwnd):
+    """패널 창인가. 페이지를 다 읽기 전에는 제목 자리에 주소가 보인다."""
+    t = window_title(hwnd)
+    return t == PANEL_TITLE or '/panel' in t
+
+
+def too_small(hwnd):
+    """보드 창이 보드로 쓰기에 너무 작은가 (보드 크기의 절반 폭보다 좁다)."""
+    return window_width(hwnd) < scaled(hwnd, (BOARD_SIZE[0] // 2, 0))[0]
+
+
 def off_screen(hwnd):
     r = normal_rect(hwnd)
     return not u32.MonitorFromRect(ctypes.byref(r), 0)  # MONITOR_DEFAULTTONULL: 어느 화면에도 안 걸친다
@@ -450,27 +470,30 @@ class Tray:
         if old:
             u32.DestroyIcon(old)
 
-    def find(self, attr, wide):
-        """기억한 창이 살아 있으면 그것, 아니면(트레이를 다시 띄운 경우) 전용 프로필 창 중 크기로 고른 것."""
+    def find(self, attr, panel):
+        """기억한 창이 살아 있으면 그것, 아니면(트레이를 다시 띄운 경우) 전용 프로필 창 중 제목으로 고른 것.
+        크기로 고르면 안 된다: 배율 150% 에서 패널은 570px 이고, 작게 뜬 보드 창도 그만할 수 있다(실제로 헷갈렸다)."""
         hwnd = getattr(self, attr)
         if alive(hwnd):
             return hwnd
-        hwnd = next((x for x in edge_windows() if (window_width(x) > 600) == wide), None)
+        hwnd = next((x for x in edge_windows() if is_panel(x) == panel), None)
         setattr(self, attr, hwnd)
         return hwnd
 
     def open_panel(self):
         """작은 보드 패널을 오른쪽 아래(트레이 옆)에. 이미 열려 있으면 그 자리로 앞으로."""
-        hwnd = self.find('panel', wide=False) or launch_window(PANEL_URL, PANEL_SIZE)
+        hwnd = self.find('panel', panel=True) or launch_window(PANEL_URL, PANEL_SIZE)
         self.panel = hwnd
         if hwnd:
             bring_front(hwnd, panel_rect(hwnd))
 
     def open_board(self):
-        """보드 창을 연다. 이미 열려 있으면 앞으로. 보드가 꺼져 있으면 켜고 뜰 때까지 기다린다 (사람이 보드를 열면 켠다, 맥 앱과 같게)."""
-        hwnd = self.find('board', wide=True)
+        """보드 창을 연다. 이미 열려 있으면 앞으로. 보드가 꺼져 있으면 켜고 뜰 때까지 기다린다 (사람이 보드를 열면 켠다, 맥 앱과 같게).
+        새로 연 창은 늘 보드 크기로 맞춘다(Edge 는 같은 프로필의 앱 창 크기를 되살려서 패널만 하게 뜰 수 있다).
+        이미 열린 창은 사용자가 정한 크기를 두되, 화면 밖이거나 너무 작으면 맞춘다."""
+        hwnd = self.find('board', panel=False)
         if hwnd:
-            bring_front(hwnd, board_rect(hwnd) if off_screen(hwnd) else None)  # 사용자가 옮겨 둔 자리는 그대로
+            bring_front(hwnd, board_rect(hwnd) if off_screen(hwnd) or too_small(hwnd) else None)
             return
         if not server_up():
             start_board()
@@ -480,7 +503,7 @@ class Tray:
                 time.sleep(.2)
         hwnd = self.board = launch_window(BOARD_URL, BOARD_SIZE)
         if hwnd:
-            bring_front(hwnd, board_rect(hwnd) if off_screen(hwnd) else None)
+            bring_front(hwnd, board_rect(hwnd))
 
     def menu(self):
         up, ss = read_state()
