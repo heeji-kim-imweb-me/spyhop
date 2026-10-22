@@ -91,6 +91,7 @@ class WatcherIdentityTest(unittest.TestCase):
         self.assertIsNotNone(record)
 
     @NO_SYMLINK
+    @unittest.skipIf(B.WIN, 'brew 링크 교체는 맥 전용 (Windows 에는 brew 가 없다)')
     def test_running_brew_opt_board_survives_link_retarget_and_can_be_replaced(self):
         old = self.root / 'brew/Cellar/spyhop/0.5.0/libexec/board.py'
         new = self.root / 'brew/Cellar/spyhop/0.6.0/libexec/board.py'
