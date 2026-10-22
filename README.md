@@ -48,6 +48,8 @@ You need macOS 13 or later, Homebrew, the Xcode Command Line Tools (`xcode-selec
 
 Closing the window keeps the orca in the menu bar; **Start at login** in Settings opens it there at login.
 
+On Windows? A community-maintained preview lives in [`windows/`](windows/README.md). It is separate from the macOS app and not installed through Homebrew.
+
 ### Coming from the browser version
 
 Spyhop used to run in a browser tab with a SwiftBar menu bar icon. That version gets no more updates. On your next `brew update`, Homebrew moves you to the app: it installs it by itself, or prints these two commands to run:
