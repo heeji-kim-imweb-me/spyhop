@@ -33,59 +33,47 @@
 
 ## Get started
 
-You need macOS, Homebrew, and a logged-in `claude` or `codex` CLI (Spyhop uses it to summarize). [Orca](https://github.com/stablyai/orca) is optional.
+You need macOS 13 or later, Homebrew, the Xcode Command Line Tools (`xcode-select --install`, for Python) and a logged-in `claude` or `codex` CLI (Spyhop uses it to summarize). [Orca](https://github.com/stablyai/orca) is optional.
 
-1. Install and start:
+1. Install and open:
 
    ```bash
    brew install leeleelee3264/tap/spyhop
-   spyhop
+   open -a Spyhop
    ```
 
-2. The board opens in Orca as a **Spyhop** workspace if you have it, and always at `http://127.0.0.1:47613/`.
+2. The board opens in its own window, and the orca in the menu bar shows how many sessions are waiting for you.
 3. Start or keep a Claude Code or Codex session running anywhere (Orca, Terminal, iTerm2, Ghostty, WezTerm). It shows up as a card within a few seconds, and its steps fill in once the first summary is done.
 4. Click a card to see every step, the last reply and its TODO list. **Go to session** jumps to that pane or tab.
-5. Optional, menu bar: `brew install --cask swiftbar`, then run `spyhop` once more. The orca icon shows how many sessions are waiting for you.
 
-### Windows (preview)
+Closing the window keeps the orca in the menu bar; **Start at login** in Settings opens it there at login.
 
-You need Windows 10 or 11, Python 3.9+ (`winget install Python.Python.3.12`), and a logged-in `claude` or `codex` CLI.
+### Coming from the browser version
 
-```powershell
-git clone https://github.com/leeleelee3264/spyhop
-.\spyhop\spyhop.cmd
+Spyhop used to run in a browser tab with a SwiftBar menu bar icon. That version gets no more updates. On your next `brew update`, Homebrew moves you to the app: it installs it by itself, or prints these two commands to run:
+
+```bash
+brew trust --cask leeleelee3264/tap/spyhop
+brew install --cask leeleelee3264/tap/spyhop
 ```
 
-The board opens in your default browser at `http://127.0.0.1:47613/`. `spyhop.cmd doctor` works as on macOS.
-
-A **tray icon** appears next to the clock, like the macOS menu bar item. It shows how many sessions are waiting for you (gray when the board is off). Click it to open the small board panel (clicking again brings the same panel back to the front); right-click it to see every session and jump to one. It also restarts the board when Claude or Codex runs. Choose **Hide tray icon** at the bottom of its right-click menu to remove it; `spyhop.cmd` brings it back.
-
-- Sessions in Windows Terminal, VS Code, PowerShell or cmd are grouped by folder and terminal. Sessions the **Claude desktop app** runs show up too, under `folder · Claude app`.
-- **Claude app Code tab sessions** you used in the last 12 hours show up even when the app has put them to sleep (no program running), read from the app's own session records. Archived ones are left out. This works on macOS too.
-- **Codex desktop app** threads (Codex inside the ChatGPT app, or the IDE extension) you used in the last 12 hours show up under `folder · Codex app`, read from Codex's `state_N.sqlite`. Only threads you started are shown; imported threads, sub-agents and `codex exec` runs are left out. ChatGPT chat conversations are not on your computer, so they cannot be shown.
-- **Cowork** sessions show up only when the app keeps their records on your computer (`local-agent-mode-sessions`), under `folder · Cowork` or `Cowork`. Recent Cowork versions keep sessions inside the Cowork virtual machine's disk, so those cannot be shown. Chat conversations are not on your computer either.
-- **Go to session** brings that terminal or app window to the front. It cannot pick the exact tab.
-- **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays.
-- Summaries, AI topic grouping and **Start at login** (a `Spyhop` entry under `HKCU\...\CurrentVersion\Run`) work as on macOS.
-- Not on Windows yet: Orca, moving sessions, and automatic updates.
-- DeepSeek reads its key from the `DEEPSEEK_API_KEY` environment variable instead of the Keychain.
-- To run the tests on Windows, use UTF-8 mode: `python -X utf8 -m unittest discover -s tests`.
+When the app opens, it takes over the board server and **Start at login**, and removes the Spyhop icon from SwiftBar (SwiftBar itself stays; quit or uninstall it yourself if you no longer use it). It then offers once to remove the old browser version. Settings, topic columns and checked TODOs are kept.
 
 ## How to
 
 ### Update
 
 ```bash
-brew upgrade spyhop && spyhop
+brew upgrade --cask spyhop
 ```
 
-A running board switches to the new version by itself within a minute after `brew upgrade`. Settings, topic columns and your AI sessions are kept. If your board started on 0.5.0 or older, run `spyhop` once after upgrading.
+Then open Spyhop again. Settings, topic columns and your AI sessions are kept.
 
 ### Find a session that is missing or looks wrong
 
 ```bash
-spyhop doctor            # explains, card by card, how each session was found or why it was not
-spyhop doctor --titles   # same, with titles and prompts shown
+/usr/bin/python3 /Applications/Spyhop.app/Contents/Resources/spyhop/board.py --doctor            # explains, card by card, how each session was found or why it was not
+/usr/bin/python3 /Applications/Spyhop.app/Contents/Resources/spyhop/board.py --doctor --titles   # same, with titles and prompts shown
 ```
 
 tmux and SSH sessions outside Orca are not supported.
@@ -96,7 +84,7 @@ Open **Settings → Summarizer** and pick a `claude` or `codex` model. Transcrip
 
 ### Add OMP (Oh My Pi) sessions
 
-Start OMP once after installing Spyhop, run `spyhop`, then restart your OMP sessions so they load the bundled status extension. Moving OMP sessions between Orca workspaces is not supported yet. Details are under [OMP](#omp) in Reference.
+Start OMP once after installing Spyhop, open Spyhop, then restart your OMP sessions so they load the bundled status extension. Moving OMP sessions between Orca workspaces is not supported yet. Details are under [OMP](#omp) in Reference.
 
 ### Move a session to another Orca workspace
 
@@ -111,17 +99,10 @@ In **Settings → Group by**, pick **AI topics**. Drag a card to another topic t
 Turn off **Start at login** in Settings first, and remove the **.spyhop** project from Orca's sidebar. Then:
 
 ```bash
-brew uninstall spyhop && rm -rf ~/.spyhop
+brew uninstall --cask spyhop && rm -rf ~/.spyhop
 ```
 
 ## Reference
-
-### Commands
-
-| Command | What it does |
-|---|---|
-| `spyhop` | Starts the board (or switches to a newly installed version) and opens it |
-| `spyhop doctor` | Explains how each session was found, or why it was not. Titles are hidden unless you add `--titles` |
 
 ### What works where
 
@@ -134,7 +115,7 @@ brew uninstall spyhop && rm -rf ~/.spyhop
 | Drag a card to move the session to another workspace | ✅ | ❌ | ❌ |
 | Cross-check line under a card (panes started through Orca) | ✅ | ❌ | ❌ |
 | AI topic grouping | ✅ | ✅ | ✅ |
-| `spyhop doctor` | ✅ | ✅ | ✅ |
+| Doctor (`board.py --doctor`) | ✅ | ✅ | ✅ |
 
 ### On the board
 
@@ -145,7 +126,7 @@ brew uninstall spyhop && rm -rf ~/.spyhop
 - **Filter and sort**: All / My turn / Working tabs with counts, and a Sort menu (Newest or Longest wait). Both choices are remembered.
 - **Narrow windows**: columns wrap onto the next row (3 across in a 900px window, 1 on a phone).
 - **Settings**: summarizer, group by (Location or AI topics), 9 themes, start at login, update interval, live CPU and memory.
-- **Menu bar**: how many sessions are waiting for you; click a row to jump there.
+- **Menu bar**: how many sessions are waiting for you; click a row to jump there. Built into the app.
 
 ### OMP
 
@@ -160,14 +141,14 @@ Settings and topic groups live in `~/.spyhop`; summaries and board state in `/tm
 - **Finding sessions.** Spyhop looks at the running `claude`, `codex` and OMP programs, so sessions show up wherever you start them. Orca, when present, adds exact panes, workspaces and cross-check links.
 - **Summaries.** Only sessions whose transcript changed are summarized, at most once a minute each (every 3 or 5 minutes at the 30 s or 60 s update interval), and only the new part is sent. Idle sessions cost nothing. Measured over 30 minutes with 6 sessions open: 53 summarizer calls, about 4,500 characters each.
 - **Privacy.** The only thing that leaves your Mac is the transcript, sent to the summarizer model you picked, with anything that looks like a key or password masked first.
-- **Updates.** After `brew upgrade`, the running board notices the new version within a minute and hands over to it. The version next to the title stays highlighted until you rest the pointer on it; the tooltip links to the release notes.
+- **Updates.** After `brew upgrade --cask spyhop`, the app restarts the board on the new version when you open it. The version next to the title stays highlighted until you rest the pointer on it; the tooltip links to the release notes.
 
 More on timing, privacy and internals: [docs/details.md](docs/details.md).
 
 ## Roadmap
 
 - [x] Work without Orca: sessions in Terminal, iTerm2, Ghostty and WezTerm, grouped by folder and terminal.
-- [x] `spyhop doctor` to explain missing or wrong cards.
+- [x] A doctor (`board.py --doctor`) to explain missing or wrong cards.
 - [ ] A "reset groups" button for AI topics.
 - [ ] Moving a session to another workspace, made safe end to end.
 - [ ] Notify when a session turns to "My turn".

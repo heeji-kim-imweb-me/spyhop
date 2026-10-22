@@ -23,12 +23,7 @@ from html import escape
 
 import orca_art  # 범고래 그림 원본 (같은 폴더)
 
-WIN = sys.platform == 'win32'
-if WIN:
-    import tempfile
-    import winplat  # ps · lsof · osascript · launchctl 대신 쓰는 Windows API (같은 폴더)
-
-BASE = os.path.join(tempfile.gettempdir(), 'progress-board') if WIN else '/tmp/progress-board'
+BASE = '/tmp/progress-board'
 AUTO = os.path.join(BASE, 'auto')      # 대화 기록으로 자동 생성한 단계
 OUT = os.path.join(BASE, 'index.html')
 PIDFILE = os.path.join(BASE, 'watch.pid')
@@ -57,12 +52,9 @@ def system_lang():
         return _SYSLANG['code']
     code = ''
     try:
-        if WIN:
-            code = winplat.lang_code()
-        else:
-            out = subprocess.run(['defaults', 'read', '-g', 'AppleLanguages'], capture_output=True, text=True, timeout=5).stdout
-            m = re.search(r'"?([A-Za-z]{2,3})[-_"\s,]', out)
-            code = m.group(1).lower() if m else ''
+        out = subprocess.run(['defaults', 'read', '-g', 'AppleLanguages'], capture_output=True, text=True, timeout=5).stdout
+        m = re.search(r'"?([A-Za-z]{2,3})[-_"\s,]', out)
+        code = m.group(1).lower() if m else ''
     except (OSError, subprocess.SubprocessError):
         pass
     code = code or (os.environ.get('LANG') or 'en')[:2].lower()
@@ -79,16 +71,10 @@ def mask(text):
     return SECRET.sub('[가림]', text)
 
 
-def deepseek_key():
-    if WIN:  # Windows 에는 키체인이 없다
-        return os.environ.get('DEEPSEEK_API_KEY', '').strip()
-    return subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api', '-w'],
-                          capture_output=True, text=True).stdout.strip()
-
-
 def deepseek(system, user):
     import urllib.request
-    key = deepseek_key()
+    key = subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api', '-w'],
+                         capture_output=True, text=True).stdout.strip()
     req = urllib.request.Request(DEEPSEEK_URL, data=json.dumps({
         'model': MODEL, 'max_tokens': 4000, 'thinking': {'type': 'disabled'},
         'system': system, 'messages': [{'role': 'user', 'content': user}]}).encode(),
@@ -111,19 +97,11 @@ def deepseek(system, user):
 # 저장을 끄고, 도구는 쓰지 못하게 막는다.
 CONFIG = os.path.expanduser('~/.spyhop/config.json')
 EXTRA_PATH = [os.path.expanduser('~/.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']
-if WIN:
-    EXTRA_PATH = [os.path.expanduser('~/.local/bin'), os.path.join(os.environ.get('APPDATA', ''), 'npm')]
 
 
 def find_bin(name):
     import shutil
     return shutil.which(name, path=os.pathsep.join([os.environ.get('PATH', '')] + EXTRA_PATH))
-
-
-def cli(name):
-    """CLI 를 부르는 명령 앞부분. Windows 의 npm 설치판(.cmd)은 줄바꿈이 든 인자를 망가뜨려서 안의 node 스크립트를 직접 부른다."""
-    p = find_bin(name)
-    return winplat.npm_shim(p) if WIN else [p]
 
 
 def load_config():
@@ -218,8 +196,7 @@ def _codex_models():
 
 def _find_summarizers():
     out = []
-    if (bool(deepseek_key()) if WIN else
-            subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api'], capture_output=True).returncode == 0):
+    if subprocess.run(['security', 'find-generic-password', '-s', 'deepseek-api'], capture_output=True).returncode == 0:
         out.append({'id': 'deepseek', 'label': 'DeepSeek (API)', 'models': [{'id': 'deepseek:' + MODEL, 'name': pretty_model(MODEL)}]})
     if find_bin('claude'):
         out.append({'id': 'claude', 'label': 'Claude (claude CLI)', 'models': _claude_models()})
@@ -248,10 +225,10 @@ def summarizer_name(sid):
 
 
 def claude_cli(system, user, model):
-    # --tools '' 는 내장 도구를 모두 끈다. 이름으로 막는 --disallowedTools 는 없는 도구 이름(예: MultiEdit)이 있으면 실행 자체가 거절된다
-    r = subprocess.run(cli('claude') + ['-p', '--model', model, '--no-session-persistence',
-                                        '--system-prompt', system, '--output-format', 'text', '--tools', ''],
-                       input=user, capture_output=True, text=True, encoding='utf-8', timeout=300, cwd=BASE)
+    r = subprocess.run([find_bin('claude'), '-p', '--model', model, '--no-session-persistence',
+                        '--system-prompt', system, '--output-format', 'text',
+                        '--disallowedTools', 'Bash,Read,Write,Edit,MultiEdit,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit'],
+                       input=user, capture_output=True, text=True, timeout=300, cwd=BASE)
     if r.returncode:
         raise RuntimeError('claude: ' + (r.stderr or r.stdout)[:200])
     return r.stdout
@@ -259,23 +236,14 @@ def claude_cli(system, user, model):
 
 def codex_cli(system, user, model):
     import tempfile
-    # 열어 둔 채로 이름을 넘기면 Windows 에서는 codex 가 그 파일에 쓰지 못한다. 닫아 두고 이름만 넘긴 뒤 직접 지운다
-    fd, out = tempfile.mkstemp(suffix='.txt', dir=BASE)
-    os.close(fd)
-    try:
-        r = subprocess.run(cli('codex') + ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only',
-                                           '--color', 'never', '-o', out] + (['-m', model] if model else []) +
+    with tempfile.NamedTemporaryFile('r', suffix='.txt', dir=BASE) as out:
+        r = subprocess.run([find_bin('codex'), 'exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only',
+                            '--color', 'never', '-o', out.name] + (['-m', model] if model else []) +
                            [system + '\n\n도구나 명령을 쓰지 말고, 아래 <stdin> 의 내용만 읽고 바로 JSON 으로 답하라.'],
-                           input=user, capture_output=True, text=True, encoding='utf-8', timeout=300, cwd=BASE)
+                           input=user, capture_output=True, text=True, timeout=300, cwd=BASE)
         if r.returncode:
             raise RuntimeError('codex: ' + (r.stderr or r.stdout)[-200:])
-        with open(out, encoding='utf-8') as f:
-            return f.read()
-    finally:
-        try:
-            os.remove(out)
-        except OSError:
-            pass
+        return out.read()
 
 
 def llm(system, user, sid=None):
@@ -388,15 +356,6 @@ def text_of(content):
 _FILE_CACHE = {}
 
 
-def check_alive(pid):
-    """os.kill(pid, 0) 과 같다(없으면 ProcessLookupError). Windows 에서 os.kill(pid, 0) 은 확인이 아니라 그 프로그램에 Ctrl+C 를 보낸다."""
-    if WIN:
-        if not winplat.alive(pid):
-            raise ProcessLookupError(pid)
-        return
-    os.kill(int(pid), 0)
-
-
 def per_file(fn):
     """파일이 그대로면(크기·수정 시각·inode 가 같으면) 다시 읽지 않는다. 파일마다 마지막 값 하나만 둔다."""
     def wrap(path):
@@ -436,7 +395,7 @@ def live_claude_sessions(worktree_path=None):
         try:
             with open(f, encoding='utf-8') as fh:
                 d = json.load(fh)
-            check_alive(int(d['pid']))  # 프로세스가 살아 있는 것만
+            os.kill(int(d['pid']), 0)  # 프로세스가 살아 있는 것만
         except (OSError, ValueError, KeyError):
             continue
         cwd = d.get('cwd')
@@ -842,8 +801,6 @@ def _ps_start(tokens):
 
 def _agent_rows():
     """(pid, ppid, tty, start, comm) — 가볍게 2초마다 불러도 되는 목록"""
-    if WIN:
-        return winplat.process_rows()
     try:
         out = subprocess.run(['ps', '-axo', 'pid=,ppid=,tty=,lstart=,comm='], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
@@ -860,11 +817,6 @@ def _agent_rows():
 def proc_kind(comm):
     """실행 파일 경로 → 'claude' / 'codex' / None. 클로드 설치판은 실행 파일 이름이 버전 번호일 수 있다 (…/claude/versions/2.1.296)"""
     base = os.path.basename(comm)
-    if WIN:  # claude.exe · codex.exe. Claude 데스크톱 앱(Electron) 자체도 claude.exe 라서 뺀다
-        # 실행 중에 자동 업데이트되면 Windows 는 돌고 있는 파일을 못 덮어써서 claude.exe.old.<시각> 으로 이름을 바꿔 둔다
-        base = re.sub(r'\.exe(\.old\.\d+)?$', '', base.lower())
-        if base == 'claude' and winplat.is_desktop_app(comm):
-            return None
     if base in ('claude', 'codex'):
         return base
     if re.search(r'/claude/versions/\d[\w.-]*$', comm):
@@ -979,20 +931,6 @@ def _by_pid(lsof_out):
     return out
 
 
-def codex_recent_rollouts(days=7):
-    """Windows 에서 '누가 열어 두었나' 물어볼 후보: 최근 며칠 안에 쓰인 Codex 기록 (CODEX_HOME 포함)."""
-    homes = {os.path.expanduser('~/.codex'), os.environ.get('CODEX_HOME') or os.path.expanduser('~/.codex')}
-    out, now = [], time.time()
-    for home in homes:
-        for f in glob.glob(os.path.join(home, 'sessions', '*', '*', '*', 'rollout-*.jsonl')):
-            try:
-                if now - os.path.getmtime(f) <= days * 86400:
-                    out.append(f)
-            except OSError:
-                pass
-    return out
-
-
 def agent_procs():
     """살아 있는 클로드·Codex 프로그램과 그 세션. {pid: {...}}. 결과는 1초 안에 다시 부르면 그대로 준다."""
     if time.time() - _PROC_CACHE['at'] < 1 and _PROC_CACHE['data'] is not None:
@@ -1028,10 +966,7 @@ def agent_procs():
         return {}
     # 실행 인자: Codex 서버(app-server)를 가려내고 resume 대상만 뽑는다 (요청 문장이 들어 있을 수 있어 그 밖엔 안 남긴다)
     try:
-        if WIN:
-            args = '\n'.join('%d %s' % (pid, winplat.command_line(pid).replace('\n', ' ')) for pid in agents)
-        else:
-            args = subprocess.run(['ps', '-o', 'pid=,args=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
+        args = subprocess.run(['ps', '-o', 'pid=,args=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         args = ''
     for line in args.splitlines():
@@ -1039,7 +974,7 @@ def agent_procs():
         if len(p) < 2 or int(p[0]) not in agents:
             continue
         a = agents[int(p[0])]
-        if a['kind'] == 'codex' and (' app-server' in ' ' + p[1] or ' exec-server' in ' ' + p[1]):
+        if a['kind'] == 'codex' and ' app-server' in ' ' + p[1]:
             daemons.append(a['pid'])
             del agents[a['pid']]
             continue
@@ -1047,13 +982,9 @@ def agent_procs():
         a['resume'] = m.group(1) if m else None
     # 환경 변수: 오르카 창 표식과 Codex 기록 위치만 꺼낸다 (나머지는 버린다)
     try:
-        env = '' if WIN else subprocess.run(['ps', '-E', '-o', 'pid=,command=', '-p', ','.join(map(str, agents))],
-                                            capture_output=True, text=True, timeout=5).stdout
+        env = subprocess.run(['ps', '-E', '-o', 'pid=,command=', '-p', ','.join(map(str, agents))], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         env = ''
-    if WIN:  # 다른 프로그램의 환경 변수는 읽지 않는다. 어느 창에서 도는지는 조상 프로그램으로 정한다
-        for a in agents.values():
-            a['term_program'] = winplat.terminal_of(a['pid'])[1] or None
     for line in env.splitlines():
         p = line.strip().split(None, 1)
         if len(p) < 2 or int(p[0]) not in agents:
@@ -1066,13 +997,9 @@ def agent_procs():
             a[key.lower()] = m.group(1) if m else None
         if a.get('term_program') not in (None, 'Orca', 'tmux'):
             a['orca_pane_key'] = None  # 오르카에서 띄운 다른 터미널은 오르카 표식을 물려받는다 → 그 터미널 세션으로 본다
-    if WIN:
-        for pid, a in agents.items():
-            a['cwd'] = winplat.cwd_of(pid) or a.get('cwd')
-    else:
-        for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
-            if pid in agents and paths:
-                agents[pid]['cwd'] = paths[0]
+    for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
+        if pid in agents and paths:
+            agents[pid]['cwd'] = paths[0]
     # 클로드: 실행 기록 → 대화 번호 → 기록 파일
     for a in agents.values():
         if a['kind'] != 'claude':
@@ -1087,16 +1014,12 @@ def agent_procs():
             ps = calendar.timegm(time.strptime(d.get('procStart', ''), '%a %b %d %H:%M:%S %Y'))
         except ValueError:
             ps = 0
-        if WIN and str(d.get('procStart', '')).isdigit():  # Windows 는 FILETIME (1601년부터 100ns 단위)
-            ps = int(d['procStart']) / 1e7 - 11644473600
         if ps and a['start'] and abs(ps - a['start']) > 5:
             a['why'] = 'claude:stale-registration'
             continue
         a['busy'] = d.get('status') == 'busy'
         sid = d.get('sessionId')
         cwd = d.get('cwd') or a.get('cwd') or ''
-        if not a.get('cwd'):
-            a['cwd'] = cwd
         f = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), sid))
         if not os.path.exists(f):
             f = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % sid))), None)
@@ -1107,15 +1030,11 @@ def agent_procs():
     # Codex: 열어 둔 기록 파일(프로그램 자신 또는 Codex 서버)이 후보다
     codex = [a for a in agents.values() if a['kind'] == 'codex']
     if codex:
-        if WIN:  # lsof 대신 Restart Manager: 최근 기록 파일 중 누가 열어 두었나
-            mine_ = {a['pid'] for a in codex} | set(daemons)
-            held = {pid: p for pid, p in winplat.held_by(codex_recent_rollouts()).items() if pid in mine_}
-        else:
-            held = _by_pid(_lsof([a['pid'] for a in codex] + daemons, []))
+        held = _by_pid(_lsof([a['pid'] for a in codex] + daemons, []))
         own = {}
         loaded = set()
         for pid, paths in held.items():
-            rolls = [x for x in paths if re.search(r'[/\\]sessions[/\\].*rollout-.*\.jsonl$', x)]
+            rolls = [x for x in paths if re.search(r'/sessions/.*rollout-.*\.jsonl$', x)]
             if pid in daemons:
                 loaded.update(rolls)
             elif rolls:
@@ -1155,136 +1074,10 @@ TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'W
               'vscode': 'VS Code', 'tmux': 'tmux', 'WarpTerminal': 'Warp', 'Hyper': 'Hyper', 'kitty': 'kitty', 'alacritty': 'Alacritty'}
 
 
-# Claude 데스크톱 앱이 남기는 세션 기록 (Code 탭 · Cowork). 앱은 한동안 안 쓴 Code 탭 세션의 프로그램을 내리고,
-# Cowork 는 가상 머신 안에서 돌아서 이 컴퓨터의 프로그램 목록에 안 보인다. 그래서 앱의 세션 기록으로 찾는다.
-# 요즘 Cowork 는 세션 기록을 가상 머신 디스크(vm_bundles/…/rootfs.vhdx) 안에 둬서, 이 컴퓨터에 기록이 남은 예전 세션만 찾을 수 있다.
-CLAUDE_APP_DIR = (os.path.join(os.environ.get('APPDATA', ''), 'Claude') if WIN
-                  else os.path.expanduser('~/Library/Application Support/Claude'))
-APP_RECENT = 12 * 3600       # 보관하지 않았고 이 시간 안에 쓴 앱 세션만 보드에 올린다 (사이드바에는 수백 개가 남아 있다)
-COWORK_BUSY_QUIET = 10 * 60  # Cowork 가 턴을 끝냈다는 기록 없이 이만큼 조용하면 멈춘 것으로 보고 내 차례로 둔다
-
-
-def _cowork_busy(folder):
-    """Cowork 의 audit.jsonl 마지막 기록이 result 면 턴이 끝난 것(내 차례), 아니면 일하는 중."""
-    audit = os.path.join(folder, 'audit.jsonl')
-    try:
-        if time.time() - os.path.getmtime(audit) > COWORK_BUSY_QUIET:
-            return False
-        with open(audit, 'rb') as fh:
-            fh.seek(max(0, fh.seek(0, 2) - 65536))
-            lines = fh.read().decode('utf-8', 'ignore').strip().splitlines()
-        return json.loads(lines[-1]).get('type') != 'result'
-    except (OSError, ValueError, IndexError, AttributeError):
-        return False
-
-
-def app_sessions(live_ids=(), now=None):
-    """Claude 앱의 Code 탭·Cowork 세션 중 프로그램이 안 떠 있는 것. live_ids(지금 떠 있는 대화 번호)는 뺀다.
-    [{'kind': 'code'|'cowork', 'id', 'cli', 'log', 'cwd', 'busy', 'last', 'title'}]"""
-    now = now or time.time()
-    out = []
-    for kind, sub in (('code', 'claude-code-sessions'), ('cowork', 'local-agent-mode-sessions')):
-        for f in glob.glob(os.path.join(CLAUDE_APP_DIR, sub, '*', '*', 'local_*.json')):
-            try:
-                if now - os.path.getmtime(f) > APP_RECENT:  # 활동하면 이 파일도 고쳐 쓴다. 오래된 것은 열어 보지 않는다
-                    continue
-                with open(f, encoding='utf-8') as fh:
-                    d = json.load(fh)
-            except (OSError, ValueError):
-                continue
-            if not isinstance(d, dict):
-                continue
-            cli, cwd = d.get('cliSessionId'), d.get('cwd') or ''
-            last = (d.get('lastActivityAt') or 0) / 1000
-            if not isinstance(cli, str) or not cli or cli in live_ids or d.get('isArchived') or now - last > APP_RECENT:
-                continue
-            busy = False
-            if kind == 'code':
-                log = os.path.expanduser('~/.claude/projects/%s/%s.jsonl' % (re.sub(r'[^A-Za-z0-9]', '-', cwd), cli))
-                if not os.path.exists(log):
-                    log = next(iter(glob.glob(os.path.expanduser('~/.claude/projects/*/%s.jsonl' % cli))), None)
-            else:  # Cowork: cwd 는 세션 폴더 안의 outputs. 대화 기록은 세션 폴더의 .claude 안에 있다
-                folder = os.path.dirname(cwd)
-                log = next(iter(glob.glob(os.path.join(folder, '.claude', 'projects', '*', cli + '.jsonl'))), None)
-                busy = _cowork_busy(folder)
-                picked = [x for x in d.get('userSelectedFolders') or [] if isinstance(x, str)]
-                cwd = picked[0] if picked else ''
-            if log:
-                out.append({'kind': kind, 'id': d.get('sessionId') or cli, 'cli': cli, 'log': log, 'cwd': cwd,
-                            'busy': busy, 'last': last, 'title': d.get('title') or ''})
-    return out
-
-
-def codex_app_sessions(live_ids=(), now=None, home=None):
-    """Codex 데스크톱 앱(ChatGPT 앱 안의 Codex)·IDE 확장 스레드 중 프로그램이 안 붙잡고 있는 것.
-    앱은 스레드를 ~/.codex/state_N.sqlite 에 적는다. 사용자가 연 것만(가져온 스레드·하위 에이전트·codex exec 는 뺀다)."""
-    import sqlite3
-    now = now or time.time()
-    home = home or os.environ.get('CODEX_HOME') or os.path.expanduser('~/.codex')
-    dbs = sorted(glob.glob(os.path.join(home, 'state_*.sqlite')), key=lambda p: int(re.sub(r'\D', '', os.path.basename(p)) or 0))
-    if not dbs:
-        return []
-    try:
-        db = sqlite3.connect('file:%s?mode=ro' % dbs[-1].replace(os.sep, '/'), uri=True, timeout=1)
-        try:
-            cols = {r[1] for r in db.execute('pragma table_info(threads)')}
-            pick = lambda c: c if c in cols else 'NULL'  # noqa: E731  (버전마다 열이 다를 수 있다)
-            rows = db.execute('select id, rollout_path, cwd, updated_at, %s, %s, %s from threads '
-                              "where source = 'vscode' and updated_at >= ? and coalesce(%s, 0) = 0"
-                              % (pick('thread_source'), pick('originator'), pick('title'), pick('archived')),
-                              (now - APP_RECENT,)).fetchall()
-        finally:
-            db.close()
-    except sqlite3.Error as e:
-        sys.stderr.write('codex app threads: %s\n' % e)
-        return []
-    out = []
-    for tid, log, cwd, updated, source, originator, title in rows:
-        # 'user' = 사용자가 연 스레드. 예전 버전은 둘 다 비어 있다. 발신 앱은 있는데 출처가 비면 가져온 스레드다
-        if not (source == 'user' or (source is None and originator is None)):
-            continue
-        if not log or not os.path.exists(log) or os.path.basename(log)[:-6] in live_ids:
-            continue
-        busy = False
-        try:
-            if now - os.path.getmtime(log) < COWORK_BUSY_QUIET:
-                busy = not codex_turn_done(log)
-        except OSError:
-            pass
-        out.append({'kind': 'codex-app', 'id': tid, 'cli': tid, 'log': log, 'cwd': cwd or '', 'busy': busy,
-                    'last': updated, 'title': title or ''})
-    return out
-
-
-def focus_claude_app(kind='code'):
-    """그 세션을 돌리는 데스크톱 앱(Claude 또는 Codex)을 앞으로 (앱 안의 그 세션까지는 못 고른다)."""
-    if WIN:
-        return winplat.focus_codex_app() if kind == 'codex-app' else winplat.focus_desktop_app()
-    return 'app' if _open_app('Codex' if kind == 'codex-app' else 'Claude') else ''
-
-
 def outside_terms():
-    """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널).
-    프로그램 없이 Claude 앱 기록으로만 찾은 세션(Code 탭 · Cowork)도 같이 만든다."""
+    """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널)."""
     out, wts = [], {}
-    procs = agent_procs()
-    live = {os.path.basename(a['log'])[:-6] for a in procs.values() if a.get('log')}
-    for s in app_sessions(live) + codex_app_sessions(live):
-        label = {'cowork': 'Cowork', 'codex-app': 'Codex app'}.get(s['kind'], 'Claude app')
-        cwd = s['cwd']
-        wid = 'term:%s:%s' % (label, cwd)
-        wts[wid] = {'id': wid, 'displayName': '%s · %s' % (os.path.basename(cwd), label) if cwd else label,
-                    'path': cwd, 'sortOrder': -1}
-        a = {'pid': 0, 'kind': 'codex' if s['kind'] == 'codex-app' else 'claude', 'app_kind': s['kind'], 'start': s['last'], 'busy': s['busy'], 'log': s['log'], 'cwd': cwd,
-             'how': 'desktop-app:%s-session-record' % s['kind'], 'term_program': label, 'app_session': s['id']}
-        try:
-            last = os.path.getmtime(s['log']) * 1000
-        except OSError:
-            last = s['last'] * 1000
-        out.append({'handle': 'proc_app_%s' % re.sub(r'[^A-Za-z0-9_-]', '', s['id']), 'title': '', 'tabId': 'proc',
-                    'leafId': 'app_' + s['id'], 'worktreeId': wid, 'worktreePath': cwd, 'ptyId': '', 'lastOutputAt': last,
-                    '_proc': a, '_ext': label, 'agent': {'state': 'working' if s['busy'] else 'done'}})
-    for a in procs.values():
+    for a in agent_procs().values():
         if a.get('orca_pane_key') or a.get('tty') in (None, '??'):
             continue  # 오르카 창이거나, 화면 없는 프로그램(서버·백그라운드)
         cwd = a.get('cwd') or ''
@@ -1318,8 +1111,6 @@ def focus_outside(pid):
     a = agent_procs().get(pid)
     if not a:
         return ''
-    if WIN:  # 탭까지는 못 고르고, 그 세션이 도는 창(터미널·Claude 앱)을 앞으로
-        return winplat.focus(pid)
 
     def app(name):
         return 'app' if _open_app(name) else ''
@@ -2576,9 +2367,6 @@ def _build():
                              and not str(w.get('id', '')).startswith('term:')], ensure_ascii=False)  # 오르카 밖 폴더 · 터미널 칸으로는 옮길 수 없다
     legend = ('<div class="legend"><span><i class="lg done"></i>Done</span><span><i class="lg now"></i>Now</span>'
               '<span><i class="lg left"></i>Next</span><span><i class="lg side"></i>Intercept</span></div>')
-    # 헤더는 한 줄: 로고·이름·버전 | (범고래 물결) | 설정. 숫자는 아래 탭으로 내려갔다
-    head = ('<div class="brand"><b>Spyhop</b>%s</div><div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % (version_badge(), tiles)
-            + GEAR + '</a></div>' + (SEA if orcas_on() else ''))
     n_all = count['wait'] + count['busy']
     tabs = ''.join('<button class="tab %s%s" onclick="tabGo(this,\'%s\')">%s <b>%d</b></button>' % (k, ' on' if filt == k else '', k, label, n)
                    for k, label, n in (('all', 'All', n_all), ('wait', LABEL['wait'], count['wait']), ('busy', LABEL['busy'], count['busy'])))
@@ -2586,6 +2374,8 @@ def _build():
     sorter = ('<div class="vbar"><div class="tabs" role="tablist">%s</div><div class="sortm" title="Sort cards and columns">'
               '<button class="sortb" onclick="sortOpen(event)"><span class="lab">Sort</span>%s <i>&#9662;</i></button><div class="menu">%s</div></div></div>'
               % (tabs, dict(sorts)[sort], ''.join('<button class="%s" onclick="sortGo(\'%s\')">%s</button>' % ('on' if sort == k else '', k, label) for k, label in sorts)))
+    # 앱 창 맨 위 한 줄: 가운데 탭·정렬 | 오른쪽 실패 수·설정. 앱 이름은 메뉴 막대·Dock 에 있으니 화면 안에는 쓰지 않는다
+    head = sorter + '<div class="tiles">%s<a class="gear" href="#settings" title="Settings">' % tiles + GEAR + '</a></div>'
     note = '<p class="none">Sorting new sessions by topic…</p>' if sorting and not any(cols.values()) else ''  # 빈 주제 칸만 남아 있어도 보이게
     if not note and filt != 'all' and not any(cols.values()):
         title, detail, mark = (
@@ -2599,16 +2389,21 @@ def _build():
                 '<h2>%s</h2><p>%s</p><button onclick="tabGo(null,\'all\')">Show all sessions '
                 '<span>%d</span><span aria-hidden="true">&rarr;</span></button></section>'
                 % (filt, LABEL[filt], mark, title, detail, n_all))
-    foot = '<div class="subbar">%s%s%s<small>updated %s</small></div>' % (sorter, grouping, legend, time.strftime('%H:%M:%S'))
-    html = TEMPLATE.replace('__LOADER__', 'file://' + LOADER).replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
-        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', foot + '<div id="board-note">%s</div><main>%s</main>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
+    ver = version_badge()
+    foot = '<div class="subbar"><h1>%s</h1>%s%s%s<small>updated %s</small></div>' % (
+        {'all': 'All'}.get(filt) or LABEL[filt], ver if 'ver new' in ver else '', grouping, legend, time.strftime('%H:%M:%S'))
+    html = TEMPLATE.replace('__THEME_CSS__', THEME_CSS).replace('__REFRESH_MS__', str(refresh_sec() * 1000)).replace('__TOKEN__', token()).replace('<html lang="ko">', '<html lang="ko" data-theme="%s" data-code="%s" data-ver="%s">' % (current_theme(), CODE_STAMP, VERSION), 1).replace('__HEAD__', head).replace('__TIME__', time.strftime('%H:%M:%S')) \
+        .replace('__WSLIST__', wslist.replace('</', '<\\/')).replace('__BODY__', '<div id="sc">' + foot + '<div id="board-note">%s</div><main>%s</main></div>%s' % (note, board or ('' if note else '<p class="none">The sea is calm · no sessions running.</p>'), ''.join(modals) + render_settings()))
     os.makedirs(BASE, exist_ok=True)
     with open(OUT + '.%d.tmp' % os.getpid(), 'w', encoding='utf-8') as f:
         f.write(html)
     os.replace(OUT + '.%d.tmp' % os.getpid(), OUT)
     infos = sorted((t['_info'] for t in terms if t.get('_info')), key=lambda i: (i['ws'], i['order']))
     check_board(terms)
-    save_json(STATE, {'at': time.time(), 'sessions': infos})
+    t = current_theme()
+    # version: 앱이 업데이트 뒤 「어디서 올라왔는지」를 적을 때, appearance: 앱 창 제목줄을 테마 밝기에 맞출 때 쓴다
+    save_json(STATE, {'at': time.time(), 'version': VERSION, 'appearance': 'dark' if t in DARK_THEMES else 'system' if t == 'classic' else 'light',
+                      'sessions': infos})
     try:  # 진단 기록은 보드와 상태를 다 쓴 뒤에 남긴다. 여기서 실패해도 보드는 그대로 간다
         save_json(TRACE, {'at': time.time(), 'code': trace['code'], 'inputs': trace['inputs'], 'panes': [x['_tr'] for x in trace['raw']]})
     except Exception as e:
@@ -2772,8 +2567,34 @@ PORT = 47613
 CODE_STAMP = str(int(os.path.getmtime(os.path.abspath(__file__))))
 # 이 보드가 뜰 때의 진짜 코드 위치. 로그인 자동 시작은 opt 링크로 띄워서, brew upgrade 뒤에 다시 풀면 새 버전을 가리킨다
 ME = os.path.realpath(__file__)
-_V = re.search(r'/Cellar/spyhop/([^/]+)/', ME)
-VERSION = _V.group(1) if _V else 'dev'  # brew 설치본은 폴더 이름이 곧 버전. 레포에서 돌리면 dev  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
+
+
+def version_of(path):
+    """코드 위치로 버전을 안다. brew 설치본은 Cellar 폴더 이름, Spyhop.app 안의 코드는 앱의 Info.plist. 둘 다 아니면 None"""
+    m = re.search(r'/Cellar/spyhop/([^/]+)/', path or '')
+    if m:
+        return m.group(1)
+    m = re.match(r'(.*\.app)/Contents/Resources/spyhop/', path or '')
+    if m:
+        try:
+            import plistlib
+            with open(m.group(1) + '/Contents/Info.plist', 'rb') as f:
+                return plistlib.load(f).get('CFBundleShortVersionString') or None
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+def install_kind(path):
+    """'brew' / 'app'(Spyhop.app 안) / 'dev'(레포 등)"""
+    if '/Cellar/spyhop/' in (path or ''):
+        return 'brew'
+    if re.search(r'\.app/Contents/Resources/spyhop/', path or ''):
+        return 'app'
+    return 'dev'
+
+
+VERSION = version_of(ME) or 'dev'  # 레포에서 돌리면 dev  # 보드 코드가 바뀌면 열린 페이지가 알아서 새로 읽게 (화면 코드는 갱신만으론 안 바뀐다)
 SEA = '<div class="sea" aria-hidden="true"></div><script>window.ORCA="<svg xmlns=\\"http://www.w3.org/2000/svg\\" viewBox=\\"0 0 36 64\\" width=\\"100%\\" height=\\"100%\\" aria-hidden=\\"true\\"><g stroke=\\"currentColor\\" stroke-width=\\".7\\" stroke-linejoin=\\"round\\"><path fill=\\"#10131a\\" d=\\"M22 3C28 3 30 9 29 17L28 36C28 47 25 55 21 59L28 62L19 61L11 63L16 57C10 48 7 37 8 24C8 13 12 6 18 4Q20 3 22 3Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M28 10Q30 14 28 23L26 39Q22 42 21 35L23 23Q27 18 28 10Z\\"/><path fill=\\"#fff\\" stroke=\\"none\\" d=\\"M15 12C12 13 12 17 15 18C18 19 21 16 21 13C20 11 17 11 15 12Z\\"/><path fill=\\"#9299a5\\" stroke=\\"none\\" d=\\"M9 40Q13 36 16 40L15 46Q11 44 9 40Z\\"/><path fill=\\"#10131a\\" d=\\"M24 29Q32 33 32 40Q27 39 22 33Z\\"/><path fill=\\"none\\" d=\\"M25 10Q27 11 29 10\\"/><circle cx=\\"24\\" cy=\\"16\\" r=\\".8\\" fill=\\"#10131a\\" stroke=\\"none\\"/></g></svg>";(function(){var sea=document.querySelector(".sea");if(!sea)return;function fitSea(){var h=sea.parentNode.getBoundingClientRect(),a=document.querySelector(".brand").getBoundingClientRect().right-h.left+16,b=h.right-document.querySelector(".tiles").getBoundingClientRect().left+16;sea.style.left=a+"px";sea.style.right=b+"px"}fitSea();addEventListener("resize",fitSea);function pop(){var o=document.createElement("div");o.className="orca";o.innerHTML=window.ORCA;var w=sea.getBoundingClientRect().width-30;if(w<=0)return;o.style.left=(Math.random()*w)+"px";sea.appendChild(o);setTimeout(function(){o.remove()},3200)}setTimeout(pop,400)})()</script>'  # 열 때 한 번 헤더에서, 그 뒤엔 세션이 일을 끝낼 때만 그 카드 위로 범고래가 수직으로 고개를 내밀어 둘러본다(spyhop)
 PANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'panel.html')
 
@@ -2802,6 +2623,8 @@ def serve():
                     return self.send(200, str(int(os.path.getmtime(OUT) * 1000)).encode())
                 except OSError:
                     return self.send(200, b'0')
+            if u.path in ('/', '/board', '/panel') and not from_app(self.headers):  # 브라우저로는 열리지 않는다: 앱 창만 이름표를 달고 온다
+                return self.send(200, APP_ONLY_HTML.encode(), 'text/html; charset=utf-8')
             if u.path in ('/', '/board'):
                 # 새로고침이면 그 자리에서 다시 그린다. 단, 이미 그리는 중이거나 방금(3초 안) 그렸으면 기다리지 않고 지금 화면을 준다
                 # (요청마다 줄 서서 그리면, 맥이 바쁠 때 탭 여러 개의 새로고침이 쌓여 페이지가 멈춘다)
@@ -2817,10 +2640,7 @@ def serve():
                         BUILD_LOCK.release()
                 return self.send(200, open(OUT, 'rb').read(), 'text/html; charset=utf-8')
             if u.path == '/panel':
-                page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1)
-                if WIN:  # 보드 서버가 브라우저를 열면 백그라운드라 창이 뒤에 숨는다. 앞에 있는 패널 창이 직접 연다
-                    page = page.replace('<div class="btn" onclick="fetch(\'/open-board\')">Open full board</div>',
-                                        '<a class="btn" href="/" target="_blank" rel="noopener" style="text-decoration:none">Open full board</a>').replace('__TOKEN__', token()).replace('__LOGO__', orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1)) \
+                page = open(PANEL, encoding='utf-8').read().replace('</style>', THEME_CSS + '</style>', 1).replace('__TOKEN__', token()).replace('__LOGO__', orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1)) \
                     .replace('<html lang="ko">', '<html lang="ko" data-theme="%s">' % current_theme(), 1)
                 return self.send(200, page.encode(), 'text/html; charset=utf-8')
             if u.path == '/metrics':
@@ -2837,9 +2657,6 @@ def serve():
                 known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
                 if h not in known:  # 지금 목록에 있는 창만 이동시킨다
                     return self.send(404, b'unknown')
-                if h.startswith('proc_app_'):  # 데스크톱 앱 세션: 그 앱을 앞으로
-                    kind = next((t['_proc'].get('app_kind') for t in outside_terms()[0] if t['handle'] == h), 'code')
-                    return self.send(200, (focus_claude_app(kind) or 'fail').encode())
                 if h.startswith('proc_'):  # 결과를 글로 돌려준다: tab(그 탭까지) / app(앱만) / fail
                     return self.send(200, (focus_outside(int(h[5:])) or 'fail').encode())
                 r = subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
@@ -2917,8 +2734,6 @@ def serve():
             known = {h for x in json.load(open(STATE)).get('sessions', []) for h in [x['handle']] + x.get('helpers', [])}
             if h not in known:
                 return self.send(404, b'unknown')
-            if h.startswith('proc_app_'):  # 앱 기록으로만 찾은 세션은 끝낼 프로그램이 없다
-                return self.send(409, b'This session lives in a desktop app (Claude or Codex). End or archive it there.')
             if h.startswith('proc_'):  # 오르카 밖 세션: 그 AI 프로그램만 끝낸다(터미널 탭은 남는다). 지금 보드가 찾은 claude/codex 일 때만
                 pid = int(h[5:])
                 if pid not in agent_procs():
@@ -2927,7 +2742,7 @@ def serve():
                     os.kill(pid, signal.SIGTERM)
                     for _ in range(30):
                         time.sleep(.1)
-                        check_alive(pid)
+                        os.kill(pid, 0)
                 except ProcessLookupError:
                     _PROC_CACHE['at'] = 0
                     WAKE.set()
@@ -3095,7 +2910,7 @@ def session_cwd(log):
             with open(f, encoding='utf-8') as fh:
                 d = json.load(fh)
             if d.get('sessionId') == sid and d.get('cwd'):
-                check_alive(int(d['pid']))
+                os.kill(int(d['pid']), 0)
                 return d['cwd']
         except (OSError, ValueError, KeyError):
             continue
@@ -3136,7 +2951,7 @@ def claude_pid(session_id):
             with open(f, encoding='utf-8') as fh:
                 d = json.load(fh)
             if d.get('sessionId') == session_id:
-                check_alive(int(d['pid']))
+                os.kill(int(d['pid']), 0)
                 return int(d['pid'])
         except (OSError, ValueError, KeyError):
             continue
@@ -3144,49 +2959,42 @@ def claude_pid(session_id):
 
 
 def read_pidfile(pidfile=None):
-    """'pid 경로 [시작 시각]' → (pid, 경로, 시작 시각 또는 None). 경로에 빈칸이 있어도 된다 (예: Windows 의 '바탕 화면')."""
-    with open(pidfile or PIDFILE, encoding='utf-8') as f:
-        pid, rest = f.read().strip().split(None, 1)
-    path, _, last = rest.rpartition(' ')
-    try:
-        return int(pid), path, float(last)
-    except ValueError:
-        return int(pid), rest, None  # 옛 두 칸 기록
+    """「pid 경로 시작시각」(옛 기록은 「pid 경로」). 경로에 빈칸이 있을 수 있어 앞뒤 칸으로 자른다"""
+    with open(pidfile or PIDFILE) as f:
+        parts = f.read().split(' ')
+    parts = [p.strip() for p in parts]
+    if len(parts) >= 3:
+        try:
+            return int(parts[0]), ' '.join(parts[1:-1]), float(parts[-1])
+        except ValueError:
+            pass
+    return int(parts[0]), ' '.join(parts[1:]), None
 
 
 def watcher_record(pidfile=None):
     """PID 번호만 믿지 않고 실행 파일·감시 인자·시작 시각을 확인한다. 옛 두 칸 기록도 읽는다."""
     try:
-        pid, path, born = read_pidfile(pidfile)
-        parts = [pid, path] + ([born] if born is not None else [])
+        pid, path, start_rec = read_pidfile(pidfile)
         if pid <= 0 or os.path.basename(path) != 'board.py':
             return None
-        if WIN:
-            if not os.path.basename(winplat.exe_path(pid)).lower().startswith('python'):
-                return None
-            start = winplat.start_time(pid)
-            argv = winplat.argv(pid)
-            if not start or len(parts) > 2 and float(parts[2]) != start:
-                return None
-            if len(argv) < 3 or argv[-1] != '--watch' or os.path.realpath(argv[-2]) != os.path.realpath(path):
-                return None
-            return pid, path, start
         p = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart=,comm='],
                            capture_output=True, text=True, timeout=5).stdout.split(None, 5)
         if len(p) != 6 or not os.path.basename(p[5].strip()).lower().startswith('python'):
             return None
         start = _ps_start(p[:5])
-        if not start or len(parts) > 2 and float(parts[2]) != start:
+        if not start or start_rec is not None and start_rec != start:
             return None
         args = subprocess.run(['ps', '-p', str(pid), '-o', 'args='],
                               capture_output=True, text=True, timeout=5).stdout.strip()
-        argv = args.rsplit(None, 2)
-        if len(argv) != 3 or argv[-1] != '--watch':
+        if not args.endswith(' --watch'):
             return None
+        head = args[:-len(' --watch')]
         # brew가 opt 링크를 바꿔도 기존 감시의 실행 인자는 여전히 opt 경로다.
         opt_path = re.sub(r'/Cellar/spyhop/[^/]+/', '/opt/spyhop/', path)
-        if (os.path.realpath(argv[-2]) != os.path.realpath(path)
-                and (opt_path == path or os.path.normpath(argv[-2]) != opt_path)):
+        if head.endswith(' ' + path) or opt_path != path and head.endswith(' ' + opt_path):
+            return pid, path, start
+        argv = head.rsplit(None, 1)
+        if len(argv) != 2 or os.path.realpath(argv[-1]) != os.path.realpath(path):
             return None
         return pid, path, start
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
@@ -3202,10 +3010,10 @@ UPDATE_FILE = os.path.expanduser('~/.spyhop/update.json')  # 마지막 업데이
 
 def note_update(old_path):
     """옛 버전 보드를 새 버전으로 바꿀 때 한 번 적는다. 헤더 버전 배지가 이걸 보고 반짝인다."""
-    m = re.search(r'/Cellar/spyhop/([^/]+)/', old_path or '')
-    if not m or VERSION == 'dev' or m.group(1) == VERSION:
+    old = version_of(old_path)
+    if not old or VERSION == 'dev' or old == VERSION:
         return
-    save_json(UPDATE_FILE, {'from': m.group(1), 'to': VERSION, 'at': time.time(), 'seen': False})
+    save_json(UPDATE_FILE, {'from': old, 'to': VERSION, 'at': time.time(), 'seen': False})
 
 
 def load_update():
@@ -3253,11 +3061,8 @@ def switch_if_upgraded():
         return
     sys.stderr.write('board: brew upgrade 감지, %s 로 바꿈\n' % new)
     try:
-        if WIN:
-            winplat.spawn_detached(winplat.python_cmd() + [new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+        subprocess.Popen([sys.executable, new, '--ensure'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     except OSError as e:
         sys.stderr.write('board: 새 버전 실행 실패, 다음 점검에서 재시도: %s\n' % e)
 
@@ -3273,6 +3078,8 @@ def stop_if_outdated():
     pid, running, _ = record
     if running == ME:
         return
+    if {install_kind(running), install_kind(ME)} == {'brew', 'app'}:  # brew 설치본과 Spyhop.app 은 서로의 서버를 내리지 않는다
+        return
     if watcher_record() != record:  # 확인 사이에 PID가 재사용됐으면 신호를 보내지 않는다
         return
     try:
@@ -3282,13 +3089,12 @@ def stop_if_outdated():
     note_update(running)
     for _ in range(50):  # 최대 5초, 내려가길 기다린다
         try:
-            check_alive(pid)
+            os.kill(pid, 0)
         except OSError:
             return
         time.sleep(0.1)
 
 
-LOADER = os.path.expanduser('~/.spyhop/open.html')
 LOADER_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Spyhop</title><link rel="icon" href="__FAV__">
 <style>html,body{margin:0;height:100%;font:13px -apple-system,sans-serif;background:#f4f5f8;color:#44546f}
 @media (prefers-color-scheme:dark){html,body{background:#161a1d;color:#9fadbc}}
@@ -3305,36 +3111,22 @@ var f=document.getElementById('f'),w=document.getElementById('w'),up=false,miss=
 </script></body></html>""".replace('__FAV__', 'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2032%2032%22%3E%3Cdefs%3E%3CclipPath%20id=%22t%22%3E%3Crect%20width=%2232%22%20height=%2226.2%22/%3E%3C/clipPath%3E%3C/defs%3E%3Crect%20width=%2232%22%20height=%2232%22%20rx=%228%22%20fill=%22%233182f6%22/%3E%3Cg%20clip-path=%22url%28%23t%29%22%3E%3Cg%20transform=%22translate%281.5%202%29%20scale%28.82%29%22%3E%3Cg%20stroke=%22%230b1220%22%20stroke-width=%22.7%22%20stroke-linejoin=%22round%22%3E%3Cpath%20fill=%22%2310131a%22%20d=%22M22%203C28%203%2030%209%2029%2017L28%2036C28%2047%2025%2055%2021%2059L28%2062L19%2061L11%2063L16%2057C10%2048%207%2037%208%2024C8%2013%2012%206%2018%204Q20%203%2022%203Z%22/%3E%3Cpath%20fill=%22%23fff%22%20stroke=%22none%22%20d=%22M28%2010Q30%2014%2028%2023L26%2039Q22%2042%2021%2035L23%2023Q27%2018%2028%2010Z%22/%3E%3Cpath%20fill=%22%23fff%22%20stroke=%22none%22%20d=%22M15%2012C12%2013%2012%2017%2015%2018C18%2019%2021%2016%2021%2013C20%2011%2017%2011%2015%2012Z%22/%3E%3Cpath%20fill=%22%2310131a%22%20d=%22M24%2029Q32%2033%2032%2040Q27%2039%2022%2033Z%22/%3E%3Ccircle%20cx=%2224%22%20cy=%2216%22%20r=%22.8%22%20fill=%22%2310131a%22%20stroke=%22none%22/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cpath%20d=%22M3%2027.2%20Q7%2025.3%2011%2027.2%20T19%2027.2%20T27%2027.2%22%20fill=%22none%22%20stroke=%22%23fff%22%20stroke-width=%222.2%22%20stroke-linecap=%22round%22/%3E%3C/svg%3E')
 
 
-def write_loader():
-    """서버가 꺼져 있어도 열리는 안내 페이지. 오르카 탭은 이 파일을 열고, 서버가 뜨면 보드로 넘어간다."""
-    try:
-        os.makedirs(os.path.dirname(LOADER), exist_ok=True)
-        if not os.path.exists(LOADER) or open(LOADER, encoding='utf-8').read() != LOADER_HTML:
-            with open(LOADER, 'w', encoding='utf-8') as f:
-                f.write(LOADER_HTML)
-    except OSError:
-        pass
-
-
 PLIST = os.path.expanduser('~/Library/LaunchAgents/com.spyhop.board.plist')
+APP_PLIST = os.path.expanduser('~/Library/LaunchAgents/com.spyhop.app.plist')  # Spyhop.app 이 만드는, 앱을 메뉴바로 여는 로그인 항목
 # brew 로 깔면 버전마다 폴더가 바뀐다(Cellar/spyhop/<버전>). 로그인 자동 시작에는 늘 같은 opt 경로를 남긴다
 HERE = re.sub(r'/Cellar/spyhop/[^/]+', '/opt/spyhop', os.path.dirname(os.path.abspath(__file__)))
 
 
 def autostart_on():
-    if WIN:
-        return winplat.autostart_on()
     return os.path.exists(PLIST)
 
 
 def set_autostart(on):
     """맥 로그인 때 보드를 켜는 LaunchAgent 를 등록/해제한다. 끌 때는 파일만 지워서 지금 돌고 있는 보드는 살려 둔다."""
-    if WIN:  # 현재 사용자의 Run 키에 등록한다
-        winplat.set_autostart(on, os.path.join(HERE, 'board.py'))
-        return
     if not on:
-        if os.path.exists(PLIST):
-            os.remove(PLIST)
+        for p in (PLIST, APP_PLIST):
+            if os.path.exists(p):
+                os.remove(p)
         return
     path = os.pathsep.join(['/usr/local/bin', '/opt/homebrew/bin', os.path.expanduser('~/.local/bin'), '/usr/bin', '/bin', '/usr/sbin', '/sbin'])
     os.makedirs(os.path.dirname(PLIST), exist_ok=True)
@@ -3353,34 +3145,49 @@ def set_autostart(on):
     subprocess.run(['launchctl', 'bootstrap', 'gui/' + uid, PLIST], capture_output=True)  # 이미 보드가 돌고 있으면 새로 뜬 쪽은 바로 끝난다
 
 
+def installed_app():
+    """응용 프로그램 폴더에 깔린 Spyhop.app 경로, 없으면 None"""
+    for d in ('/Applications', os.path.expanduser('~/Applications')):
+        p = os.path.join(d, 'Spyhop.app')
+        if os.path.isdir(p):
+            return p
+    return None
+
+
 def open_board():
-    """메뉴바의 'Open full board': 기본 브라우저로 보드를 연다."""
-    if WIN:
-        os.startfile('http://127.0.0.1:%d/' % PORT)
-        return
-    subprocess.run(['open', 'http://127.0.0.1:%d/' % PORT])
+    """메뉴바의 'Open full board': 앱 창으로 연다. 브라우저로는 열지 않는다(보드는 앱 안에서만 쓴다)"""
+    app = installed_app()
+    if app:
+        subprocess.run(['open', '-a', app], capture_output=True)
+
+
+APP_UA = 'Spyhop/'  # 앱 창(WKWebView)이 사용자 에이전트 끝에 붙이는 이름표. 보안 잠금이 아니라 「브라우저로 쓰는 것이 아니다」를 정하는 표시
+APP_ONLY_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>Spyhop</title>
+<style>html,body{margin:0;height:100%;font:14px -apple-system,sans-serif;background:#f4f5f8;color:#44546f;display:flex;align-items:center;justify-content:center;text-align:center}
+@media (prefers-color-scheme:dark){html,body{background:#161a1d;color:#9fadbc}}b{display:block;font-size:17px;margin-bottom:6px}</style></head>
+<body><div><b>Spyhop is a Mac app now</b>Open Spyhop from Applications or the menu bar.</div></body></html>"""
+
+
+def from_app(headers):
+    return APP_UA in (headers.get('User-Agent') or '')
 
 
 def watch():
     # 감시는 하나만 돈다. 두 개가 돌면 서로 다른 버전의 코드가 번갈아 보드를 덮어쓴다(실제로 겪음)
+    import fcntl
     global _LOCK
     os.umask(0o077)                    # 세션 요약·대화 일부가 담기므로 이 맥의 다른 사용자는 못 읽게
     os.makedirs(BASE, exist_ok=True)   # 맥을 막 켜면 /tmp 가 비어 있다
     os.chmod(BASE, 0o700)
-    write_loader()
     install_omp_extension()
     _LOCK = open(os.path.join(BASE, 'watch.lock'), 'w')
     try:
-        if WIN:
-            winplat.lock(_LOCK)
-        else:
-            import fcntl
-            fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         sys.stderr.write('board: 이미 다른 감시가 돌고 있어 종료\n')
         return
-    with open(PIDFILE, 'w', encoding='utf-8') as f:
-        start = winplat.start_time(os.getpid()) if WIN else next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
+    with open(PIDFILE, 'w') as f:
+        start = next((r[3] for r in _agent_rows() if r[0] == os.getpid()), 0)
         f.write('%d %s %s' % (os.getpid(), ME, start))
     serve()
     last_seen = time.time()
@@ -3409,17 +3216,13 @@ _LAST = {}
 
 
 def sample_metrics():
-    now = time.time()
-    if WIN:  # 자식(요약 CLI) 몫은 빠진다
-        cpu, rss = winplat.self_usage()
-    else:
-        import resource
-        me, kids = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
-        cpu = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime
-        try:
-            rss = int(subprocess.run(['ps', '-o', 'rss=', '-p', str(os.getpid())], capture_output=True, text=True).stdout.strip()) / 1024
-        except ValueError:
-            rss = 0
+    import resource
+    me, kids = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
+    cpu, now = me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime, time.time()
+    try:
+        rss = int(subprocess.run(['ps', '-o', 'rss=', '-p', str(os.getpid())], capture_output=True, text=True).stdout.strip()) / 1024
+    except ValueError:
+        rss = 0
     if _LAST:
         pct = (cpu - _LAST['cpu']) / max(now - _LAST['t'], 1e-6) / (os.cpu_count() or 1) * 100
         METRICS.append([round(now), round(pct, 2), round(rss, 1)])
@@ -3479,8 +3282,10 @@ def _doctor_get(path, timeout=3):
 
 
 def _where(path):
-    m = re.search(r'/Cellar/spyhop/([^/]+)/', path or '')
-    return ('brew %s' % m.group(1)) if m else (path.replace(os.path.expanduser('~'), '~') if path else '?')
+    kind = install_kind(path)
+    if kind in ('brew', 'app') and version_of(path):
+        return '%s %s' % (kind, version_of(path))
+    return path.replace(os.path.expanduser('~'), '~') if path else '?'
 
 
 def doctor(argv):
@@ -3495,7 +3300,7 @@ def doctor(argv):
     pid, running = None, ''
     try:
         pid, running, _ = read_pidfile()
-        check_alive(pid)
+        os.kill(pid, 0)
         alive = True
     except (OSError, ValueError, IndexError):
         alive = False
@@ -3504,7 +3309,7 @@ def doctor(argv):
     else:
         same = running == me
         say('  board:         running (pid %d) from %s%s' % (pid, _where(running),
-            '' if same else '  <-- DIFFERENT CODE than this doctor. Run: spyhop  (restarts it on this version)'))
+            '' if same else '  <-- DIFFERENT CODE than this doctor. Run: spyhop  (restarts it on this version; with Spyhop.app, quit and reopen the app)'))
     st = _doctor_get('/state.json')
     if isinstance(st, Exception):
         say('  board web:     not reachable on 127.0.0.1:%d (%s)' % (PORT, type(st).__name__))
@@ -3524,8 +3329,7 @@ def doctor(argv):
     # 2) 오르카
     ob = find_bin('orca')
     if not ob:
-        say('  orca:          not used on Windows' if WIN else
-            '  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty and WezTerm still are')
+        say('  orca:          not found. Orca panes are not shown; sessions in Terminal, iTerm2, Ghostty and WezTerm still are')
     else:
         try:
             ok = subprocess.run([ob, 'status', '--json'], capture_output=True, text=True, timeout=10).returncode == 0
@@ -3617,17 +3421,12 @@ def main(argv):
         watch()
         return
     install_omp_extension()
-    write_loader()
     stop_if_outdated()
     if not watching():
         os.makedirs(BASE, exist_ok=True)  # 맥을 막 켜면 /tmp 가 비어 있다 (로그 파일을 열기 전에 폴더부터)
-        log = open(os.path.join(BASE, 'watch.log'), 'a')
-        if WIN:  # 창 없이, 부른 터미널이 닫혀도 계속 돈다
-            winplat.spawn_detached(winplat.python_cmd() + [os.path.abspath(__file__), '--watch'],
-                                   stdout=subprocess.DEVNULL, stderr=log)
-        else:
-            subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'],
-                             stdout=subprocess.DEVNULL, stderr=log, start_new_session=True)
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'],
+                         stdout=subprocess.DEVNULL, stderr=open(os.path.join(BASE, 'watch.log'), 'a'),
+                         start_new_session=True)
     print('board: ' + OUT)
 
 
@@ -3647,12 +3446,14 @@ THEMES = [
                                         done='#3fb950', now='#d29922', left='#30363d', wait='#4493f8', busy='#a371f7', side='#db61a2')),
     ('vscode-dark', 'VS Code Dark', dict(bg='#181818', col='#1f1f1f', card='#2b2b2b', line='rgba(255,255,255,.09)', ink='#e8e8e8', ink2='#cccccc', ink3='#9d9d9d',
                                          done='#3fb950', now='#d7ba7d', left='#3c3c3c', wait='#4daafc', busy='#c586c0', side='#f14c4c')),
+    ('one-dark', 'One Dark', dict(bg='#1e2127', col='#23272e', card='#2c313a', line='rgba(171,178,191,.12)', ink='#e6e8ec', ink2='#abb2bf', ink3='#7f848e',
+                                  done='#98c379', now='#e5c07b', left='#3e4451', wait='#61afef', busy='#c678dd', side='#e06c75')),
     ('vitesse-dark', 'Vitesse Dark', dict(bg='#121212', col='#181818', card='#222222', line='rgba(222,220,213,.1)', ink='#e2ded3', ink2='#bfbaaa', ink3='#7c7c78',
                                           done='#4d9375', now='#e6cc77', left='#333333', wait='#6394bf', busy='#d4976c', side='#cb7676')),
     ('ayu-dark', 'Ayu Dark', dict(bg='#0b0e14', col='#0f131a', card='#171b24', line='rgba(191,189,182,.1)', ink='#e6e4dc', ink2='#bfbdb6', ink3='#6c7380',
                                   done='#aad94c', now='#ffb454', left='#2d3640', wait='#59c2ff', busy='#d2a6ff', side='#f07178')),
 ]
-DARK_THEMES = {'github-dark', 'vscode-dark', 'vitesse-dark', 'ayu-dark'}
+DARK_THEMES = {'github-dark', 'vscode-dark', 'one-dark', 'vitesse-dark', 'ayu-dark'}
 OLD_THEMES = {'dark': 'github-dark', 'bluegrey': 'github-dark', 'indigo': 'github-light', 'teal': 'github-light', 'purple': 'one-light',  # 예전 머티리얼 테마를 고른 사람
               'latte': 'one-light', 'solarized-light': 'ayu-light', 'rose-pine-dawn': 'vitesse-light',  # 2026-10 에 뺀 테마
               'mocha': 'vscode-dark', 'tokyo': 'ayu-dark', 'dracula': 'vitesse-dark', 'nord': 'github-dark'}
@@ -3698,8 +3499,16 @@ GEAR = ('<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="cur
 
 def render_settings():
     cur = current_summarizer()
-    groups = ''.join('<optgroup label="%s">%s</optgroup>' % (p['label'], ''.join(
-        '<option value="%s"%s>%s</option>' % (m['id'], ' selected' if m['id'] == cur else '', escape(m['name'])) for m in p['models']))
+    ck = ('<svg class="sm-ck" viewBox="0 0 16 16" width="13" height="13"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" '
+          'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+    def head(label):  # "Claude (claude CLI)" → 제목 Claude, 작은 글씨 claude CLI
+        m = re.match(r'(.*?)\s*\((.*)\)$', label)
+        return '<div class="sm-h">%s<small>%s</small></div>' % ((escape(m.group(1)), escape(m.group(2))) if m else (escape(label), ''))
+    now = next(((m['name'], re.sub(r'\s*\(.*\)$', '', p['label'])) for p in summarizers() for m in p['models'] if m['id'] == cur), (cur, ''))
+    groups = ''.join(head(p['label']) + ''.join(
+        '<button type="button" class="sm-it%s" data-v="%s" onclick="pickSum(this)">%s%s</button>'
+        % (' on' if m['id'] == cur else '', escape(m['id']), escape(m['name']), ck) for m in p['models'])
         for p in summarizers())
     th = current_theme()
     def card(tid, label):
@@ -3715,21 +3524,19 @@ def render_settings():
     return ('<div class="modal" id="settings"><a class="bg" href="#"></a><div class="box set">'
             '<div class="row"><b class="stt">Settings</b><a class="x" href="#">Close ✕</a></div>'
             + sec('Summarizer', 'Model that writes titles, steps and TODOs',
-                  '<select class="sel" onchange="setSum(this.value)">%s</select>' % groups)
+                  '<div class="sm-dd"><button type="button" class="sm-btn" onclick="smOpen(event)"><span class="sm-cur">%s<small>%s</small></span><i>&#8964;</i></button>'
+                  '<div class="sm-pop"><div class="sm-list" role="listbox">%s</div></div></div>' % (escape(now[0]), escape(now[1]), groups))
             + sec('Theme', '', '<div class="thl">Light</div><div class="ths">%s</div><div class="thl">Dark</div><div class="ths">%s</div>' % cards)
             + sec('Group by', 'Where each session runs, or topics the AI picks',
                   '<div class="pills">%s</div>' % ''.join(
                       '<button class="%s" onclick="setCfg({group_by:\'%s\'},this).then(function(){live()})">%s</button>'
                       % ('on' if group_mode() == k else '', k, label)
                       for k, label in (('location', 'Location'), ('ai', 'AI topics'))))
-            + sec(*(('Whale animation', 'A whale (orca) spyhops in the header') if WIN else ('Orca animation', 'Orcas spyhop in the header')),
-                  '<label class="sw"><input type="checkbox"%s onchange="setCfg({orcas:this.checked})"><i></i></label>' % (' checked' if orcas_on() else ''))
-            + sec('Start at login', 'Run the board and the tray icon when you sign in to Windows' if WIN else 'Run the board when you log in to this Mac',
+            + sec('Start at login', 'Run the board when you log in to this Mac',
                   '<label class="sw"><input type="checkbox"%s onchange="setCfg({autostart:this.checked})"><i></i></label>' % (' checked' if autostart_on() else ''))
             + sec('Update every', 'Longer uses less CPU and fewer model calls',
                   pills('refresh', REFRESH_OPTS, refresh_sec(), lambda v: '%ds' % v))
-            + sec('Resource usage', 'CPU and memory of the board process (model calls are not counted)' if WIN
-                  else 'CPU includes orca and model calls; memory is the board process',
+            + sec('Resource usage', 'CPU includes orca and model calls; memory is the board process',
                   '<div class="mets"><div class="met"><span>CPU</span><b id="mcpu">–</b><svg id="scpu" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div>'
                   '<div class="met"><span>Memory</span><b id="mmem">–</b><svg id="smem" viewBox="0 0 120 28" preserveAspectRatio="none"></svg></div></div>')
             + '</div></div>')
@@ -3898,7 +3705,7 @@ dl{margin:6px 0 0}dt{font-size:11px;color:var(--ink3);margin-top:8px}dd{margin:2
 .ext{display:inline-block;margin-top:10px;font-size:12px}
 #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--card);font-size:12px;
 padding:6px 12px;border-radius:7px;opacity:0;transition:opacity .2s;z-index:20;pointer-events:none}#toast.on{opacity:.92}
-.card.dragging{opacity:.25}.card.floating{position:fixed;left:0;top:0;z-index:40;margin:0;pointer-events:none;box-shadow:0 14px 34px rgba(15,23,42,.28);will-change:transform}.floating{transform-origin:0 0}body.dragging-on{cursor:grabbing;user-select:none}.card.moving{position:relative;opacity:.85}.card.moving:after,#busy{content:"";background:linear-gradient(90deg,var(--wait),var(--wait)) no-repeat,color-mix(in srgb,var(--wait) 18%,transparent);background-size:35% 100%,100% 100%;animation:slide 1.1s cubic-bezier(.4,0,.2,1) infinite}.card.moving:after{position:absolute;left:10px;right:10px;bottom:4px;height:2px;border-radius:2px}@keyframes slide{from{background-position:-60% 0,0 0}to{background-position:160% 0,0 0}}#busy{position:fixed;left:0;right:0;top:0;height:2px;z-index:60;opacity:0;transition:opacity .25s ease;pointer-events:none}#busy.on{opacity:1}.card{position:relative}.col{transition:background-color .15s ease,box-shadow .15s ease}.col.drop{background:color-mix(in srgb,var(--wait) 12%,var(--col));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 55%,transparent)}.col.ghost{min-width:0;overflow:hidden;background:transparent;opacity:0;transition:opacity .2s ease,background-color .15s ease,border-color .15s ease}.col.ghost.open{opacity:1}.col.ghost h2{white-space:nowrap;color:var(--ink3)}.slot{margin-top:8px;padding:12px 10px;border:1.5px dashed var(--line);border-radius:8px;font-size:12px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .15s ease,border-color .15s ease,transform .15s ease}.slot.drop{border-color:var(--wait);color:var(--ink);background:color-mix(in srgb,var(--wait) 14%,var(--card));transform:scale(1.03)}main{transition:grid-template-columns .26s cubic-bezier(.2,.8,.2,1)}body.dragging-on .card:not(.dragging):hover{transform:none;box-shadow:none}#dropbar-unused{display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:25;background:var(--card);border:1px dashed var(--wait);
+.card.dragging{opacity:.25}.card.floating{position:fixed;left:0;top:0;z-index:40;margin:0;pointer-events:none;box-shadow:0 14px 34px rgba(15,23,42,.28);will-change:transform}.floating{transform-origin:0 0}body.dragging-on{cursor:grabbing;user-select:none}.card.moving{position:relative;opacity:.85}.card.moving:after,#busy{content:"";background:linear-gradient(90deg,var(--wait),var(--wait)) no-repeat,color-mix(in srgb,var(--wait) 18%,transparent);background-size:35% 100%,100% 100%;animation:slide 1.1s cubic-bezier(.4,0,.2,1) infinite}.card.moving:after{position:absolute;left:10px;right:10px;bottom:4px;height:2px;border-radius:2px}@keyframes slide{from{background-position:-60% 0,0 0}to{background-position:160% 0,0 0}}#busy{position:fixed;left:0;right:0;top:0;height:2px;z-index:60;opacity:0;transition:opacity .25s ease;pointer-events:none;animation-play-state:paused}#busy.on{opacity:1;animation-play-state:running}.card{position:relative}.col{transition:background-color .15s ease,box-shadow .15s ease}.col.drop{background:color-mix(in srgb,var(--wait) 12%,var(--col));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 55%,transparent)}.col.ghost{min-width:0;overflow:hidden;background:transparent;opacity:0;transition:opacity .2s ease,background-color .15s ease,border-color .15s ease}.col.ghost.open{opacity:1}.col.ghost h2{white-space:nowrap;color:var(--ink3)}.slot{margin-top:8px;padding:12px 10px;border:1.5px dashed var(--line);border-radius:8px;font-size:12px;font-weight:600;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .15s ease,border-color .15s ease,transform .15s ease}.slot.drop{border-color:var(--wait);color:var(--ink);background:color-mix(in srgb,var(--wait) 14%,var(--card));transform:scale(1.03)}main{transition:grid-template-columns .26s cubic-bezier(.2,.8,.2,1)}body.dragging-on .card:not(.dragging):hover{transform:none;box-shadow:none}#dropbar-unused{display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:25;background:var(--card);border:1px dashed var(--wait);
 border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 6px 24px rgba(60,20,50,.18)}
 #confirm{display:none;position:fixed;inset:0;z-index:30;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #confirm.on{display:flex}#confirm .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}
@@ -3919,13 +3726,14 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 
 .ver{position:relative;display:inline-flex;align-items:center;gap:5px;margin-left:8px;font:500 10.5px -apple-system,sans-serif;color:var(--ink3);padding:1px 7px;border-radius:9px;border:1px solid transparent;vertical-align:1px}
 .ver.new{color:var(--ink2);border-color:color-mix(in srgb,var(--wait) 45%,transparent);background:color-mix(in srgb,var(--wait) 8%,transparent);cursor:default}
-.ver .dot{width:6px;height:6px;border-radius:50%;background:var(--wait);animation:verglow 2.4s ease-in-out infinite}
-@keyframes verglow{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--wait) 22%,transparent)}}
+.ver .dot{position:relative;width:6px;height:6px}.ver .dot:after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--wait)}
+.ver .dot:before{content:"";position:absolute;inset:-4px;border-radius:50%;background:color-mix(in srgb,var(--wait) 22%,transparent);transform:scale(.43);animation:verglow 2.4s ease-in-out infinite}
+@keyframes verglow{50%{transform:scale(1)}} /* 그림자 퍼짐 대신 점 뒤 원을 키운다: 같은 모양(0→4px 고리)인데 WebKit(맥 앱 창)에서 매 프레임 다시 그리지 않는다 */
 .vtip{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:50;white-space:nowrap;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:500 11.5px -apple-system,sans-serif;box-shadow:0 8px 24px rgba(15,23,42,.18)}
 .ver.new:hover .vtip{display:block}.vtip b{font-weight:700}.vtip a{display:block;margin-top:4px;color:var(--wait);text-decoration:none;font-weight:600}
 .vtip:after{content:"";position:absolute;left:0;right:0;top:-9px;height:9px} /* 배지와 말풍선 사이에서도 hover 유지 */
 .vtip:before{content:"";position:absolute;left:14px;top:-5px;width:8px;height:8px;background:var(--card);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
-@media (prefers-reduced-motion:reduce){.ver .dot{animation:none}}
+@media (prefers-reduced-motion:reduce){.ver .dot:before{animation:none}}
 #picker{display:none;position:fixed;inset:0;z-index:45;background:rgba(9,30,66,.5);align-items:center;justify-content:center}
 #picker.on{display:flex}#picker .cb{background:var(--card);border-radius:10px;padding:18px 20px;width:min(420px,90vw)}#picker h3{margin:0 0 4px;font-size:15px}
 #picker .pk-sub{margin:0 0 12px;color:var(--ink3);font-size:12px}#pklist{max-height:50vh;overflow-y:auto;margin-bottom:12px}
@@ -3950,7 +3758,19 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 ::-webkit-scrollbar-corner{background:transparent}
 
 header{position:relative;overflow:visible}.brand .tag{font-style:normal;font-size:11px;font-weight:500;color:var(--ink3);margin-left:6px}.sea{position:absolute;left:0;right:0;bottom:0;height:44px;pointer-events:none;overflow:hidden}.sea:after{content:"";position:absolute;left:0;right:0;bottom:2px;height:6px;background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2232%22%20height%3D%226%22%20viewBox%3D%220%200%2032%206%22%3E%3Cpath%20d%3D%22M0%203%20Q4%200.5%208%203%20T16%203%20T24%203%20T32%203%22%20fill%3D%22none%22%20stroke%3D%22%23cbd5e1%22%20stroke-width%3D%221.4%22/%3E%3C/svg%3E") repeat-x;opacity:.7}.orca{position:absolute;bottom:-1px;width:30px;height:52px;color:var(--ink3);transform:translateY(110%);transform-origin:50% 45%;animation:spyhop 3.2s linear forwards;pointer-events:none}.orca svg{display:block}@keyframes spyhop{0%,5%{transform:translateY(110%) rotate(0)}30%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}42%{transform:translateY(45%) rotate(-1.5deg);animation-timing-function:ease-in-out}56%{transform:translateY(45%) rotate(1.5deg);animation-timing-function:ease-in-out}68%{transform:translateY(45%) rotate(0);animation-timing-function:ease-in-out}100%{transform:translateY(110%) rotate(0)}}@media (prefers-reduced-motion:reduce){.orca{display:none}}
-.brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast{transition:none!important;animation:none!important}}.acts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.acts .go,.acts .end{margin:0}.mline{margin-left:8px;font-size:11.5px;color:var(--ink3);display:inline-flex;align-items:center;gap:4px}.mline .sid{background:transparent;padding:0;color:var(--ink3);font-weight:500}.mline .sid:hover{color:var(--ink)}.where{font-size:11.5px;color:var(--ink3)}.where:before{content:'· ';}__THEME_CSS__</style></head><body><div id="toast"></div><div id="busy"></div>
+.brand .guide{display:block;margin-top:2px;font-size:10.5px;color:var(--ink3);opacity:.85}.legend{display:flex;gap:12px;margin-top:6px;font-size:10.5px;color:var(--ink3)}.legend span{display:inline-flex;align-items:center;gap:4px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block;border:2px solid transparent;box-sizing:border-box}.lg.done{background:var(--done)}.lg.side{background:var(--side)}.lg.now{background:var(--now)}.lg.blocked{border-color:var(--wait);background:var(--card)}.lg.left{border-color:var(--left);background:var(--card)}.gear{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:var(--ink3);margin-left:4px;align-self:center}.gear:hover{background:var(--col);color:var(--ink)}.box.set{width:min(760px,94vw);border-top-color:var(--ink3)}.stt{font-size:15px}.set h4{margin:16px 0 4px}.hint{margin:0 0 8px;color:var(--ink3);font-size:11.5px}.opts{display:grid;gap:6px}.box.set{padding:16px 22px 6px}.box.set>.row{padding-bottom:12px}.sg{display:grid;grid-template-columns:170px 1fr;gap:18px;align-items:center;padding:16px 0;border-top:1px solid var(--line)}.sgl b{display:block;font-size:12.5px}.sgl small{display:block;margin-top:2px;font-size:11px;color:var(--ink3);line-height:1.35}.sgr{min-width:0}.sgr .sel{min-width:0;width:100%;max-width:320px}.sgr .pills{width:max-content}.sw{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer}.sw input{display:none}.sw i{position:absolute;inset:0;border-radius:11px;background:var(--left);transition:.2s}.sw i:after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}.sw input:checked+i{background:var(--wait)}.sw input:checked+i:after{left:19px}@media (max-width:640px){.sg{grid-template-columns:1fr;gap:8px}}.mets{display:grid;grid-template-columns:1fr 1fr;gap:10px}.met{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:8px;color:var(--wait)}.met span{font-size:11px;color:var(--ink3);grid-column:1/3}.met b{font-size:20px;color:var(--ink)}.met svg{width:100%;height:28px}.met small{grid-column:1/3;font-size:10.5px;color:var(--ink3)}.sel{font:inherit;font-size:13px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:280px}.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}.opt:has(input:checked){border-color:var(--wait);background:color-mix(in srgb,var(--wait) 7%,var(--card))}.opt span{display:flex;flex-direction:column}.opt small{color:var(--ink3);font-size:11px}.tog{align-items:center}.seg2{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0;font-size:12px;color:var(--ink2)}.pills{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}.pills button{all:unset;cursor:pointer;padding:5px 12px;font-size:11.5px;color:var(--ink3)}.pills button:not(.on):not([disabled]):hover{background:var(--col);color:var(--ink)}.pills button+button{border-left:1px solid var(--line)}.pills button[disabled]{opacity:.4;cursor:default}.pills button.on{background:var(--wait);color:#fff;font-weight:700}.ths{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.thl{font-size:11px;color:var(--ink3);margin:2px 0 4px}.ths+.thl{margin-top:10px}.th{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;border-radius:10px;padding:6px;border:2px solid transparent}.th.on{border-color:var(--wait)}.th em{font-style:normal;font-size:10.5px;color:var(--ink2);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thp{background:var(--bg);border-radius:7px;padding:6px;border:1px solid var(--line);display:flex;flex-direction:column;gap:5px;height:58px}.thp .t1{display:block;height:9px;border-radius:3px;background:var(--card)}.thp .tc{position:relative;flex:1;background:var(--card);border-radius:5px;padding:6px 6px 6px 9px}.thp .tb{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:0 3px 3px 0;background:var(--wait)}.thp .tl{display:block;height:6px;width:70%;border-radius:3px;background:var(--ink2);opacity:.6;margin-bottom:6px}.thp .d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}.thp .d.done{background:var(--done)}.thp .d.now{background:var(--now)}.thp .d.left{background:var(--left)}.card{transition:transform .28s cubic-bezier(.16,1,.3,1),box-shadow .28s cubic-bezier(.16,1,.3,1),border-color .3s ease,background-color .3s ease}.card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.12)}.card.fresh{animation:fresh .5s cubic-bezier(.16,1,.3,1)}@keyframes fresh{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}.card.floating{box-shadow:0 18px 44px rgba(15,23,42,.30);transition:none}.card.floating.nope{opacity:.85;filter:grayscale(.5)}.card.floating.nope:before{content:'Working · can’t move yet';position:absolute;top:-11px;right:12px;font-size:11px;font-weight:700;color:#fff;background:#8b95a1;border-radius:999px;padding:3px 9px}.col{transition:background-color .2s ease,box-shadow .2s ease}.col.drop{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--wait) 60%,transparent)}main{transition:grid-template-columns .34s cubic-bezier(.16,1,.3,1)}.col.ghost{background:color-mix(in srgb,var(--wait) 5%,transparent);border:1.5px dashed color-mix(in srgb,var(--wait) 35%,var(--line));border-radius:12px;opacity:0;transform:translateX(-14px);transition:opacity .3s cubic-bezier(.16,1,.3,1),transform .34s cubic-bezier(.16,1,.3,1)}.col.ghost.open{opacity:1;transform:none}.col.ghost h2{font-size:11px;letter-spacing:.02em;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.slot{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 10px;margin-top:8px;box-shadow:0 1px 2px rgba(15,23,42,.06);animation:slotin .38s cubic-bezier(.16,1,.3,1) both}.slot:before{content:'+';flex:none;width:18px;height:18px;border-radius:6px;background:color-mix(in srgb,var(--wait) 16%,transparent);color:var(--wait);font-weight:800;font-size:13px;line-height:18px;text-align:center}.slot.drop{border-color:var(--wait);background:color-mix(in srgb,var(--wait) 10%,var(--card));transform:translateX(3px) scale(1.03);box-shadow:0 6px 16px color-mix(in srgb,var(--wait) 25%,transparent)}@keyframes slotin{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}#toast{bottom:28px;transform:translate(-50%,16px);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,.25);transition:opacity .25s ease,transform .3s cubic-bezier(.16,1,.3,1)}#toast.on{opacity:.96;transform:translate(-50%,0)}.modal:target .bg{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}.card.moving{opacity:.9}@media (prefers-reduced-motion:reduce){.card,.slot,.col.ghost,#toast,.land{transition:none!important;animation:none!important}}.acts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.acts .go,.acts .end{margin:0}.mline{margin-left:8px;font-size:11.5px;color:var(--ink3);display:inline-flex;align-items:center;gap:4px}.mline .sid{background:transparent;padding:0;color:var(--ink3);font-weight:500}.mline .sid:hover{color:var(--ink)}.where{font-size:11.5px;color:var(--ink3)}.where:before{content:'· ';}/* 앱 디자인 */html,body{height:100%}body{padding:0!important;display:flex;flex-direction:column;overflow:hidden}#sc{flex:1;min-height:0;overflow:auto;padding:0 32px 32px;scrollbar-width:thin}header{background:transparent!important;box-shadow:none!important;border-radius:0!important;flex-wrap:wrap!important;flex:none;margin:0!important;padding:4px 32px!important;min-height:38px;box-sizing:border-box}html.app header{padding-left:84px!important}header .vbar{margin:0 auto}.tiles{display:flex;align-items:center}.subbar{margin:24px 2px 28px!important;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}.subbar h1{margin:0;font-size:26px;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}.subbar .ver{align-self:center;margin-left:0}.subbar .legend{margin:0 0 0 auto;font-size:11px;color:var(--ink3)}.subbar>small{font-size:10.5px}.tabs{gap:0!important;border-bottom:0!important;background:color-mix(in srgb,var(--ink) 8%,transparent);border-radius:8px;padding:2px!important}.tabs .tab{border-radius:6px!important;padding:3px 14px!important;border:0!important;margin:0!important}.tabs .tab.on{background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.18)}.tabs .tab:after{display:none!important}main{gap:20px!important}header{z-index:8;background:var(--bg)!important;transition:box-shadow .2s ease}header.scrolled{box-shadow:0 1px 0 var(--line)!important}.col.scroll h2{position:sticky;top:-10px;z-index:2;background:var(--col);margin:-10px -8px 6px!important;padding:10px 12px 8px;border-radius:10px 10px 0 0}.modal .box:not(.set){display:flex;flex-direction:column;overflow:hidden!important}.modal .box:not(.set)>.cols{min-height:0;overflow:auto;margin:0 -18px -16px;padding:0 18px 16px}.box.set>.row{position:sticky;top:-16px;z-index:3;background:var(--card);margin:-16px -22px 0;padding:16px 22px 12px!important}/* 컴포넌트 */.modal:target{display:flex!important;align-items:center;justify-content:center}.modal:target .box{margin:0 auto!important;max-height:88vh!important}.box.set .pills{background:color-mix(in srgb,var(--ink) 8%,transparent)!important;border:0!important;border-radius:8px!important;padding:2px!important}.box.set .pills button{border:0!important;border-radius:6px!important;background:transparent!important}.box.set .pills button.on{background:var(--card)!important;color:var(--ink)!important;box-shadow:0 1px 2px rgba(0,0,0,.18)}.th .thp{border-radius:10px!important}.sm-dd{position:relative;display:inline-block}.sm-btn{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:space-between;gap:10px;min-width:260px;padding:6px 10px 6px 12px;border-radius:9px;background:var(--card);border:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.12);font-size:12.5px;color:var(--ink);cursor:pointer}.sm-btn:hover{border-color:color-mix(in srgb,var(--ink) 25%,transparent)}.sm-btn small{margin-left:6px;color:var(--ink3);font-size:11px}.sm-btn i{font-style:normal;color:var(--ink3)}.sm-pop{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:20;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.3)}.sm-dd.open .sm-pop{display:block}.sm-pop:after{content:"";position:absolute;left:1px;right:1px;bottom:1px;height:24px;border-radius:0 0 12px 12px;pointer-events:none;background:linear-gradient(transparent,var(--card))}.sm-list{width:340px;max-width:100%;max-height:230px;overflow:auto;border-radius:12px;background:var(--card);border:1px solid var(--line);scrollbar-width:none;padding-bottom:6px}.sm-list::-webkit-scrollbar{display:none}.sm-h{position:sticky;top:0;z-index:1;background:color-mix(in srgb,var(--card) 96%,var(--ink));padding:7px 12px 5px;border-bottom:1px solid var(--line);font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3)}.sm-h small{margin-left:5px;font-weight:500;letter-spacing:0;text-transform:none}.sm-it{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;width:calc(100% - 8px);margin:2px 4px;padding:6px 10px;border-radius:7px;font-size:12.5px;color:var(--ink);cursor:pointer}.sm-it:hover{background:color-mix(in srgb,var(--ink) 7%,transparent)}.sm-it .sm-ck{display:none}.sm-it.on{background:var(--wait);color:#fff;font-weight:600}.sm-it.on .sm-ck{display:block}.sortm .menu{background:color-mix(in srgb,var(--card) 82%,transparent)!important;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-radius:9px!important;padding:5px!important;box-shadow:0 10px 30px rgba(0,0,0,.3)!important}.sortm .menu button{border-radius:5px!important;padding:3px 10px!important;position:relative}.sortm .menu button:hover{background:var(--wait)!important;color:#fff!important}.cact{border-radius:0 0 12px 12px!important;background:color-mix(in srgb,var(--card) 85%,transparent)!important;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}.cact .cg{background:var(--wait)!important;color:#fff!important;border:0!important;border-radius:999px!important}.cact .ce{border:0!important;background:transparent!important;color:#e5534b!important}#toast{background:color-mix(in srgb,var(--card) 80%,transparent)!important;color:var(--ink)!important;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-radius:12px!important;padding:9px 16px!important;font-size:12.5px!important;box-shadow:0 10px 30px rgba(0,0,0,.3),0 0 0 1px var(--line)!important}#toast.on{opacity:1!important}/* 움직임 */.tabs{position:relative}.tabs .tab{position:relative;z-index:1}.tabs.k .tab.on{background:transparent!important;box-shadow:none!important}.tabs .knob{position:absolute;top:2px;bottom:2px;left:0;width:0;border-radius:6px;background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.18);z-index:0;transition:left .36s cubic-bezier(.2,.9,.3,1.12),width .36s cubic-bezier(.2,.9,.3,1.12)}.modal:target .box{animation:sheet .34s cubic-bezier(.2,.9,.3,1.12)!important}@keyframes sheet{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}.card.turned .badge{display:inline-block;animation:turned .6s cubic-bezier(.2,.9,.3,1.2)}@keyframes turned{0%{color:var(--busy);transform:none}45%{transform:scale(1.18)}100%{transform:none}}.card.floating{scale:1.05;background:color-mix(in srgb,#fff 4%,var(--card))!important;box-shadow:0 24px 48px rgba(0,0,0,.38),0 6px 14px rgba(0,0,0,.22),0 0 0 1px color-mix(in srgb,var(--wait) 40%,transparent)!important;transition:scale .22s cubic-bezier(.34,1.56,.64,1)!important}.land{height:0;margin-top:0;border-radius:10px;background:color-mix(in srgb,var(--wait) 9%,transparent);outline:2px dashed color-mix(in srgb,var(--wait) 50%,transparent);outline-offset:-2px;transition:height .22s cubic-bezier(.2,.8,.2,1),margin-top .22s cubic-bezier(.2,.8,.2,1)}.land.on{height:var(--h);margin-top:8px}.card.dragging{opacity:1!important;background:transparent!important;box-shadow:none!important;outline:2px dashed color-mix(in srgb,var(--ink) 22%,transparent);outline-offset:-2px}.card.dragging>*{visibility:hidden}.col.drop{box-shadow:none!important;outline:2px dashed color-mix(in srgb,var(--wait) 60%,transparent);outline-offset:-2px}#toast.on{animation:hud .3s cubic-bezier(.2,.9,.3,1.2)}@keyframes hud{from{opacity:0;transform:translate(-50%,6px) scale(.92)}to{opacity:1;transform:translate(-50%,0)}}@media (prefers-reduced-motion:reduce){.tabs .knob{transition:none}.modal:target .box,.card.turned .badge,#toast.on{animation:none!important}.card.floating{scale:1;rotate:0deg}}#sc,.col.scroll,.box.set,.modal .box>.cols{scrollbar-width:auto!important;scrollbar-color:auto!important}#sc::-webkit-scrollbar,.col.scroll::-webkit-scrollbar,.box.set::-webkit-scrollbar,.modal .box>.cols::-webkit-scrollbar{width:10px}#sc::-webkit-scrollbar-track,.col.scroll::-webkit-scrollbar-track,.box.set::-webkit-scrollbar-track,.modal .box>.cols::-webkit-scrollbar-track{background:transparent}#sc::-webkit-scrollbar-thumb,.col.scroll::-webkit-scrollbar-thumb,.box.set::-webkit-scrollbar-thumb,.modal .box>.cols::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--ink) 22%,transparent);border-radius:5px;border:3px solid transparent;background-clip:padding-box}.col.scroll::-webkit-scrollbar-track{margin:42px 0 10px}.box.set::-webkit-scrollbar-track{margin:52px 0 12px}__THEME_CSS__</style></head><body><script>
+// 앱 창이면 표시하고(신호등 자리를 비운다), 창을 끌 수 있는 헤더 빈 곳을 앱에 알린다(누를 수 있는 것들의 자리)
+(function(){var h=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.spyhopChrome;if(!h)return;
+document.documentElement.classList.add('app');var q=0;
+function send(){q=0;var hd=document.querySelector('header');if(!hd)return;
+  h.postMessage({bottom:hd.getBoundingClientRect().bottom,hit:[].map.call(document.querySelectorAll('header a,header button,header .sortm,header .menu'),
+    function(e){var b=e.getBoundingClientRect();return [b.left,b.top,b.width,b.height]})})}
+function later(){if(!q)q=requestAnimationFrame(send)}
+addEventListener('DOMContentLoaded',function(){send();new MutationObserver(later).observe(document.querySelector('header'),{subtree:true,childList:true,attributes:true})});
+addEventListener('resize',later);addEventListener('scroll',later,{passive:true})})();
+// 내려가 있으면 위 줄 아래에 얇은 선(내용이 그 아래로 지나간다는 표시)
+document.addEventListener('scroll',function(e){if(e.target.id!=='sc')return;var h=document.querySelector('header');if(h)h.classList.toggle('scrolled',e.target.scrollTop>2)},{capture:true,passive:true});
+</script><div id="toast"></div><div id="busy"></div>
 <div id="confirm"><div class="cb"><h3>End this session?</h3><p><b id="cft"></b><br><br>
 <span id="cfx">Only this pane closes; other panes in the tab stay.</span> The transcript is kept so you can resume later.</p>
 <div class="row2"><button onclick="cancelEnd()">Cancel</button><button class="danger" onclick="doEnd()">End</button></div></div></div>
@@ -3993,6 +3813,7 @@ function doEnd(){var h=endTarget,stop=busy();cancelEnd();
 
 // 열기는 :target CSS 효과 하나만 사용한다. hashchange 이후 효과를 시작하면 첫 프레임이 먼저 보인다.
 function closeModal(){location.hash=''}
+addEventListener('message',function(e){if(e.source===parent&&e.data==='spyhop:settings')location.hash='settings'});  // 앱 메뉴 「Settings… ⌘,」
 document.addEventListener('click',function(e){var x=e.target.closest&&e.target.closest('.modal .x, .modal .bg');if(x&&x.getAttribute('href')==='#'){e.preventDefault();closeModal()}});
 var WS=__WSLIST__,drag=null;
 // 카드 끌기: 지라 칸반처럼 카드가 손을 따라오고, 놓으면 그 칸으로 미끄러져 들어간다 (마우스 이벤트로 직접 구현)
@@ -4003,18 +3824,28 @@ document.addEventListener('pointermove',function(e){
   if(press&&!drag&&Math.abs(e.clientX-press.x)+Math.abs(e.clientY-press.y)>6){  // 누르는 사이 보드가 새로 그려졌으면 같은 카드를 다시 찾는다
     var pc=press.c.isConnected?press.c:document.querySelector('main .card[data-h="'+press.h+'"]'),p0=press;press=null;if(pc)startDrag(pc,e,p0)}
   if(!drag)return;e.preventDefault();
-  var fx=e.clientX-drag.dx,fy=e.clientY-drag.dy,fs=1.03;
-  drag.float.style.transform='translate('+fx+'px,'+fy+'px) rotate(2deg) scale('+fs+')';
-  var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.drop').forEach(function(x){if(x!==col)x.classList.remove('drop')});
-  if(col&&col!==drag.from&&canDrop(drag,col))col.classList.add('drop');edgeScroll(e.clientY)});
+  drag.x=e.clientX;drag.y=e.clientY;if(!drag.raf)drag.raf=requestAnimationFrame(frame);
+  var col=colAt(e.clientX,e.clientY);if(!col&&drag.over&&Date.now()-drag.overAt<250)col=drag.over;  // 칸 사이 틈을 지날 때 자리가 열렸다 닫혔다 떨리지 않게
+  if(col&&col.classList.contains('land'))col=drag.over;if(col){drag.over=col;drag.overAt=Date.now()}
+  document.querySelectorAll('.drop').forEach(function(x){if(x!==col)x.classList.remove('drop')});
+  var ok=col&&col!==drag.from&&canDrop(drag,col);if(ok)col.classList.add('drop');land(ok&&!col.classList.contains('newcol')?col:null);edgeScroll(e.clientY)});
+function frame(){var d=drag;if(!d)return;d.raf=0;  // 한 화면에 한 번만 그린다. 기울기는 움직인 속도를 부드럽게 따라가고, 멈추면 천천히 돌아온다
+  var vx=d.x-(d.px==null?d.x:d.px);d.px=d.x;d.v=(d.v||0)*.8+vx*.2;var t=Math.max(-6,Math.min(6,d.v*.6));
+  d.float.style.transform='translate('+(d.x-d.dx)+'px,'+(d.y-d.dy)+'px) rotate('+(2+t).toFixed(2)+'deg)';
+  if(Math.abs(d.v)>.05)d.raf=requestAnimationFrame(frame)}
+function land(col){var d=drag,s=d.slot;if(s&&s.parentNode===col)return;  // 놓을 칸 맨 위(카드가 실제로 들어갈 자리)가 카드 높이만큼 벌어진다
+  if(s){d.slot=null;s.classList.remove('on');setTimeout(function(){s.remove()},240)}
+  if(!col)return;var n=document.createElement('div');n.className='land';n.style.setProperty('--h',d.el.offsetHeight+'px');
+  var more=col.querySelector('.more');col.insertBefore(n,more?more.nextSibling:col.firstChild.nextSibling);d.slot=n;n.offsetHeight;n.classList.add('on')}
+function unland(d){if(d.slot){d.slot.remove();d.slot=null}}
 function canDrop(d,col){return d.st==='wait'||(col.dataset.wid||'').indexOf('group:')===0}
 document.addEventListener('pointerup',function(e){press=null;if(!drag)return;var d=drag;drag=null;setTimeout(function(){justDragged=false},60);  // 놓을 때 생기는 클릭이 상세를 열지 않게
 
   var col=colAt(e.clientX,e.clientY);document.querySelectorAll('.drop').forEach(function(x){x.classList.remove('drop')});
-  d.el.classList.remove('dragging');document.body.classList.remove('dragging-on');
+  cancelAnimationFrame(d.raf);unland(d);d.el.classList.remove('dragging');document.body.classList.remove('dragging-on');
   var to=(col&&col!==d.from)?col:null,r=d.el.getBoundingClientRect();
   if(to&&!canDrop(d,to)){toast('This session is working. Move it after it stops.');to=null}
-  d.float.style.transition='transform .34s cubic-bezier(.16,1,.3,1),opacity .2s';
+  d.float.style.transition='transform .38s cubic-bezier(.34,1.3,.64,1),opacity .2s,scale .3s ease';d.float.style.scale='1';
   if(!to){d.float.style.transform='translate('+r.left+'px,'+r.top+'px)';setTimeout(function(){d.float.remove();unghost()},340);return}
   if(to.classList.contains('newcol')){d.el.classList.add('dragging');(to.dataset.wid==='pick:'?askPick:askName)(d,r);return}  // 고르거나 이름을 짓는 동안 원래 카드는 흐리게 둔다
   var fr=d.float.getBoundingClientRect();d.float.remove();dropOn(d,to,fr);unghost()});
@@ -4060,14 +3891,14 @@ var justDragged=false;
 function startDrag(c,e,p0){var r=c.getBoundingClientRect(),f=c.cloneNode(true),nope=c.dataset.st!=='wait'&&document.querySelector('main .col[data-wid^="group:"]')===null;if(nope)f.classList.add('nope');
   drag={h:c.dataset.h,st:c.dataset.st,wid:c.dataset.wid,log:c.dataset.log,el:c,from:c.closest('.col'),float:f,dx:p0.x-r.left,dy:p0.y-r.top};  // 처음 누른 자리를 잡은 채로 따라온다
 
-  f.classList.add('floating');f.style.width=r.width+'px';f.style.transform='translate('+r.left+'px,'+r.top+'px)';document.body.appendChild(f);
+  f.classList.add('floating');f.style.width=r.width+'px';f.style.transformOrigin=(p0.x-r.left)+'px '+(p0.y-r.top)+'px';f.style.transform='translate('+r.left+'px,'+r.top+'px)';document.body.appendChild(f);
   c.classList.add('dragging');document.body.classList.add('dragging-on');newCol(nope||c.dataset.h.indexOf('proc_')===0);justDragged=true}  // 오르카 밖 세션은 다른 워크스페이스로 못 옮긴다
 function emptyWS(){var have={};document.querySelectorAll('main .col').forEach(function(c){have[c.dataset.wid]=1});return WS.filter(function(w){return !have[w.id]})}
 function newCol(nope){var m=document.querySelector('main');if(m.querySelector('.newcol'))return;  // 끄는 동안 맨 끝에 점선 칸 하나: AI 주제는 새 칸, Location 은 세션 없는 워크스페이스 고르기
   var ai=!!m.querySelector('.col[data-wid^="group:"]');if(!ai&&(nope||!emptyWS().length))return;
   var n=document.createElement('section');n.className='col newcol';n.dataset.wid=ai?'group:':'pick:';n.innerHTML=ai?'<h2>+ New column</h2>':'<h2>+ Other workspace</h2>';m.appendChild(n)}
 function colAt(x,y){var el=document.elementFromPoint(x,y);return el&&el.closest?el.closest('main .col'):null}
-function edgeScroll(y){if(y>innerHeight-60)scrollBy(0,18);else if(y<60)scrollBy(0,-18)}  // 칸이 아랫줄로 넘어가므로 끄는 카드를 화면 위·아래 끝으로 가져가면 페이지가 따라 움직인다
+function edgeScroll(y){var s=document.getElementById('sc')||document.scrollingElement;if(y>innerHeight-60)s.scrollBy(0,18);else if(y<120)s.scrollBy(0,-18)}  // 칸이 아랫줄로 넘어가므로 끄는 카드를 화면 위·아래 끝으로 가져가면 페이지가 따라 움직인다
 function unghost(){var nc=document.querySelector('main .newcol');if(nc)nc.remove()}
 function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
   if(!ai&&d.st!=='wait'){toast('This session is working. Move it after it stops.');return}
@@ -4086,9 +3917,9 @@ function dropOn(d,col,fr){var ai=col.dataset.wid.indexOf('group:')===0;
 var pending={};
 function flipTo(el,col,fr){  // 카드를 새 칸으로 옮기며, 손에 들고 있던 자리(없으면 원래 자리)에서 내려앉게 (FLIP)
   var a=fr||el.getBoundingClientRect(),more=col.querySelector('.more');col.insertBefore(el,more?more.nextSibling:col.firstChild.nextSibling);
-  var b=el.getBoundingClientRect(),from='translate('+(a.left-b.left)+'px,'+(a.top-b.top)+'px)'+(fr?' rotate(2deg) scale(1.03)':'');
+  var b=el.getBoundingClientRect(),from='translate('+(a.left-b.left)+'px,'+(a.top-b.top)+'px)'+(fr?' scale(1.04)':'');
   if(el.animate)el.animate([{transform:from,boxShadow:fr?'0 14px 34px rgba(15,23,42,.28)':'none'},{transform:'none',boxShadow:'none'}],
-    {duration:fr?420:300,easing:'cubic-bezier(.16,1,.3,1)'});recount()}
+    {duration:fr?460:300,easing:fr?'cubic-bezier(.34,1.35,.64,1)':'cubic-bezier(.16,1,.3,1)'});recount()}
 function recount(){document.querySelectorAll('main .col').forEach(function(c){var em=c.querySelector('h2 em');if(em)em.textContent=c.querySelectorAll('.card').length})}
 function holdMoves(){  // 서버가 따라올 때까지 옮긴 카드를 옮긴 칸에 둔다 (새로 그려도 원래 칸으로 튀지 않게)
   var m=document.querySelector('main');Object.keys(pending).forEach(function(log){var p=pending[log];
@@ -4120,7 +3951,10 @@ function loadMetrics(){if(location.hash!=='#settings')return;fetch('http://127.0
 loadMetrics();setInterval(loadMetrics,5000);addEventListener('hashchange',loadMetrics);document.addEventListener('mousedown',function(e){if(e.target.closest('.modal')&&!e.target.closest('.box')){e.preventDefault();closeModal()}});addEventListener('keydown',function(e){if(e.key==='Escape'&&location.hash&&location.hash!=='#')closeModal()});
 function pillPlace(){var p=document.querySelector('.pill');if(!p)return;var b=p.querySelector('.on')||p.querySelector('button'),k=p.querySelector('.knob');k.style.left=b.offsetLeft+'px';k.style.width=b.offsetWidth+'px'}
 function pillGo(b,v){if(b.classList.contains('on'))return;setCfg({sort:v},b);pillPlace()}
-function tabGo(b,v){if(b&&b.classList.contains('on'))return;var t=b||document.querySelector('.tabs .tab.'+v);setCfg({filter:v},t)}  // All / My turn / Working
+function knob(to,slide){var ts=document.querySelector('.tabs');if(!ts)return;var k=ts.querySelector('.knob');if(!k){k=document.createElement('i');k.className='knob';ts.insertBefore(k,ts.firstChild);ts.classList.add('k')}
+  var t=to||ts.querySelector('.tab.on');if(!t)return;if(!slide)k.style.transition='none';k.style.left=t.offsetLeft+'px';k.style.width=t.offsetWidth+'px';if(!slide){k.offsetWidth;k.style.transition=''}}
+addEventListener('DOMContentLoaded',function(){knob()});addEventListener('resize',function(){knob()});
+function tabGo(b,v){if(b&&b.classList.contains('on'))return;var t=b||document.querySelector('.tabs .tab.'+v);knob(t,true);setCfg({filter:v},t)}  // All / My turn / Working
 function sortOpen(e){e.stopPropagation();var m=e.currentTarget.parentNode;m.classList.toggle('open')}
 function sortGo(v){var m=document.querySelector('.sortm');if(m)m.classList.remove('open');
   if(m&&m.querySelector('.menu .on')&&m.querySelector('.menu .on').getAttribute('onclick').indexOf("'"+v+"'")>=0)return;setCfg({sort:v})}
@@ -4138,6 +3972,13 @@ function setCfg(o,btn){if(btn){btn.parentNode.querySelectorAll('button').forEach
 function setTheme(t){document.documentElement.dataset.theme=t;
   document.querySelectorAll('.th').forEach(function(b){b.classList.toggle('on',b.dataset.id===t)});
   fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify({theme:t})}).catch(function(){toast('Board server is not running')})}
+function smOpen(e){e.stopPropagation();var d=e.currentTarget.parentNode;d.classList.toggle('open');if(!d.classList.contains('open'))return;
+  var l=d.querySelector('.sm-list'),o=l&&l.querySelector('.sm-it.on');if(o)l.scrollTop=Math.max(0,o.offsetTop-l.clientHeight/2)}  // 열면 고른 모델이 보이게
+function smClose(){var d=document.querySelector('.sm-dd.open');if(d)d.classList.remove('open')}
+document.addEventListener('click',function(e){if(!e.target.closest('.sm-dd'))smClose()});addEventListener('keydown',function(e){if(e.key==='Escape'&&document.querySelector('.sm-dd.open')){e.stopImmediatePropagation();smClose()}},true);
+function pickSum(b){document.querySelectorAll('.sm-it.on').forEach(function(x){x.classList.remove('on')});b.classList.add('on');
+  var c=document.querySelector('.sm-cur'),h=b.previousElementSibling;while(h&&!h.classList.contains('sm-h'))h=h.previousElementSibling;
+  if(c)c.innerHTML=b.firstChild.textContent+'<small>'+(h?h.firstChild.textContent:'')+'</small>';smClose();setSum(b.dataset.v)}
 function setSum(v){fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'POST',body:JSON.stringify({summarizer:v})})
   .then(function(r){toast(r.ok?'Summarizer saved · applies from the next update':'That model is not available')})
   .catch(function(){toast('Board server is not running')})}
@@ -4148,7 +3989,7 @@ function go(h){fetch('http://127.0.0.1:47613/switch?h='+encodeURIComponent(h))
 // 줄이는 순서: 요약 빼기 → 마지막 답 빼기 → 단계를 막대로 → 제목 1줄. 단계가 이 보드의 핵심이라 가장 늦게 줄인다.
 // 위쪽 카드(오래 기다린 내 차례)는 끝까지 단계·마지막 답이 남는다. 창 크기가 바뀌면 전부 풀고 다시 맞춘다
 function fit(){var lv=['lv-nosum','lv-noreply','lv-bar','lv-min'],mn=document.querySelector('main');if(!mn)return;
-  var room=innerHeight-(mn.getBoundingClientRect().top+scrollY);  // 칸이 아랫줄로 넘어가도 줄마다 첫 줄과 같은 높이 안에 들게 맞춘다
+  var sc=document.getElementById('sc'),room=(sc?sc.getBoundingClientRect().bottom:innerHeight)-(mn.getBoundingClientRect().top+(sc?sc.scrollTop:scrollY));  // 칸이 아랫줄로 넘어가도 줄마다 첫 줄과 같은 높이 안에 들게 맞춘다
   document.querySelectorAll('.col').forEach(function(c){var top=c.getBoundingClientRect().top,st=c.scrollTop;
   c.classList.remove('scroll');c.style.maxHeight='';c.onscroll=null;
   var cards=[].slice.call(c.querySelectorAll('.card')).reverse(),m=c.querySelector('.more');m.style.display='none';
@@ -4165,11 +4006,11 @@ function fit(){var lv=['lv-nosum','lv-noreply','lv-bar','lv-min'],mn=document.qu
 fit();var ft;addEventListener('resize',function(){clearTimeout(ft);ft=setTimeout(fit,120)});
 
 // 화면은 한 번만 연다. 이후엔 새 화면을 받아 바뀐 부분만 갈아 끼운다(깜빡임·스크롤·열린 창 유지)
-var LAST={main:'',tiles:'',sub:''},cardHtml={},modalHtml={},HOLD=0;
+var LAST={main:'',tiles:'',sub:'',vbar:''},cardHtml={},modalHtml={},HOLD=0;
 function snap(){document.querySelectorAll('main .card').forEach(function(c){cardHtml[c.dataset.h]=c.outerHTML});
   document.querySelectorAll('.modal[id^="c"]').forEach(function(m){modalHtml[m.id]=m.innerHTML});
   var m=document.querySelector('main'),t=document.querySelector('.tiles'),b=document.querySelector('.subbar');
-  LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:''}
+  var v=document.querySelector('header .vbar');LAST.main=m?m.innerHTML:'';LAST.tiles=t?t.innerHTML:'';LAST.sub=b?b.innerHTML:'';LAST.vbar=v?v.innerHTML:''}
 snap();
 var verT=null;document.addEventListener('mouseover',function(e){var v=e.target.closest&&e.target.closest('#ver.new');if(!v||verT)return;  // 새 버전 배지에 1초 머물면 확인한 것으로 본다(스쳐 지나가는 건 무시)
   verT=setTimeout(function(){verT=null;var n=document.getElementById('ver');if(!n||!n.matches(':hover'))return;
@@ -4191,23 +4032,32 @@ function live(){
     var nt=d.querySelector('.tiles'),ot=document.querySelector('.tiles');
     if(nt&&ot&&nt.innerHTML!==LAST.tiles){ot.innerHTML=nt.innerHTML;LAST.tiles=nt.innerHTML}
     var pend={},gp=document.getElementById('grouping');if(gp){var gr0=gp.getBoundingClientRect();gp.querySelectorAll('.gpop a').forEach(function(a){pend[a.dataset.log||a.dataset.h]=gr0})}  // 분류 중이던 세션은 알약 자리에서 날아온다
+    var nvb=d.querySelector('header .vbar'),ovb=document.querySelector('header .vbar');
+    if(nvb&&ovb&&nvb.innerHTML!==LAST.vbar){var so2=!!ovb.querySelector('.sortm.open');ovb.innerHTML=nvb.innerHTML;LAST.vbar=nvb.innerHTML;knob();
+      if(so2){var sm2=ovb.querySelector('.sortm');if(sm2)sm2.classList.add('open')}}
     var nb=d.querySelector('.subbar'),ob=document.querySelector('.subbar');
-    if(nb&&ob&&nb.innerHTML!==LAST.sub){var so=!!ob.querySelector('.sortm.open');ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace();  // 갱신 시각이 바뀌어 아래 줄을 다시 그려도
+    if(nb&&ob&&nb.innerHTML!==LAST.sub){var so=!!ob.querySelector('.sortm.open'),kv=document.getElementById('ver');if(kv&&!(kv.matches(':hover')||kv.dataset.seen))kv=null;
+      ob.innerHTML=nb.innerHTML;LAST.sub=nb.innerHTML;pillPlace();
+      if(kv){var nvv=document.getElementById('ver');if(nvv)nvv.replaceWith(kv);else{var h1=ob.querySelector('h1');if(h1)h1.after(kv)}}  // 툴팁을 보는 중이거나 막 확인한 배지는 다음 갱신까지 그대로  // 갱신 시각이 바뀌어 아래 줄을 다시 그려도
       if(so){var sm=ob.querySelector('.sortm');if(sm)sm.classList.add('open')}}  // 열어 둔 정렬 메뉴는 열린 채로
     var note=d.getElementById('board-note'),oldNote=document.getElementById('board-note');
     if(note&&oldNote&&note.innerHTML!==oldNote.innerHTML)oldNote.innerHTML=note.innerHTML;
     var nm=d.querySelector('main'),om=document.querySelector('main');
     var hov=om&&om.querySelector('.card:hover');if(!hov)HOLD=0;else if(!HOLD)HOLD=Date.now();
     if(nm&&om&&nm.innerHTML!==LAST.main&&!(HOLD&&Date.now()-HOLD<10000)){  // 카드에 마우스를 올려 둔 동안(최대 10초)은 칸·카드를 옮기지 않는다(누르려던 카드가 도망가지 않게)
-      var y=scrollY,x=om.scrollLeft,old=cardHtml,was={},cw={},sc={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
+      var scb=document.getElementById('sc'),y=scb?scb.scrollTop:scrollY,x=om.scrollLeft,old=cardHtml,was={},cw={},sc={},ended=[],key=function(c){return c.dataset.log||c.dataset.h};cardHtml={};
       om.querySelectorAll('.col').forEach(function(c){sc[c.dataset.wid]=c.scrollTop});
       var many=om.querySelectorAll('.card').length>120;if(!many){om.querySelectorAll('.card').forEach(function(c){was[key(c)]=c.getBoundingClientRect()});
         om.querySelectorAll('.col').forEach(function(c){cw[c.dataset.name]=c.getBoundingClientRect()})}
+      var gone=[];if(!many)om.querySelectorAll('.card').forEach(function(c){gone.push([key(c),c.cloneNode(true),c.getBoundingClientRect()])});
       om.setAttribute('style',nm.getAttribute('style')||'');om.innerHTML=nm.innerHTML;LAST.main=nm.innerHTML;
+      if(om.animate&&!matchMedia('(prefers-reduced-motion:reduce)').matches){var now={};om.querySelectorAll('.card').forEach(function(c){now[key(c)]=1});
+        gone.forEach(function(g){if(now[g[0]])return;var e=g[1],r=g[2];e.classList.remove('hov','changed','fresh');e.style.cssText='position:fixed;margin:0;z-index:5;pointer-events:none;left:'+r.left+'px;top:'+r.top+'px;width:'+r.width+'px;height:'+r.height+'px';
+          document.body.appendChild(e);e.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.96)'}],{duration:260,easing:'ease-out'}).onfinish=function(){e.remove()}})}
       om.querySelectorAll('.card').forEach(function(c){cardHtml[c.dataset.h]=c.outerHTML;
         if(old[c.dataset.h]===undefined)c.classList.add('fresh');else if(old[c.dataset.h]!==c.outerHTML){c.classList.add('changed');
-          if(c.dataset.st==='wait'&&/data-st="busy"/.test(old[c.dataset.h]))ended.push(c)}});
-      holdMoves();scrollTo(0,y);om.scrollLeft=x;fit();
+          if(c.dataset.st==='wait'&&/data-st="busy"/.test(old[c.dataset.h])){ended.push(c);c.classList.add('turned')}}});
+      holdMoves();if(scb)scb.scrollTop=y;else scrollTo(0,y);om.scrollLeft=x;fit();
       om.querySelectorAll('.col').forEach(function(c){c.scrollTop=sc[c.dataset.wid]||0;if(c.onscroll)c.onscroll()});
       // 칸이 자리를 바꾸면 칸이 통째로 미끄러지고, 카드는 칸 안에서 움직인 만큼만 움직인다(카드가 하나씩 화면을 가로지르지 않게)
       var cd={},nowAt={};if(!many)om.querySelectorAll('.card').forEach(function(c){nowAt[c.dataset.h]=c.getBoundingClientRect()});  // 칸 움직임을 걸기 전에 카드 새 자리를 먼저 잰다
@@ -4228,7 +4078,7 @@ function live(){
     var gr=!!document.getElementById('grouping');if(gr&&!window.gStop)window.gStop=busy();if(!gr&&window.gStop){window.gStop();window.gStop=null}
     if(gr)setTimeout(live,2500);
     return true  // 새 화면을 실제로 반영했다
-  }).catch(function(){if(window.top===window)location.href='__LOADER__';return false})}
+  }).catch(function(){return false})}
 var RT=setInterval(function(){if(!document.hidden)live()},__REFRESH_MS__),GEN=null;
 setInterval(function(){if(document.hidden||drag||press)return;  // 새 세션·끝난 세션은 서버가 2초 안에 다시 그리니, 그걸 바로 따라간다
   fetch('http://127.0.0.1:47613/gen',{cache:'no-store'}).then(function(r){return r.text()}).then(function(g){if(g===GEN)return;

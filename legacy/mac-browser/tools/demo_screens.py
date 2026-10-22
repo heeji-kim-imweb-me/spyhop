@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import board as B  # noqa: E402
 
-OUTDIR = os.path.join(ROOT, 'docs', 'screenshots')
+OUTDIR = os.path.join(ROOT, '..', '..', 'docs', 'screenshots')  # 레포 맨 위 docs
 TMP = tempfile.mkdtemp(prefix='spyhop-demo-')
 CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 NOW = time.time()
@@ -142,8 +142,6 @@ def patch(mode):
                                   'subject': HELPER[2], 'body': HELPER[3], 'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(NOW - 60))}]}
         return {}
     B.orca = fake_orca
-    real_find_bin = B.find_bin
-    B.find_bin = lambda name: '/demo/orca' if name == 'orca' else real_find_bin(name)  # 오르카가 없는 컴퓨터에서도 가짜 오르카를 쓴다
     B.agent_procs = lambda: {}             # 이 맥에서 실제로 도는 세션이 데모 화면에 섞이지 않게
     B.outside_terms = lambda: ([dict(outside)], dict(owt))
     B.orca_agents = lambda: agents
