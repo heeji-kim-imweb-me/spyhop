@@ -115,6 +115,17 @@ u32.DestroyWindow.argtypes = [W.HWND]
 u32.FindWindowW.restype = W.HWND
 u32.FindWindowW.argtypes = [W.LPCWSTR, W.LPCWSTR]
 u32.keybd_event.argtypes = [W.BYTE, W.BYTE, W.DWORD, ctypes.c_size_t]
+u32.GetWindowPlacement.argtypes = [W.HWND, ctypes.c_void_p]
+u32.MonitorFromPoint.restype = W.HMONITOR
+u32.MonitorFromPoint.argtypes = [W.POINT, W.DWORD]
+u32.MonitorFromRect.restype = W.HMONITOR
+u32.MonitorFromRect.argtypes = [ctypes.POINTER(W.RECT), W.DWORD]
+u32.GetMonitorInfoW.argtypes = [W.HMONITOR, ctypes.c_void_p]
+u32.GetDpiForWindow.argtypes = [W.HWND]
+u32.SetWindowPos.argtypes = [W.HWND, W.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, W.UINT]
+u32.GetForegroundWindow.restype = W.HWND
+u32.AttachThreadInput.argtypes = [W.DWORD, W.DWORD, W.BOOL]
+u32.BringWindowToTop.argtypes = [W.HWND]
 u32.IsWindow.argtypes = [W.HWND]
 u32.IsWindowVisible.argtypes = [W.HWND]
 u32.IsIconic.argtypes = [W.HWND]
@@ -265,53 +276,111 @@ def edge_windows():
     return out
 
 
-def window_width(hwnd):
-    r = W.RECT()
-    u32.GetWindowRect(hwnd, ctypes.byref(r))
-    return r.right - r.left
-
-
 def alive(hwnd):
     return bool(hwnd) and bool(u32.IsWindow(hwnd)) and bool(u32.IsWindowVisible(hwnd))
 
 
-def bring_front(hwnd):
+class WINDOWPLACEMENT(ctypes.Structure):
+    _fields_ = [('length', W.UINT), ('flags', W.UINT), ('showCmd', W.UINT), ('ptMinPosition', W.POINT),
+                ('ptMaxPosition', W.POINT), ('rcNormalPosition', W.RECT)]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [('cbSize', W.DWORD), ('rcMonitor', W.RECT), ('rcWork', W.RECT), ('dwFlags', W.DWORD)]
+
+
+def normal_rect(hwnd):
+    """최소화·최대화 전의 창 자리. 최소화된 창은 GetWindowRect 가 (-32000, -32000) 의 좁은 칸을 돌려줘서 패널로 잘못 본다."""
+    wp = WINDOWPLACEMENT()
+    wp.length = ctypes.sizeof(wp)
+    u32.GetWindowPlacement(hwnd, ctypes.byref(wp))
+    return wp.rcNormalPosition
+
+
+def window_width(hwnd):
+    r = normal_rect(hwnd)
+    return r.right - r.left
+
+
+def work_area():
+    """마우스가 있는 화면(=방금 누른 트레이·시작 메뉴가 있는 화면)의 작업 영역. 실제 픽셀."""
+    pt = W.POINT()
+    u32.GetCursorPos(ctypes.byref(pt))
+    mon = u32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
+    mi = MONITORINFO()
+    mi.cbSize = ctypes.sizeof(mi)
+    u32.GetMonitorInfoW(mon, ctypes.byref(mi))
+    return mi.rcWork
+
+
+def scaled(hwnd, size):
+    """Edge 가 쓰는 단위(배율 적용 전)의 크기를 그 창 화면의 실제 픽셀로. 배율 150% 면 380 → 570."""
+    dpi = u32.GetDpiForWindow(hwnd) or 96
+    return tuple(int(v * dpi / 96) for v in size)
+
+
+def panel_rect(hwnd):
+    w, h = scaled(hwnd, PANEL_SIZE)
+    work, gap = work_area(), scaled(hwnd, (12, 12))[0]
+    return work.right - w - gap, work.bottom - h - gap, w, h
+
+
+def board_rect(hwnd):
+    w, h = scaled(hwnd, BOARD_SIZE)
+    work = work_area()
+    w, h = min(w, int((work.right - work.left) * .92)), min(h, int((work.bottom - work.top) * .92))
+    return work.left + (work.right - work.left - w) // 2, work.top + (work.bottom - work.top - h) // 2, w, h
+
+
+def off_screen(hwnd):
+    r = normal_rect(hwnd)
+    return not u32.MonitorFromRect(ctypes.byref(r), 0)  # MONITOR_DEFAULTTONULL: 어느 화면에도 안 걸친다
+
+
+def bring_front(hwnd, rect=None):
+    """창을 보이게 하고 맨 앞으로. rect=(x, y, w, h, 실제 픽셀)를 주면 그 자리로 옮긴다.
+    트레이는 백그라운드 프로그램이라 Windows 가 다른 창을 앞으로 올리지 못하게 막는다. 지금 맨 앞 창의 입력 줄에
+    잠깐 붙어서(AttachThreadInput) 올리고, Alt 를 한 번 눌렀다 떼서(그래야 허용된다) 한 번 더 시도한다."""
     if u32.IsIconic(hwnd):
         u32.ShowWindow(hwnd, 9)  # SW_RESTORE
-    # 트레이는 백그라운드 프로그램이라 다른 창을 앞으로 못 올릴 때가 있다. Alt 를 한 번 눌렀다 떼면 허용된다
-    u32.keybd_event(0x12, 0, 0, 0)
-    u32.keybd_event(0x12, 0, 2, 0)
-    u32.SetForegroundWindow(hwnd)
+    else:
+        u32.ShowWindow(hwnd, 5)  # SW_SHOW
+    if rect:
+        u32.SetWindowPos(hwnd, None, rect[0], rect[1], rect[2], rect[3], 0x0004 | 0x0010)  # NOZORDER | NOACTIVATE
+    fg = u32.GetForegroundWindow()
+    mine, theirs = k32.GetCurrentThreadId(), u32.GetWindowThreadProcessId(fg, None) if fg else 0
+    attached = bool(theirs and theirs != mine and u32.AttachThreadInput(mine, theirs, True))
+    try:
+        u32.keybd_event(0x12, 0, 0, 0)
+        u32.keybd_event(0x12, 0, 2, 0)
+        u32.BringWindowToTop(hwnd)
+        u32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            u32.AttachThreadInput(mine, theirs, False)
+    return u32.GetForegroundWindow() == hwnd
 
 
-def launch_window(url, size, position=None):
-    """전용 프로필의 앱 창(주소창 없음)을 연다. 새로 생긴 창(없으면 None)을 돌려준다. Edge 가 없으면 기본 브라우저로."""
+def launch_window(url, size):
+    """전용 프로필의 앱 창(주소창 없음)을 연다. 새로 생긴 창(없으면 None)을 돌려준다. Edge 가 없으면 기본 브라우저로.
+    자리는 띄운 뒤 트레이가 실제 픽셀로 옮긴다: Edge 의 --window-position 은 배율 적용 전 단위라, 실제 픽셀을 넘기면
+    배율 150% 화면에서 1.5배 오른쪽, 즉 화면 밖에 뜬다(실제로 겪음)."""
     exe = edge()
     if not exe:
         os.startfile(url)
         return None
     os.makedirs(APP_PROFILE, exist_ok=True)
     before = set(edge_windows())
-    args = [exe, '--user-data-dir=' + APP_PROFILE, '--no-first-run', '--no-default-browser-check',
-            '--app=' + url, '--window-size=%d,%d' % size]
-    if position:
-        args.append('--window-position=%d,%d' % position)
     u32.AllowSetForegroundWindow(0xFFFFFFFF)  # ASFW_ANY: 새 창이 앞으로 나올 수 있게
-    subprocess.Popen(args, creationflags=winplat.CREATE_NO_WINDOW)
+    subprocess.Popen([exe, '--user-data-dir=' + APP_PROFILE, '--no-first-run', '--no-default-browser-check',
+                      '--app=' + url, '--window-size=%d,%d' % size], creationflags=winplat.CREATE_NO_WINDOW)
     for _ in range(60):  # 창이 뜰 때까지 최대 6초 (전용 프로필을 처음 만들 때 조금 걸린다)
         time.sleep(.1)
         new = [x for x in edge_windows() if x not in before]
         if new:
+            time.sleep(.3)  # Edge 가 지난번 자리를 먼저 되살린 뒤에 옮긴다
             return new[0]
     return None
-
-
-def launch_panel():
-    """작은 보드 패널을 오른쪽 아래(트레이 옆)에 연다."""
-    work = W.RECT()
-    u32.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)  # SPI_GETWORKAREA
-    w, h = PANEL_SIZE
-    return launch_window(PANEL_URL, PANEL_SIZE, (max(0, work.right - w - 12), max(0, work.bottom - h - 12)))
 
 
 def server_up(timeout=0.3):
@@ -391,17 +460,17 @@ class Tray:
         return hwnd
 
     def open_panel(self):
-        hwnd = self.find('panel', wide=False)
+        """작은 보드 패널을 오른쪽 아래(트레이 옆)에. 이미 열려 있으면 그 자리로 앞으로."""
+        hwnd = self.find('panel', wide=False) or launch_window(PANEL_URL, PANEL_SIZE)
+        self.panel = hwnd
         if hwnd:
-            bring_front(hwnd)
-            return
-        self.panel = launch_panel()
+            bring_front(hwnd, panel_rect(hwnd))
 
     def open_board(self):
         """보드 창을 연다. 이미 열려 있으면 앞으로. 보드가 꺼져 있으면 켜고 뜰 때까지 기다린다 (사람이 보드를 열면 켠다, 맥 앱과 같게)."""
         hwnd = self.find('board', wide=True)
         if hwnd:
-            bring_front(hwnd)
+            bring_front(hwnd, board_rect(hwnd) if off_screen(hwnd) else None)  # 사용자가 옮겨 둔 자리는 그대로
             return
         if not server_up():
             start_board()
@@ -409,7 +478,9 @@ class Tray:
                 if server_up():
                     break
                 time.sleep(.2)
-        self.board = launch_window(BOARD_URL, BOARD_SIZE)
+        hwnd = self.board = launch_window(BOARD_URL, BOARD_SIZE)
+        if hwnd:
+            bring_front(hwnd, board_rect(hwnd) if off_screen(hwnd) else None)
 
     def menu(self):
         up, ss = read_state()

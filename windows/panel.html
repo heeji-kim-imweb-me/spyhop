@@ -67,7 +67,7 @@ font-size:11.5px;padding:5px 10px;border-radius:6px;opacity:0;transition:opacity
 function esc(x){return String(x||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function waited(sec){var s=Math.max(0,Date.now()/1000-sec);return s<60?'now':s<3600?Math.floor(s/60)+'m':s<86400?Math.floor(s/3600)+'h':Math.floor(s/86400)+'d'}
 function toast(t){var e=document.getElementById('toast');e.textContent=t;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},1200)}
-function go(h,t){fetch('/switch?h='+encodeURIComponent(h)).then(function(r){return r.ok?r.text():'fail'}).then(function(x){toast(x==='fail'?'Pane not found':x==='app'?'Opened the app: '+t:'Switched: '+t)})}
+function go(h,t){fetch('/switch?h='+encodeURIComponent(h)).then(function(r){return r.ok?r.text():'fail'}).then(function(x){toast(x==='fail'?'Pane not found':x==='session'?'Opened in the Claude app: '+t:x==='desktop'?'Brought the app to the front: '+t:x==='app'?'Opened the app: '+t:'Switched: '+t)})}
 var pendingEnd=null;
 function end(ev,h,el){ev.stopPropagation();
   if(pendingEnd!==h){pendingEnd=h;document.querySelectorAll('.x.ask').forEach(function(x){x.classList.remove('ask');x.textContent='End'});

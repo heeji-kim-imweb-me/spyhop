@@ -1093,6 +1093,7 @@ def agent_procs():
             a['why'] = 'claude:stale-registration'
             continue
         a['busy'] = d.get('status') == 'busy'
+        a['host_session'] = d.get('hostSessionId')  # Claude 앱이 띄운 세션의 앱 쪽 번호 (딥링크로 그 세션을 연다)
         sid = d.get('sessionId')
         cwd = d.get('cwd') or a.get('cwd') or ''
         if not a.get('cwd'):
@@ -1256,11 +1257,13 @@ def codex_app_sessions(live_ids=(), now=None, home=None):
     return out
 
 
-def focus_claude_app(kind='code'):
-    """그 세션을 돌리는 데스크톱 앱(Claude 또는 Codex)을 앞으로 (앱 안의 그 세션까지는 못 고른다)."""
-    if WIN:
-        return winplat.focus_codex_app() if kind == 'codex-app' else winplat.focus_desktop_app()
-    return 'app' if _open_app('Codex' if kind == 'codex-app' else 'Claude') else ''
+def focus_claude_app(kind='code', session=None):
+    """데스크톱 앱 세션으로 간다. Claude 앱 Code 탭 세션은 앱의 딥링크로 그 세션까지('session'),
+    Cowork · Codex 앱은 세션을 고르는 주소가 알려져 있지 않아 앱만 앞으로('desktop')."""
+    if kind == 'code' and session and winplat.open_claude_session(session):
+        return 'session'
+    ok = winplat.focus_codex_app() if kind == 'codex-app' else winplat.focus_desktop_app()
+    return 'desktop' if ok else ''
 
 
 def outside_terms():
@@ -1318,7 +1321,9 @@ def focus_outside(pid):
     a = agent_procs().get(pid)
     if not a:
         return ''
-    if WIN:  # 탭까지는 못 고르고, 그 세션이 도는 창(터미널·Claude 앱)을 앞으로
+    if a.get('term_program') == 'Claude app':  # Claude 앱이 돌리는 세션: 딥링크로 그 세션까지
+        return focus_claude_app('code', a.get('host_session'))
+    if WIN:  # 탭까지는 못 고르고, 그 세션이 도는 창(터미널)을 앞으로
         return winplat.focus(pid)
 
     def app(name):
@@ -2865,8 +2870,8 @@ def serve():
                 if h not in known:  # 지금 목록에 있는 창만 이동시킨다
                     return self.send(404, b'unknown')
                 if h.startswith('proc_app_'):  # 데스크톱 앱 세션: 그 앱을 앞으로
-                    kind = next((t['_proc'].get('app_kind') for t in outside_terms()[0] if t['handle'] == h), 'code')
-                    return self.send(200, (focus_claude_app(kind) or 'fail').encode())
+                    a = next((t['_proc'] for t in outside_terms()[0] if t['handle'] == h), {})
+                    return self.send(200, (focus_claude_app(a.get('app_kind', 'code'), a.get('app_session')) or 'fail').encode())
                 if h.startswith('proc_'):  # 결과를 글로 돌려준다: tab(그 탭까지) / app(앱만) / fail
                     return self.send(200, (focus_outside(int(h[5:])) or 'fail').encode())
                 r = subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
@@ -4192,7 +4197,8 @@ function setSum(v){fetch('http://127.0.0.1:47613/config?k=__TOKEN__',{method:'PO
   .catch(function(){toast('Board server is not running')})}
 function go(h){fetch('http://127.0.0.1:47613/switch?h='+encodeURIComponent(h))
   .then(function(r){return r.text()}).then(function(t){toast(t==='pane'?'Switched to the Orca pane':t==='tab'?'Switched to the terminal tab':
-    t==='app'?'Opened the terminal app · could not find the exact tab':'Could not find that session’s window')}).catch(function(){toast('Board server is not running · restart it with ./spyhop')})}
+    t==='session'?'Opened that session in the Claude app':t==='desktop'?'Brought the app to the front · pick the session there':
+    t==='app'?'Opened the terminal app · could not find the exact tab':'Could not find that session’s window')}).catch(function(){toast('Board server is not running · restart it with spyhop.cmd')})}
 // 칸이 화면 높이를 넘으면 그 칸의 카드를 아래쪽부터 한 장씩, 덜 중요한 것부터 줄인다.
 // 줄이는 순서: 요약 빼기 → 마지막 답 빼기 → 단계를 막대로 → 제목 1줄. 단계가 이 보드의 핵심이라 가장 늦게 줄인다.
 // 위쪽 카드(오래 기다린 내 차례)는 끝까지 단계·마지막 답이 남는다. 창 크기가 바뀌면 전부 풀고 다시 맞춘다

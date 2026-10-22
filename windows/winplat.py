@@ -402,6 +402,25 @@ def focus_desktop_app():
     return ''
 
 
+def open_claude_session(session_id):
+    """Claude 앱에서 그 Code 탭 세션을 연다 (앱의 딥링크 claude://code/continue?session=<앱 세션 번호>, 예: local_…).
+    앱이 claude:// 를 받지 않으면 False."""
+    import winreg
+    from urllib.parse import quote
+    if not session_id:
+        return False
+    try:
+        winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, 'claude'))
+    except OSError:
+        return False
+    try:
+        u32.AllowSetForegroundWindow(0xFFFFFFFF)  # 앱이 그 창을 앞으로 가져올 수 있게
+        os.startfile('claude://code/continue?session=' + quote(session_id, safe=''))
+        return True
+    except OSError:
+        return False
+
+
 def focus_codex_app():
     """Codex 데스크톱 앱 창을 앞으로. 이 앱은 OpenAI.Codex 패키지 안의 ChatGPT.exe 다. 'app' 또는 ''."""
     for pid, hwnd in _top_windows().items():
