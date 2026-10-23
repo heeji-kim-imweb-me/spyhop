@@ -28,7 +28,7 @@ A **tray icon** appears next to the clock, like the macOS app's menu bar icon. I
 - **Codex desktop app** threads (Codex inside the ChatGPT app, or the IDE extension) used in the last 12 hours show up under `folder · Codex app`, read from Codex's `state_N.sqlite`. Only threads you started are shown.
 - **Cowork** sessions show up only when the app keeps their records on your computer (`local-agent-mode-sessions`). Recent Cowork versions keep sessions inside the Cowork virtual machine's disk, so those cannot be shown.
 - **Go to session** brings that terminal or app window to the front. It cannot pick the exact tab.
-- **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays.
+- **End session** force-closes the AI program (Windows has no SIGTERM). The terminal tab stays. An ended session stays off the board even though the Claude or Codex app keeps its record, until you use it again (`~/.spyhop/ended.json`). On a desktop app session with no program running, End session just hides the card the same way.
 - Summaries, AI topic grouping and **Start at login** (a `Spyhop` entry under `HKCU\...\CurrentVersion\Run`) work as on macOS.
 - Not on Windows: Orca, moving sessions, and automatic updates.
 - DeepSeek reads its key from the `DEEPSEEK_API_KEY` environment variable instead of the Keychain.
