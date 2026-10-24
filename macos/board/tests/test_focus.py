@@ -41,7 +41,7 @@ class CmuxFocusTest(unittest.TestCase):
 
     def test_label_from_cmux_env_without_term_program(self):
         self.assertEqual(B._term_label(self.AGENT), 'cmux')
-        self.assertEqual(B._term_label({'term_program': 'ghostty', 'cmux_panel_id': 'P1'}), 'Ghostty')
+        self.assertEqual(B._term_label({'term_program': 'ghostty', 'cmux_panel_id': 'P1'}), 'cmux')
         self.assertEqual(B._term_label({}), 'Terminal')
 
     def test_focus_panel_ok_reaches_tab(self):
@@ -77,12 +77,26 @@ class CmuxFocusTest(unittest.TestCase):
         with patch.object(B, 'agent_procs', return_value={42: self.AGENT}), patch.object(B, 'find_bin', return_value='/qa/cmux'), patch.object(B, '_open_app', return_value=False), patch.object(B.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='OK surface:1')):
             self.assertEqual(B.focus_outside(42), '')
 
-    def test_term_program_wins_over_cmux_env(self):
+    def test_cmux_identity_wins_over_embedded_ghostty(self):
         agent = dict(self.AGENT, term_program='ghostty')
         with patch.object(B, 'agent_procs', return_value={42: agent}), patch.object(B, '_ghostty_focus', return_value=True) as gf, patch.object(B, '_cmux_focus') as cf:
             self.assertEqual(B.focus_outside(42), 'tab')
-        gf.assert_called_once()
-        cf.assert_not_called()
+        gf.assert_not_called()
+        cf.assert_called_once()
+
+    def test_surface_id_without_legacy_panel_id_is_supported(self):
+        agent = {'pid': 42, 'tty': 'ttys001', 'term_program': 'ghostty', 'cmux_surface_id': 'S1', 'cmux_workspace_id': 'W1'}
+        self.assertEqual(B._term_label(agent), 'cmux')
+        with patch.object(B, 'find_bin', return_value='/qa/cmux'), patch.object(B, '_open_app', return_value=True), patch.object(B.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='OK surface:1')) as run:
+            self.assertTrue(B._cmux_focus(agent))
+        self.assertEqual(run.call_args.args[0], ['/qa/cmux', 'focus-panel', '--panel', 'S1', '--workspace', 'W1'])
+
+    def test_other_real_terminal_still_wins_over_inherited_cmux_env(self):
+        self.assertEqual(B._term_label(dict(self.AGENT, term_program='WezTerm')), 'WezTerm')
+
+    def test_orca_and_tmux_keep_their_identity_with_inherited_cmux_env(self):
+        for term in ('Orca', 'tmux'):
+            self.assertEqual(B._term_label(dict(self.AGENT, term_program=term)), term)
 
     def test_watcher_record_ps_runs_with_c_locale(self):
         with patch.object(B, 'read_pidfile', return_value=(42, '/x/board.py', None)), patch.object(B.subprocess, 'run', return_value=SimpleNamespace(stdout='')) as sp:

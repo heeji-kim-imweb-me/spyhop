@@ -995,10 +995,10 @@ def agent_procs():
         a = agents[int(p[0])]
         if a['kind'] == 'claude' and re.search(r'(?:^| )CLAUDE_CODE_CHILD_SESSION=1(?: |$)', p[1]):
             a['child'] = True
-        for key in ('ORCA_PANE_KEY', 'CODEX_HOME', 'TERM_PROGRAM', 'CMUX_WORKSPACE_ID', 'CMUX_PANEL_ID'):  # CODEX_HOME 이 다르면 그 폴더의 색인을 읽는다
+        for key in ('ORCA_PANE_KEY', 'CODEX_HOME', 'TERM_PROGRAM', 'CMUX_WORKSPACE_ID', 'CMUX_PANEL_ID', 'CMUX_SURFACE_ID'):  # CODEX_HOME 이 다르면 그 폴더의 색인을 읽는다
             m = re.search(r'(?:^| )%s=(\S+)' % key, p[1])
             a[key.lower()] = m.group(1) if m else None
-        if a.get('term_program') not in (None, 'Orca', 'tmux'):
+        if _term_label(a) == 'cmux' or a.get('term_program') not in (None, 'Orca', 'tmux'):
             a['orca_pane_key'] = None  # 오르카에서 띄운 다른 터미널은 오르카 표식을 물려받는다 → 그 터미널 세션으로 본다
     for pid, paths in _by_pid(_lsof(list(agents), ['-a', '-d', 'cwd'])).items():
         if pid in agents and paths:
@@ -1079,8 +1079,8 @@ TERM_LABEL = {'Apple_Terminal': 'Terminal', 'iTerm.app': 'iTerm2', 'WezTerm': 'W
 
 def _term_label(a):
     tp = a.get('term_program') or ''
-    if not tp and a.get('cmux_panel_id'):
-        return 'cmux'  # cmux 안의 세션은 TERM_PROGRAM 이 없다
+    if (a.get('cmux_panel_id') or a.get('cmux_surface_id')) and tp in ('', 'ghostty', 'cmux'):
+        return 'cmux'  # cmux는 버전에 따라 ghostty 표식 또는 터미널 표식 없이 실행된다
     return TERM_LABEL.get(tp, tp or 'Terminal')
 
 
@@ -1159,10 +1159,10 @@ def focus_outside(pid):
                 if _osa(script, 'ok'):
                     return 'tab'
         return app('WezTerm')
-    if tp == 'ghostty':
-        return 'tab' if _ghostty_focus(a) else app('Ghostty')
     if _term_label(a) == 'cmux':
         return 'tab' if _cmux_focus(a) else app('cmux')
+    if tp == 'ghostty':
+        return 'tab' if _ghostty_focus(a) else app('Ghostty')
     name = {'vscode': 'Visual Studio Code', 'WarpTerminal': 'Warp'}.get(tp)
     return app(name) if name else ''
 
@@ -1203,10 +1203,11 @@ def _ghostty_focus(a):
 
 def _cmux_focus(a):
     """cmux 는 tty 대신 작업 공간·패널 ID 로 칸을 찾는다."""
-    if not (a.get('cmux_workspace_id') and a.get('cmux_panel_id')):
+    panel = a.get('cmux_surface_id') or a.get('cmux_panel_id')
+    if not (a.get('cmux_workspace_id') and panel):
         return False
     cmux = find_bin('cmux') or '/Applications/cmux.app/Contents/Resources/bin/cmux'
-    cmd = [cmux, 'focus-panel', '--panel', a['cmux_panel_id'], '--workspace', a['cmux_workspace_id']]
+    cmd = [cmux, 'focus-panel', '--panel', panel, '--workspace', a['cmux_workspace_id']]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):

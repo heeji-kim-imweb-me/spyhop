@@ -119,6 +119,8 @@ brew uninstall --cask spyhop && rm -rf ~/.spyhop
 | AI topic grouping | ✅ | ✅ | ✅ |
 | Doctor (`board.py --doctor`) | ✅ | ✅ | ✅ |
 
+cmux: in **Settings → Automation → Socket Control Mode**, select **Automation mode** so Spyhop can focus sessions from outside cmux. The default **cmux processes only** mode rejects external clients. **Full open access** is not needed. If the CLI still rejects access after changing this setting, restart cmux.
+
 ### On the board
 
 - **Steps** on every card: `Done` · `Now` · `Next`, plus purple `Intercept` for a quick side task. When space runs out, cards shrink to progress bars (`3/4 · Review`).

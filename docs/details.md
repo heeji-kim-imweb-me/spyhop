@@ -82,3 +82,9 @@ Inside a board folder:
 | `orca_art.py` | Orca icon and animation art |
 | `tools/demo_screens.py` | Regenerates the screenshots in `docs/screenshots` from demo data |
 | `spyhop`, `menubar/spyhop.5s.py` | Brew command and SwiftBar plugin (`legacy/mac-browser/` only) |
+
+### cmux socket access
+
+Spyhop runs outside the cmux process tree. Select **Automation mode** under cmux **Settings → Automation → Socket Control Mode** to allow local automation from the same macOS user. The default **cmux processes only** mode rejects these commands; **Full open access** is unnecessary. Sessions can still be listed when socket access is denied, but Go to session can only bring cmux forward.
+
+If `cmux ping` still reports access denied after changing the mode, restart cmux and retry. On cmux 0.64.4, the live listener kept enforcing the old mode until the app was restarted.
