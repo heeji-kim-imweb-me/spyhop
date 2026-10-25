@@ -78,6 +78,17 @@ class UpdatesUITest(unittest.TestCase):
         self.assertIn('restart automatically', result['text'])
         self.assertNotIn('Later', result['text'])
 
+    def test_update_notice_keeps_legend_and_time_at_the_right_edge(self):
+        result = self.update_browser('var positions=[];for(const phase of ["idle","available","checking"]){'
+                                     'receive({...available,phase});var bar=document.querySelector(".subbar"),time=bar.querySelector("small"),legend=bar.querySelector(".legend");'
+                                     'positions.push({phase,gap:bar.getBoundingClientRect().right-time.getBoundingClientRect().right,ordered:legend.getBoundingClientRect().right<=time.getBoundingClientRect().left});}'
+                                     'var gear=document.querySelector(".gear"),header=document.querySelector("header");'
+                                     'var result={positions,gearGap:header.getBoundingClientRect().right-gear.getBoundingClientRect().right};')
+        for position in result['positions']:
+            self.assertLessEqual(abs(position['gap']), 2, position)
+            self.assertTrue(position['ordered'], position)
+        self.assertLessEqual(result['gearGap'], 14)
+
     def test_features_popup_dismiss_and_no_repeat(self):
         result = self.update_browser('const next={...available,showChanges:true,newFeatures:Array.from({length:5},(_,i)=>({title:"New feature "+i,detail:"How it works"})),fixes:[{title:"A fix",detail:"Full fix description"}]};'
                                      'receive(next);var d=document.getElementById("spyhop-whats-new");'

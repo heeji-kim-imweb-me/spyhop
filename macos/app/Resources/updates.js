@@ -8,7 +8,8 @@
   let state = {}, previousFocus, acknowledged = false, serial = '';
   const style = document.createElement('style');
   style.textContent = `
-    #spyhop-update-slot{display:inline-flex;align-items:center;margin-left:auto;gap:8px;font-size:12px}
+    #spyhop-update-slot{display:inline-flex;align-items:center;gap:8px;font-size:12px}
+    #spyhop-update-slot:empty{display:none}
     .spyhop-update-dialog button{font:inherit;cursor:pointer;border-radius:8px;padding:8px 13px;border:1px solid var(--line);color:var(--ink);background:var(--card)}
     .spyhop-update-dialog .update-primary{background:#65b4ef;color:#111820;border:0;font-weight:650}
     #spyhop-update-slot .update-error{max-width:260px;color:var(--ink3);font-size:11px}
@@ -41,7 +42,7 @@
     const bar = document.querySelector('.subbar');
     if (!bar) return;
     let slot = document.getElementById('spyhop-update-slot');
-    if (!slot) { slot = document.createElement('div'); slot.id = 'spyhop-update-slot'; slot.setAttribute('aria-live', 'polite'); bar.appendChild(slot); serial = ''; }
+    if (!slot) { slot = document.createElement('div'); slot.id = 'spyhop-update-slot'; slot.setAttribute('aria-live', 'polite'); bar.insertBefore(slot, bar.querySelector('.legend') || bar.querySelector('small')); serial = ''; }
     const key = JSON.stringify([state.phase, state.latest, state.error]);
     if (key !== serial) {
       serial = key; slot.replaceChildren();
