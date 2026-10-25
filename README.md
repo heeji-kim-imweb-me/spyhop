@@ -83,7 +83,7 @@ Spyhop uses `MAJOR.MINOR.PATCH`:
 - **Patch** releases fix bugs and make small compatible interface improvements (`2.1.0 → 2.1.1`).
 - **Major** releases introduce incompatible changes to supported commands, settings or data that cannot be migrated automatically and require action from users.
 
-Published versions and their assets are never rewritten. Installation or update-path changes get a release candidate and an upgrade check before the stable release; release candidates are excluded from normal in-app update checks.
+Published versions and their assets are never rewritten. Installation or update-path changes are checked with an internal release candidate before the stable release. Test RC releases stay in private drafts; normal downloads, Homebrew and in-app updates offer stable releases only.
 
 ### Find a session that is missing or looks wrong
 
