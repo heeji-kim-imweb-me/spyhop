@@ -54,4 +54,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" macos/build/Spyhop-*.dmg --clobber
+        run: gh release upload "$TAG" macos/build/Spyhop-*.dmg

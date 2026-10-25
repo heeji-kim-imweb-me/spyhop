@@ -1,18 +1,42 @@
 {
   "newFeatures": [
     {
-      "title": "Update without leaving Spyhop",
-      "detail": "Choose Check for Updates… in the Spyhop menu to review the new version's release notes before installing. Spyhop restarts automatically when the update is ready."
+      "title": "Claude app sessions on the board",
+      "detail": "See local Code sessions from the Claude desktop app in a folder-based Claude App column. Go to session opens the matching session and brings Claude forward."
+    },
+    {
+      "title": "cmux session support",
+      "detail": "See cmux sessions together by folder. Go to session selects the matching workspace and terminal surface, then brings cmux forward."
+    },
+    {
+      "title": "Update from the Spyhop menu",
+      "detail": "Choose Check for Updates… to review a new version’s complete release notes. Update and restart installs it and reopens Spyhop automatically."
     },
     {
       "title": "Release notes after each update",
-      "detail": "See every new feature and fix in the version you just installed. Open Release Notes in the Spyhop menu whenever you need them."
+      "detail": "The version you just installed introduces all of its New Features and Fixes once. Release Notes in the Spyhop menu opens the latest published notes."
     }
   ],
   "fixes": [
     {
+      "title": "More reliable WezTerm switching",
+      "detail": "Go to session raises the intended window even when tabs have custom names or windows share a title, and restores temporary title changes afterward."
+    },
+    {
+      "title": "cmux detection and Korean locale handling",
+      "detail": "Recognize cmux before its embedded Ghostty identity, support current and legacy surface identifiers, and keep process discovery reliable with Korean system output."
+    },
+    {
+      "title": "Readable text on state colors",
+      "detail": "Buttons, step numbers and selected controls choose readable text colors across light and dark themes."
+    },
+    {
       "title": "Consistent Full reply scrollbars",
-      "detail": "Expanded replies, code blocks, and tables now use the same scrollbar style as the rest of the board."
+      "detail": "Expanded replies, code blocks and tables use the same scrollbar style as the board."
+    },
+    {
+      "title": "Header alignment",
+      "detail": "The state legend and last-update time stay at the right edge when an update notice appears. The Settings gear sits closer to the window’s right edge."
     }
   ]
 }

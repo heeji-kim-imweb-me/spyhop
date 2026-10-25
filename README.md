@@ -65,11 +65,25 @@ When the app opens, it takes over the board server and **Start at login**, and r
 
 ### Update
 
+Choose **Spyhop → Check for Updates…** to review the new version’s release notes, then click **Update and restart**. Spyhop installs the update and reopens automatically. Settings, topic columns and your AI sessions are kept.
+
+Coming from 2.0.0, install 2.1.0 through Homebrew once to get the in-app updater:
+
 ```bash
-brew upgrade --cask spyhop
+brew update
+brew upgrade --cask leeleelee3264/tap/spyhop
+open -a Spyhop
 ```
 
-Then open Spyhop again. Settings, topic columns and your AI sessions are kept.
+### Versioning
+
+Spyhop uses `MAJOR.MINOR.PATCH`:
+
+- **Minor** releases add compatible features or support, such as a new terminal (`2.0.0 → 2.1.0`). A larger feature list or a redesigned screen does not by itself require a major release.
+- **Patch** releases fix bugs and make small compatible interface improvements (`2.1.0 → 2.1.1`).
+- **Major** releases introduce incompatible changes to supported commands, settings or data that cannot be migrated automatically and require action from users.
+
+Published versions and their assets are never rewritten. Installation or update-path changes get a release candidate and an upgrade check before the stable release; release candidates are excluded from normal in-app update checks.
 
 ### Find a session that is missing or looks wrong
 
@@ -145,7 +159,7 @@ Settings and topic groups live in `~/.spyhop`; summaries and board state in `/tm
 - **Finding sessions.** Spyhop looks at the running `claude`, `codex` and OMP programs, so sessions show up wherever you start them. Orca, when present, adds exact panes, workspaces and cross-check links.
 - **Summaries.** Only sessions whose transcript changed are summarized, at most once a minute each (every 3 or 5 minutes at the 30 s or 60 s update interval), and only the new part is sent. Idle sessions cost nothing. Measured over 30 minutes with 6 sessions open: 53 summarizer calls, about 4,500 characters each.
 - **Privacy.** The only thing that leaves your Mac is the transcript, sent to the summarizer model you picked, with anything that looks like a key or password masked first.
-- **Updates.** After `brew upgrade --cask spyhop`, the app restarts the board on the new version when you open it. The version next to the title stays highlighted until you rest the pointer on it; the tooltip links to the release notes.
+- **Updates.** Spyhop checks for stable releases, shows a single update notice, and lets you review the offered version’s complete release notes before installing. It reopens automatically after installation. After an upgrade, the installed version’s New Features and Fixes appear once.
 
 More on timing, privacy and internals: [docs/details.md](docs/details.md).
 

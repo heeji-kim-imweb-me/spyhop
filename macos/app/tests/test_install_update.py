@@ -26,8 +26,11 @@ class InstallTests(unittest.TestCase):
         self.app = self.bundle('installed/Spyhop.app', '2.0.0')
         self.staged = self.bundle('staged/Spyhop.app', '2.1.0')
         self.commands = []
+        self.ready_check = patch.object(I, 'wait_ready')
+        self.ready_check.start()
 
     def tearDown(self):
+        self.ready_check.stop()
         self.tmp.cleanup()
 
     def bundle(self, name, version, identifier='io.github.leeleelee3264.spyhop'):
@@ -57,7 +60,8 @@ class InstallTests(unittest.TestCase):
             I.replace(self.app, self.staged, '2.1.0')
         self.assertEqual(self.version(), '2.1.0')
         self.assertEqual(settings.read_text(), '{"theme":"dark"}')
-        self.assertEqual(self.commands[-1], ['/usr/bin/open', '-n', str(self.app)])
+        self.assertEqual(self.commands[-1][:3], ['/usr/bin/open', '-n', str(self.app)])
+        self.assertEqual(self.commands[-1][3:5], ['--args', '--update-token'])
         self.assertEqual(list(self.app.parent.glob('.Spyhop-*')), [])
 
     def test_bad_signature_keeps_original(self):
@@ -81,6 +85,27 @@ class InstallTests(unittest.TestCase):
                 I.replace(self.app, self.staged, '2.1.0')
         self.assertEqual(self.version(), '2.0.0')
         self.assertEqual(list(self.app.parent.glob('.Spyhop-*')), [])
+
+    def test_unhealthy_launch_restores_original(self):
+        with patch.object(I, 'run', side_effect=self.run_command), \
+                patch.object(I, 'wait_ready', side_effect=TimeoutError), patch.object(I, 'stop_attempt') as stop:
+            with self.assertRaises(TimeoutError):
+                I.replace(self.app, self.staged, '2.1.0')
+        self.assertEqual(self.version(), '2.0.0')
+        stop.assert_called_once()
+
+    def test_ready_ack_requires_matching_token_version_and_app(self):
+        self.ready_check.stop()
+        ready = self.root / 'update-ready.json'
+        record = {'token': 'expected', 'version': '2.1.0', 'app': str(self.app), 'pid': os.getpid()}
+        for key, value in [('token', 'stale'), ('version', '2.0.0'), ('app', '/another/app')]:
+            ready.write_text(json.dumps(dict(record, **{key: value})))
+            with patch.object(I.time, 'sleep'), self.assertRaises(TimeoutError):
+                I.wait_ready(ready, 'expected', self.app, '2.1.0', timeout=.005)
+        ready.write_text(json.dumps(record))
+        I.wait_ready(ready, 'expected', self.app, '2.1.0', timeout=3)
+        self.assertFalse(ready.exists())
+        self.ready_check.start()
 
     def test_invalid_id_and_wrong_version_rejected(self):
         bad = self.bundle('other.app', '2.1.0', 'another.app')
@@ -120,7 +145,35 @@ class InstallTests(unittest.TestCase):
                 patch.object(I, 'run', side_effect=self.run_command):
             I.install(args)
         self.assertEqual(self.version(), '2.1.0')
-        self.assertEqual(self.commands[-1], ['/usr/bin/open', '-n', str(self.app)])
+        self.assertEqual(self.commands[-1][:3], ['/usr/bin/open', '-n', str(self.app)])
+
+    def test_brew_failure_after_removal_restores_original(self):
+        args = argparse.Namespace(app=str(self.app), pid=123, version='2.1.0',
+                                  from_version='2.0.0', brew='/example/brew', staged=None)
+        def failed_brew(command, **kwargs):
+            shutil.rmtree(self.app)
+            raise subprocess.CalledProcessError(1, command)
+        with patch.object(I.os, 'kill', side_effect=ProcessLookupError), \
+                patch.object(I.subprocess, 'run', side_effect=failed_brew), \
+                patch.object(I, 'run', side_effect=self.run_command):
+            with self.assertRaises(subprocess.CalledProcessError):
+                I.install(args)
+        self.assertEqual(self.version(), '2.0.0')
+
+    def test_brew_unhealthy_launch_restores_original(self):
+        args = argparse.Namespace(app=str(self.app), pid=123, version='2.1.0',
+                                  from_version='2.0.0', brew='/example/brew', staged=None, reinstall=True)
+        def reinstall(command, **kwargs):
+            self.assertEqual(command[1], 'reinstall')
+            shutil.rmtree(self.app)
+            shutil.copytree(self.staged, self.app)
+        with patch.object(I.os, 'kill', side_effect=ProcessLookupError), \
+                patch.object(I.subprocess, 'run', side_effect=reinstall), \
+                patch.object(I, 'run', side_effect=self.run_command), \
+                patch.object(I, 'wait_ready', side_effect=TimeoutError), patch.object(I, 'stop_attempt'):
+            with self.assertRaises(TimeoutError):
+                I.install(args)
+        self.assertEqual(self.version(), '2.0.0')
 
     @unittest.skipUnless(os.environ.get('SPYHOP_TEST_APP'), 'Set SPYHOP_TEST_APP to a signed test bundle')
     def test_real_signed_bundle_copy_and_verify(self):
@@ -144,7 +197,11 @@ class InstallTests(unittest.TestCase):
         source = self.root / 'main.swift'
         source.write_text('import Foundation\n'
                           'let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as! String\n'
-                          'try version.write(toFile: ' + json.dumps(str(marker)) + ', atomically: true, encoding: .utf8)\n')
+                          'try version.write(toFile: ' + json.dumps(str(marker)) + ', atomically: true, encoding: .utf8)\n'
+                          'let args = CommandLine.arguments\nlet token = args[args.firstIndex(of: "--update-token")! + 1]\n'
+                          'let ready: [String: Any] = ["token": token, "pid": ProcessInfo.processInfo.processIdentifier, "version": version, "app": Bundle.main.bundleURL.resolvingSymlinksInPath().path]\n'
+                          'try JSONSerialization.data(withJSONObject: ready).write(to: URL(fileURLWithPath: '
+                          + json.dumps(str(self.root / 'update-ready.json')) + '))\nThread.sleep(forTimeInterval: 3)\n')
         subprocess.run(['swiftc', str(source), '-o', str(self.staged / 'Contents/MacOS/Spyhop')],
                        check=True, capture_output=True)
         for app in (self.app, self.staged):

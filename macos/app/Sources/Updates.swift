@@ -7,6 +7,13 @@ final class Updates {
     static let releases = "https://github.com/leeleelee3264/spyhop/releases"
     static let feed = URL(string: "https://api.github.com/repos/leeleelee3264/spyhop/releases/latest")!
     static let defaultsKey = "lastLaunchedVersion"
+    /// 정식 버전은 같은 숫자의 RC보다 새 버전이다. 숫자 문자열 비교만 하면 순서가 뒤집힌다.
+    static func newer(_ candidate: String, than current: String) -> Bool {
+        let a = candidate.split(separator: "-", maxSplits: 1).map(String.init)
+        let b = current.split(separator: "-", maxSplits: 1).map(String.init)
+        if a.first == b.first, a.count != b.count { return a.count < b.count }
+        return Board.newer(candidate, than: current)
+    }
     struct Release: Decodable {
         struct Asset: Decodable {
             let name: String
@@ -54,9 +61,29 @@ final class Updates {
     private var notes = Notes(newFeatures: [], fixes: [])
     private var checkAt = Date.distantPast
     private var checkCompletions: [(Bool) -> Void] = []
+    private var launchAcknowledged = false
     var changed: (() -> Void)?
     var restart: (() -> Void)?
     var version: String { bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev" }
+
+    /// 설치 도우미가 요청한 실행만 확인한다. 새 버전의 보드가 응답한 뒤 성공을 알린다.
+    func acknowledgeLaunch() {
+        let args = CommandLine.arguments
+        guard !launchAcknowledged, let index = args.firstIndex(of: "--update-token"), args.indices.contains(index + 1),
+              Board.isUp(), let data = try? Data(contentsOf: URL(fileURLWithPath: stateFile)),
+              let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              state["version"] as? String == version, let at = state["at"] as? Double,
+              Date().timeIntervalSince1970 - at < 30 else { return }
+        let record: [String: Any] = ["token": args[index + 1], "pid": ProcessInfo.processInfo.processIdentifier,
+                                     "version": version, "app": bundle.bundleURL.resolvingSymlinksInPath().path,
+                                     "at": Date().timeIntervalSince1970]
+        if let encoded = try? JSONSerialization.data(withJSONObject: record) {
+            do {
+                try encoded.write(to: URL(fileURLWithPath: home + "/update-ready.json"), options: .atomic)
+                launchAcknowledged = true
+            } catch { return }
+        }
+    }
 
     init(bundle: Bundle = .main, defaults: UserDefaults = .standard, session: URLSession = .shared,
          stateFile: String = Board.stateFile, home: String = Board.home) {
@@ -75,7 +102,7 @@ final class Updates {
         let state = (try? Data(contentsOf: URL(fileURLWithPath: stateFile)))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let old = previous ?? state?["version"] as? String
-        if let old, old != "dev", Board.newer(version, than: old), !notes.isEmpty {
+        if let old, old != "dev", Self.newer(version, than: old), !notes.isEmpty {
             defaults.set(version, forKey: "pendingWhatsNew")
         }
         showChanges = defaults.string(forKey: "pendingWhatsNew") == version && !notes.isEmpty
@@ -83,7 +110,7 @@ final class Updates {
         let result = URL(fileURLWithPath: home + "/update-result.json")
         if let data = try? Data(contentsOf: result), let record = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
             error = record["error"] ?? ""
-            if !error.isEmpty { phase = "error" }
+            if !error.isEmpty { phase = "error"; checkAt = Date() }
             try? FileManager.default.removeItem(at: result)
         }
         check()
@@ -133,7 +160,7 @@ final class Updates {
                     if force || !self.checkCompletions.isEmpty { self.error = "Could not check for updates. Please try again."; self.phase = "error" }
                     self.changed?(); self.finishCheck(available: false); return
                 }
-                self.release = Board.newer(found.version, than: self.version) ? found : nil
+                self.release = Self.newer(found.version, than: self.version) ? found : nil
                 if self.release == nil { self.showAvailable = false }
                 self.error = ""; self.phase = self.release == nil ? "current" : "available"
                 self.changed?()
@@ -217,6 +244,7 @@ final class Updates {
                 throw Failure.message("This release is not available on Homebrew yet. Please try again later.")
             }
             args += ["--brew", brew]
+            if cask["installed"] as? String == release.version { args.append("--reinstall") }
         } else {
             let dmg = work.appendingPathComponent("update.dmg")
             try download(release.asset!, to: dmg)

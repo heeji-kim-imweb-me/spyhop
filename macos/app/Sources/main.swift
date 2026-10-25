@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         if NSApp.appearance?.name != look?.name { NSApp.appearance = look }
         syncLoginItem()
         Updates.shared.check()
+        Updates.shared.acknowledgeLaunch()
     }
 
     // MARK: 창

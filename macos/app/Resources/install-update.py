@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 import tempfile
+import signal
+import uuid
 from pathlib import Path
 
 
@@ -30,9 +32,54 @@ def validate(app, version):
     run(['/usr/bin/codesign', '--verify', '--deep', '--strict', str(app)])
 
 
-def replace(app, staged, version):
+def wait_ready(path, token, app, version, timeout=60):
+    deadline = time.monotonic() + timeout
+    first_pid = None
+    first_at = None
+    while time.monotonic() < deadline:
+        try:
+            record = json.loads(path.read_text())
+            pid = record.get('pid')
+            if (record.get('token') == token and record.get('version') == version
+                    and Path(record.get('app', '')).resolve() == app.resolve()
+                    and type(pid) is int and pid > 0):
+                os.kill(pid, 0)
+                if first_pid != pid:
+                    first_pid, first_at = pid, time.monotonic()
+                elif time.monotonic() - first_at >= 1:
+                    path.unlink(missing_ok=True)
+                    return
+        except (OSError, ValueError, TypeError):
+            pass
+        time.sleep(.2)
+    raise TimeoutError('The updated app did not confirm a healthy launch')
+
+
+def stop_attempt(app, token):
+    # 우리가 이번에 연 프로세스만 종료한다. 다른 앱 사본과 AI 세션은 대상이 아니다.
+    prefix = str(app / 'Contents/MacOS/Spyhop')
+    output = subprocess.check_output(['/bin/ps', '-axo', 'pid=,args='], text=True)
+    for line in output.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[1].startswith(prefix) and '--update-token ' + token in parts[1]:
+            try:
+                os.kill(int(parts[0]), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def launch_verified(app, version, ready):
+    token = uuid.uuid4().hex
+    try:
+        run(['/usr/bin/open', '-n', str(app), '--args', '--update-token', token], timeout=30)
+        wait_ready(ready, token, app, version)
+    except Exception:
+        stop_attempt(app, token)
+        raise
+
+
+def replace(app, staged, version, ready=None):
     """같은 파일시스템에 먼저 복사한 뒤 이름을 바꾼다. 실패 시 이전 앱을 복원한다."""
-    import uuid
     suffix = str(uuid.uuid4())
     incoming = app.with_name('.Spyhop-update-' + suffix + '.app')
     backup = app.with_name('.Spyhop-backup-' + suffix + '.app')
@@ -43,7 +90,7 @@ def replace(app, staged, version):
         app.rename(backup)
         moved = True
         incoming.rename(app)
-        run(['/usr/bin/open', '-n', str(app)], timeout=30)
+        launch_verified(app, version, ready or app.parent / 'update-ready.json')
     except Exception:
         if moved:
             if app.exists():
@@ -53,7 +100,7 @@ def replace(app, staged, version):
     finally:
         if incoming.exists():
             shutil.rmtree(incoming)
-    # 새 앱을 여는 데 성공한 뒤에만 백업을 지운다.
+    # 새 앱과 새 보드가 실제로 응답한 뒤에만 백업을 지운다.
     shutil.rmtree(backup, ignore_errors=True)
 
 
@@ -71,16 +118,32 @@ def install(args):
         time.sleep(.1)
     # 준비하는 동안 다른 업데이트가 먼저 적용됐으면 덮어쓰지 않는다.
     validate(app, args.from_version)
+    ready = Path(args.result).parent / 'update-ready.json' if hasattr(args, 'result') else app.parent / 'update-ready.json'
     if args.brew:
+        backup = app.with_name('.Spyhop-backup-' + uuid.uuid4().hex + '.app')
+        run(['/usr/bin/ditto', str(app), str(backup)])
+        try:
+            validate(backup, args.from_version)
+        except Exception:
+            shutil.rmtree(backup, ignore_errors=True)
+            raise
         env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE='1', HOMEBREW_NO_ENV_HINTS='1')
-        subprocess.run([args.brew, 'upgrade', '--cask', 'leeleelee3264/tap/spyhop'],
-                       check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=600, env=env)
-        validate(app, args.version)
-        run(['/usr/bin/open', '-n', str(app)], timeout=30)
+        try:
+            command = 'reinstall' if getattr(args, 'reinstall', False) else 'upgrade'
+            subprocess.run([args.brew, command, '--cask', 'leeleelee3264/tap/spyhop'],
+                           check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=600, env=env)
+            validate(app, args.version)
+            launch_verified(app, args.version, ready)
+        except Exception:
+            if app.exists():
+                shutil.rmtree(app)
+            backup.rename(app)
+            raise
+        shutil.rmtree(backup, ignore_errors=True)
     else:
         validate(Path(args.staged), args.version)
-        replace(app, Path(args.staged), args.version)
+        replace(app, Path(args.staged), args.version, ready)
 
 
 def main():
@@ -90,6 +153,7 @@ def main():
     parser.add_argument('--version', required=True)
     parser.add_argument('--from-version', required=True)
     parser.add_argument('--result', required=True)
+    parser.add_argument('--reinstall', action='store_true')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--brew')
     mode.add_argument('--staged')

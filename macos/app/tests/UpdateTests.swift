@@ -30,6 +30,9 @@ final class Feed: URLProtocol {
         return try! JSONSerialization.data(withJSONObject: ["tag_name": tag, "draft": false, "prerelease": prerelease, "assets": [asset], "body": "## New Features\n- A new feature\n\n## Fixes\n- A fix"])
     }
     static func main() throws {
+        expect(Updates.newer("2.1.0", than: "2.1.0-rc.1"), "stable follows its release candidate")
+        expect(!Updates.newer("2.1.0-rc.1", than: "2.1.0"), "release candidate does not replace stable")
+        expect(!Updates.newer("2.0.0", than: "2.1.0-rc.1"), "older stable does not replace a newer candidate")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("spyhop-model-tests-" + UUID().uuidString)
         let resources = root.appendingPathComponent("Spyhop.app/Contents/Resources")
         try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
