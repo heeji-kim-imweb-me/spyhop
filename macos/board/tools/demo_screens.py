@@ -17,7 +17,12 @@ import board as B  # noqa: E402
 
 OUTDIR = os.path.join(ROOT, '..', '..', 'docs', 'screenshots')  # 레포 맨 위 docs
 TMP = tempfile.mkdtemp(prefix='spyhop-demo-')
-CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+CHROME = os.environ.get('SPYHOP_CHROME') or next(
+    (p for p in ('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                 '/Applications/Chromium.app/Contents/MacOS/Chromium',
+                 '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+                 '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge') if os.path.exists(p)),
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 NOW = time.time()
 
 WORKTREES = [('w1', 'payments-api', 3), ('w2', 'web-app', 2), ('w3', 'infra', 1)]
@@ -182,6 +187,25 @@ def shot(html, name, w, h, hash_='#x', css=''):
     print('wrote', out)
 
 
+def trim_bottom(name, pad=40):
+    """내용 아래 남는 빈 공간을 잘라낸다. 칸마다 카드 수가 달라 높이를 미리 못 정하므로 찍고 나서 맞춘다."""
+    from PIL import Image
+    path = os.path.join(OUTDIR, name + '.png')
+    im = Image.open(path).convert('RGB')
+    w, h = im.size
+    bg = im.getpixel((2, h - 2))
+    px = im.load()
+    bottom = h
+    for y in range(h - 1, 0, -1):
+        if any(px[x, y] != bg for x in range(0, w, 7)):
+            bottom = y
+            break
+    new_h = min(h, bottom + pad)
+    if new_h < h:
+        im.crop((0, 0, w, new_h)).save(path, optimize=True)
+        print('trimmed', name, '%dx%d -> %dx%d' % (w, h, w, new_h))
+
+
 FROZEN_ORCAS = ('.orca{animation:none!important;transform:translateY(6%)!important}')
 
 
@@ -198,14 +222,16 @@ def main():
     # 범고래는 멈춘 모습으로 두 마리
     html = html.replace('setTimeout(pop,300+Math.random()*1500);', 'pop();pop();')
     open(board, 'w', encoding='utf-8').write(html)
-    shot(board, 'board', 1280, 560, css=FROZEN_ORCAS)
+    shot(board, 'board', 1280, 700, css=FROZEN_ORCAS)
+    trim_bottom('board')
     shot(board, 'settings', 1280, 980, hash_='#settings', css=FROZEN_ORCAS + '#mcpu,#mmem{visibility:hidden}')
     first = html.split('class="modal ', 1)[1].split('id="', 1)[1].split('"', 1)[0]
     # 상세 창이 열리는 효과 중간에 찍히면 반투명하게 나온다. 효과를 끄고 다 열린 모습으로 찍는다
     shot(board, 'detail', 1280, 640, hash_='#' + first, css=FROZEN_ORCAS + '.modal,.modal *{animation:none!important;transition:none!important}')
     patch('ai')
     B.build()
-    shot(B.OUT, 'ai-groups', 1280, 560)
+    shot(B.OUT, 'ai-groups', 1280, 700)   # 넉넉히 찍고 아래 빈 공간은 잘라낸다 (칸마다 카드 수가 달라 잘리던 것 방지)
+    trim_bottom('ai-groups')
     # 메뉴바 패널: 데모 상태를 바로 그리게 한다
     panel = open(os.path.join(ROOT, 'panel.html'), encoding='utf-8').read().replace(
         '__LOGO__', B.orca_art.tile(uid='pl').replace('<svg ', '<svg width="22" height="22" ', 1))

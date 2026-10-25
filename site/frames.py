@@ -53,8 +53,10 @@ M.forEach(function(m){
 """
 
 
-def render(name, w, h, scale, n, out):
+def shoot(w, h, scale, n):
+    """장면을 n 장으로 찍어 프레임 png 경로들을 돌려준다."""
     tmp = tempfile.mkdtemp(prefix='spyhop-frames-')
+    paths = []
     for i in range(n):
         page = os.path.join(tmp, 'f.html')
         s = base.replace('</head>', '<style>%s</style></head>' % CSS)
@@ -66,9 +68,16 @@ def render(name, w, h, scale, n, out):
             open(fr, 'w').write('<html><body style="margin:0"><iframe src="%s" style="width:%dpx;height:%dpx;border:0;display:block">'
                                 '</iframe></body></html>' % (url, w, h))
             url = 'file://' + fr
+        out = os.path.join(tmp, 'f%03d.png' % i)
         subprocess.run([D.CHROME, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--window-size=%d,%d' % (w, h),
                         '--force-device-scale-factor=%s' % scale, '--virtual-time-budget=800',
-                        '--screenshot=' + os.path.join(tmp, 'f%03d.png' % i), url], capture_output=True)
+                        '--screenshot=' + out, url], capture_output=True)
+        paths.append(out)
+    return tmp, paths
+
+
+def render(name, w, h, scale, n, out):
+    tmp, paths = shoot(w, h, scale, n)
     subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', '15', '-i', os.path.join(tmp, 'f%03d.png'),
                     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '30', '-preset', 'slow', '-movflags', '+faststart',
                     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', os.path.join(HERE, 'assets', out)], check=True)
@@ -76,6 +85,39 @@ def render(name, w, h, scale, n, out):
     print('wrote', out)
 
 
-N = 90  # 6초 · 15fps
-render('desktop', 1280, 560, 1, N, 'move.mp4')
-render('phone', 600, 812, 1.2, N, 'm-move.mp4')
+def render_gif(w, h, scale, n, out, width=960, fps=15, colors=128):
+    """ffmpeg 없이 GIF 로 만든다. 디스코드·이슈 본문처럼 mp4 를 못 붙이는 곳에 쓴다.
+
+    프레임마다 팔레트를 따로 만들면 Pillow 가 프레임 간 차이를 못 줄여 파일이 몇 배로 커진다.
+    전체 프레임을 한 장으로 이어 붙여 공용 팔레트를 만든 뒤 그 팔레트로 양자화한다.
+    """
+    from PIL import Image
+    tmp, paths = shoot(w, h, scale, n)
+    raw = []
+    for p in paths:
+        im = Image.open(p).convert('RGB')
+        if im.width != width:
+            im = im.resize((width, round(im.height * width / im.width)), Image.LANCZOS)
+        raw.append(im)
+    step = max(1, len(raw) // 12)                      # 팔레트 표본: 프레임 12장 정도면 충분
+    sample = raw[::step]
+    strip = Image.new('RGB', (raw[0].width, raw[0].height * len(sample)))
+    for i, im in enumerate(sample):
+        strip.paste(im, (0, i * raw[0].height))
+    pal = strip.quantize(colors=colors, method=Image.MEDIANCUT)
+    frames = [im.quantize(palette=pal, dither=Image.NONE) for im in raw]
+    frames[0].save(out, save_all=True, append_images=frames[1:],
+                   duration=round(1000 / fps), loop=0, optimize=True)
+    shutil.rmtree(tmp, ignore_errors=True)
+    print('wrote %s (%d프레임 · %.1f초 · %dKB)' % (out, len(frames), len(frames) / fps, os.path.getsize(out) // 1024))
+
+
+if __name__ == '__main__':
+    import sys
+    N = 90  # 6초 · 15fps
+    if '--gif' in sys.argv:
+        # 홍보용 GIF: docs/screenshots/move.gif
+        render_gif(1280, 560, 1, 60, os.path.join(HERE, '..', 'docs', 'screenshots', 'move.gif'), width=960, fps=15)
+    else:
+        render('desktop', 1280, 560, 1, N, 'move.mp4')
+        render('phone', 600, 812, 1.2, N, 'm-move.mp4')
