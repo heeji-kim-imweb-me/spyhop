@@ -3751,9 +3751,9 @@ border-radius:12px;padding:10px;gap:8px;flex-wrap:wrap;align-items:center;box-sh
 #confirm button.danger{background:var(--wait);border-color:var(--wait);color:#fff}#confirm button.danger{background:#d1453b;border-color:#d1453b}
 .end{margin:8px 0 0 6px;font:600 12px -apple-system,sans-serif;color:var(--wait);background:transparent;border:1px solid var(--wait);border-radius:6px;padding:4px 10px;cursor:pointer}
 
-*{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--ink3) 45%,transparent) transparent}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--ink3) 35%,transparent);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
 ::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--ink3) 60%,transparent);background-clip:padding-box}
 ::-webkit-scrollbar-corner{background:transparent}
 
