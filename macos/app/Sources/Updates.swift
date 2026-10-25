@@ -17,6 +17,7 @@ final class Updates {
         let draft: Bool
         let prerelease: Bool
         let assets: [Asset]
+        let body: String?
         var version: String { String(tag_name.dropFirst()) }
         var asset: Asset? { assets.first { $0.name == "Spyhop-\(version).dmg" } }
         var valid: Bool {
@@ -49,6 +50,7 @@ final class Updates {
     private var phase = "idle"
     private var error = ""
     private var showChanges = false
+    private var showAvailable = false
     private var notes = Notes(newFeatures: [], fixes: [])
     private var checkAt = Date.distantPast
     private var checkCompletions: [(Bool) -> Void] = []
@@ -90,6 +92,7 @@ final class Updates {
     var state: [String: Any] {
         ["phase": phase, "version": version, "latest": release?.version ?? "", "error": error,
          "showChanges": showChanges,
+         "showAvailable": showAvailable, "availableNotes": release?.body ?? "",
          "newFeatures": notes.newFeatures.map { ["title": $0.title, "detail": $0.detail] },
          "fixes": notes.fixes.map { ["title": $0.title, "detail": $0.detail] }]
     }
@@ -97,6 +100,17 @@ final class Updates {
     func dismissChanges() {
         showChanges = false
         defaults.removeObject(forKey: "pendingWhatsNew")
+        changed?()
+    }
+
+    func presentAvailable() {
+        guard release != nil, phase != "installing" else { return }
+        showAvailable = true
+        changed?()
+    }
+
+    func dismissAvailable() {
+        showAvailable = false
         changed?()
     }
 
@@ -120,6 +134,7 @@ final class Updates {
                     self.changed?(); self.finishCheck(available: false); return
                 }
                 self.release = Board.newer(found.version, than: self.version) ? found : nil
+                if self.release == nil { self.showAvailable = false }
                 self.error = ""; self.phase = self.release == nil ? "current" : "available"
                 self.changed?()
                 self.finishCheck(available: self.release != nil)
@@ -135,6 +150,7 @@ final class Updates {
 
     func install() {
         guard let release, phase != "installing", release.downloadable else { return }
+        showAvailable = false
         phase = "installing"; error = ""; changed?()
         queue.async {
             do {

@@ -118,6 +118,46 @@ class UpdatesUITest(unittest.TestCase):
         self.assertEqual(result['buttons'], 0)
         self.assertIn('<img', result['text'])
 
+    def test_available_release_notes_and_install_share_one_dialog(self):
+        notes = '## New Features\n- **Session search:** Find any session.\n\n## Fixes\n- More reliable switching.\n- Final fix, preserved.'
+        result = self.update_browser('receive({...available,showAvailable:true,availableNotes:' + json.dumps(notes) + '});'
+                                     'var d=document.getElementById("spyhop-update-offer"),text=d.textContent;'
+                                     'd.querySelector(".update-primary").click();'
+                                     'var busy=d.querySelector(".update-primary").disabled;'
+                                     'receive({...available,showAvailable:false,phase:"installing"});'
+                                     'var result={text,busy,actions:__actions,closed:!document.getElementById("spyhop-update-offer")};')
+        self.assertIn('2.1.0 → 2.2.0', result['text'])
+        self.assertIn('New Features', result['text'])
+        self.assertIn('Fixes', result['text'])
+        self.assertIn('Final fix, preserved.', result['text'])
+        self.assertIn('Update and restart', result['text'])
+        self.assertNotIn('Later', result['text'])
+        self.assertTrue(result['busy'])
+        self.assertTrue(result['closed'])
+        self.assertIn('install', result['actions'])
+
+    def test_available_notes_are_safe_and_not_truncated(self):
+        notes = '## New Features\n' + '\n'.join('- Feature %d' % i for i in range(40))
+        notes += '\n## Fixes\n<img src=x onerror=alert(1)>\n[Unsafe](javascript:alert(1))\n```sh\nbrew upgrade --cask spyhop\n```'
+        result = self.update_browser('receive({...available,showAvailable:true,availableNotes:' + json.dumps(notes) + '});'
+                                     'var d=document.getElementById("spyhop-update-offer"),content=d.querySelector(".update-content");'
+                                     'var r=d.getBoundingClientRect();'
+                                     'var result={text:d.textContent,images:d.querySelectorAll("img").length,unsafe:d.querySelectorAll("a[href^=javascript]").length,scroll:content.scrollHeight>content.clientHeight,fits:r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight};', width=420)
+        self.assertIn('Feature 39', result['text'])
+        self.assertIn('brew upgrade --cask spyhop', result['text'])
+        self.assertEqual(result['images'], 0)
+        self.assertEqual(result['unsafe'], 0)
+        self.assertTrue(result['scroll'])
+        self.assertTrue(result['fits'])
+
+    def test_close_available_notes_does_not_install(self):
+        result = self.update_browser('receive({...available,showAvailable:true,availableNotes:"## Fixes\\n- A fix"});'
+                                     'document.querySelector("#spyhop-update-offer .update-close").click();'
+                                     'var result={closed:!document.getElementById("spyhop-update-offer"),actions:__actions};')
+        self.assertTrue(result['closed'])
+        self.assertIn('dismiss-available', result['actions'])
+        self.assertNotIn('install', result['actions'])
+
 
 if __name__ == '__main__':
     import unittest

@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         updates.check(force: true) { [weak self] available in
             if available {
                 self?.showWindow()
-                updates.install()
+                updates.presentAvailable()
             } else {
                 let alert = NSAlert()
                 let error = updates.state["error"] as? String ?? ""

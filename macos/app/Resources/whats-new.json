@@ -2,7 +2,7 @@
   "newFeatures": [
     {
       "title": "Update without leaving Spyhop",
-      "detail": "Choose Check for Updates… in the Spyhop menu to find and install the latest version. Spyhop restarts automatically when the update is ready."
+      "detail": "Choose Check for Updates… in the Spyhop menu to review the new version's release notes before installing. Spyhop restarts automatically when the update is ready."
     },
     {
       "title": "Release notes after each update",

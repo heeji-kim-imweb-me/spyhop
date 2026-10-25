@@ -27,7 +27,7 @@ final class Feed: URLProtocol {
     static func feed(tag: String = "v2.4.0", digest: String? = "sha256:" + String(repeating: "a", count: 64), url: String? = nil, prerelease: Bool = false) -> Data {
         let version = String(tag.dropFirst())
         let asset: [String: Any] = ["name": "Spyhop-\(version).dmg", "browser_download_url": url ?? "\(Updates.releases)/download/\(tag)/Spyhop-\(version).dmg", "digest": digest as Any? ?? NSNull()]
-        return try! JSONSerialization.data(withJSONObject: ["tag_name": tag, "draft": false, "prerelease": prerelease, "assets": [asset]])
+        return try! JSONSerialization.data(withJSONObject: ["tag_name": tag, "draft": false, "prerelease": prerelease, "assets": [asset], "body": "## New Features\n- A new feature\n\n## Fixes\n- A fix"])
     }
     static func main() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("spyhop-model-tests-" + UUID().uuidString)
@@ -60,6 +60,13 @@ final class Feed: URLProtocol {
         wait(updates)
         expect(foundByMenu, "menu check receives an in-flight result")
         expect(updates.state["phase"] as? String == "available", "new release offered")
+        expect(updates.state["showAvailable"] as? Bool == false, "automatic checks do not interrupt the board")
+        updates.presentAvailable()
+        expect(updates.state["showAvailable"] as? Bool == true, "menu check can present release notes")
+        expect(updates.state["availableNotes"] as? String == "## New Features\n- A new feature\n\n## Fixes\n- A fix", "full notes come from the offered release")
+        expect(updates.state["phase"] as? String == "available", "presenting notes does not start installation")
+        updates.dismissAvailable()
+        expect(updates.state["showAvailable"] as? Bool == false, "closing notes leaves the update available")
         expect(updates.state["showChanges"] as? Bool == true, "skipped releases show current highlights")
         expect((updates.state["newFeatures"] as? [[String: String]])?.count == 4, "all new features retained")
         expect((updates.state["fixes"] as? [[String: String]])?.first?["detail"] == "Full description", "all fixes retained separately")

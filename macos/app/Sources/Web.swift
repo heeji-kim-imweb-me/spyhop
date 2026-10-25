@@ -72,6 +72,8 @@ final class WebHost: NSObject, WKUIDelegate, WKNavigationDelegate, WKScriptMessa
             switch action {
             case "status": break
             case "dismiss": updates.dismissChanges()
+            case "dismiss-available": updates.dismissAvailable()
+            case "install": updates.install()
             default: return
             }
             m.webView?.callAsyncJavaScript("window.spyhopUpdates.receive(state)", arguments: ["state": updates.state],
