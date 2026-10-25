@@ -96,7 +96,9 @@ def deepseek(system, user):
 # Claude·Codex 는 이 맥에 로그인된 CLI 를 그대로 쓴다. 요약 호출이 새 대화로 저장되지 않게(보드가 그걸 세션으로 읽지 않게)
 # 저장을 끄고, 도구는 쓰지 못하게 막는다.
 CONFIG = os.path.expanduser('~/.spyhop/config.json')
-EXTRA_PATH = [os.path.expanduser('~/.local/bin'), '/opt/homebrew/bin', '/usr/local/bin']
+EXTRA_PATH = [os.path.expanduser('~/.local/bin'), '/opt/homebrew/bin', '/usr/local/bin',
+              # DMG로 깐 오르카는 CLI 를 따로 등록하기 전까지 앱 안에만 orca 가 있다 (앱이 띄운 보드의 PATH 에는 없다)
+              '/Applications/Orca.app/Contents/Resources/bin', os.path.expanduser('~/Applications/Orca.app/Contents/Resources/bin')]
 
 
 def find_bin(name):
@@ -285,8 +287,13 @@ PROMPT = '''아래는 한 AI 코딩 세션의 대화 기록이다 (U=사용자, 
 '''
 
 
+def orca_bin():
+    """PATH 의 orca 를 먼저 쓰고, 없으면 EXTRA_PATH(오르카 앱 안)에서 찾는다. 둘 다 없으면 이름 그대로 (실행하다 실패하면 부른 쪽이 처리)"""
+    return find_bin('orca') or 'orca'
+
+
 def orca(*args):
-    out = subprocess.run(['orca', *args, '--json'], capture_output=True, text=True, timeout=20)
+    out = subprocess.run([orca_bin(), *args, '--json'], capture_output=True, text=True, timeout=20)
     return json.loads(out.stdout)['result']
 
 
@@ -1092,8 +1099,10 @@ def _term_label(a):
 def outside_terms():
     """오르카 창이 아닌 곳에서 돌고 있는 AI 프로그램을 창처럼 만든다 (칸 = 폴더 · 터미널)."""
     out, wts = [], {}
+    # 오르카 창 목록을 못 받았으면(CLI 없음·응답 실패) 오르카 창 세션도 여기서 카드로 만든다. 안 그러면 어디에도 안 그려진다
+    orca_listed = bool(LIST_CACHE.get('list', {}).get('terminals'))
     for a in agent_procs().values():
-        if a.get('orca_pane_key'):
+        if a.get('orca_pane_key') and orca_listed:
             continue  # 오르카 창
         if a.get('tty') in (None, '??') and not a.get('desktop'):
             continue  # 화면 없는 프로그램(서버·백그라운드). 데스크톱 앱 세션만 tty 없이도 세션으로 본다
@@ -2731,7 +2740,7 @@ def serve():
                     return self.send(404, b'unknown')
                 if h.startswith('proc_'):  # 결과를 글로 돌려준다: tab(그 탭까지) / app(앱만) / fail
                     return self.send(200, (focus_outside(int(h[5:])) or 'fail').encode())
-                r = subprocess.run(['orca', 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
+                r = subprocess.run([orca_bin(), 'terminal', 'switch', '--terminal', h], capture_output=True, timeout=10)
                 subprocess.run(['osascript', '-e', 'tell application "Orca" to activate'], capture_output=True, timeout=5)
                 return self.send(200, b'pane' if r.returncode == 0 else b'fail')
             if u.path == '/open-board':
@@ -2824,7 +2833,7 @@ def serve():
                     return self.send(500, ('Could not end it: %s' % e.strerror).encode())
                 return self.send(500, b'It did not stop. End it in its terminal.')
             # 분할 창 하나만 닫는다. --tab 을 붙이면 같은 탭의 다른 창까지 전부 닫히므로 절대 쓰지 않는다
-            r = subprocess.run(['orca', 'terminal', 'close', '--terminal', h, '--json'],
+            r = subprocess.run([orca_bin(), 'terminal', 'close', '--terminal', h, '--json'],
                                capture_output=True, text=True, timeout=15)
             sys.stderr.write('close %s: %s\n' % (h, (r.stdout or r.stderr)[:200]))
             if r.returncode == 0:
@@ -2907,22 +2916,22 @@ def serve():
                   or (mine[0] if mine else None))
         # 1) 새 창부터 연다. 실패하면 원래 창은 그대로 둔다
         if target:
-            r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
+            r = subprocess.run([orca_bin(), 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
                                 '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
             if r.returncode != 0:
                 # 오르카가 그 워크스페이스를 아직 화면에 올리지 않았으면 탭을 못 찾아 나누기가 실패한다("Terminal tab … not found").
                 # 그 창으로 한 번 넘어가 워크스페이스를 띄운 뒤 다시 나눈다. 그래도 안 되면 새 탭으로
                 sys.stderr.write('move: split next to %s failed (%s), showing that workspace and retrying\n'
                                  % (target['handle'], (r.stdout or r.stderr).strip()[-160:].replace('\n', ' ')))
-                subprocess.run(['orca', 'terminal', 'switch', '--terminal', target['handle']], capture_output=True, timeout=10)
+                subprocess.run([orca_bin(), 'terminal', 'switch', '--terminal', target['handle']], capture_output=True, timeout=10)
                 time.sleep(0.8)
-                r = subprocess.run(['orca', 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
+                r = subprocess.run([orca_bin(), 'terminal', 'split', '--terminal', target['handle'], '--direction', 'horizontal',
                                     '--command', cmd, '--json'], capture_output=True, text=True, timeout=20)
             if r.returncode != 0:
                 sys.stderr.write('move: split next to %s failed again, opening a tab\n' % target['handle'])
                 target = None
         if not target:
-            r = subprocess.run(['orca', 'terminal', 'create', '--worktree', 'id:' + req['wid'], '--command', cmd, '--json'],
+            r = subprocess.run([orca_bin(), 'terminal', 'create', '--worktree', 'id:' + req['wid'], '--command', cmd, '--json'],
                                capture_output=True, text=True, timeout=20)
         sys.stderr.write('move %s -> %s: %s | %s\n' % (info['handle'], req['wid'], cmd, (r.stdout or r.stderr)[:200]))
         if r.returncode != 0:
@@ -2945,7 +2954,7 @@ def serve():
         # 2) 그다음 원래 창을 닫는다 (분할 창 하나만, --tab 금지). 새 창은 원래 프로그램이 끝나는 대로 이어서 연다
         # 창 번호(handle)는 오르카가 다시 매길 수 있어서, 창 위치(탭·칸)로 지금 번호를 다시 찾는다
         old = next((x['handle'] for x in terms if '%s:%s' % (x.get('tabId'), x.get('leafId')) == info.get('pane')), info['handle'])
-        c = subprocess.run(['orca', 'terminal', 'close', '--terminal', old, '--json'],
+        c = subprocess.run([orca_bin(), 'terminal', 'close', '--terminal', old, '--json'],
                            capture_output=True, text=True, timeout=15)
         gone = c.returncode == 0 or not any(x['handle'] == old for x in orca('terminal', 'list').get('terminals', [])
                                               if not x.get('orphaned'))
@@ -2957,7 +2966,7 @@ def serve():
         name = dest.get('displayName') or os.path.basename(dest.get('path') or '')
         msg = 'Moved to %s' % name
         if not target and newh:  # 아직 화면에 안 띄운 워크스페이스에 새 탭으로 열었으면, 안 보이니 그 창을 띄워 준다
-            subprocess.run(['orca', 'terminal', 'switch', '--terminal', newh], capture_output=True, timeout=10)
+            subprocess.run([orca_bin(), 'terminal', 'switch', '--terminal', newh], capture_output=True, timeout=10)
             msg += ' · opened it in Orca'
         if dest.get('path') and os.path.realpath(dest['path']) != os.path.realpath(home):
             msg += ' · still working in %s' % home.replace(os.path.expanduser('~'), '~')
@@ -3007,7 +3016,7 @@ def rescue_resume(handle, key, go, sid, wait=20):
     if claude_pid(sid):  # 이미 다른 곳에서 돌고 있으면 두 번 열지 않는다
         return
     def send(*args):
-        subprocess.run(['orca', 'terminal', 'send', '--terminal', handle, *args, '--json'], capture_output=True, text=True, timeout=15)
+        subprocess.run([orca_bin(), 'terminal', 'send', '--terminal', handle, *args, '--json'], capture_output=True, text=True, timeout=15)
     send('--text', '\x03')  # 줄에 남은 글자·질문을 Ctrl+C 로 끝낸다
     time.sleep(2)
     if any(a.get('orca_pane_key') == key for a in agent_procs().values()):
