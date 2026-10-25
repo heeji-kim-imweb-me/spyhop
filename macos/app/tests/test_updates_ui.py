@@ -89,6 +89,18 @@ class UpdatesUITest(unittest.TestCase):
             self.assertTrue(position['ordered'], position)
         self.assertLessEqual(result['gearGap'], 14)
 
+    def test_full_reply_uses_the_board_scrollbar_style(self):
+        reply = board_tests.B.render_reply('Summary', {'full': '\n\n'.join(['A long reply.'] * 80)
+                                                        + '\n\n```\n' + ('long code ' * 100) + '\n```'})
+        result = self.update_browser('var modal=document.querySelector(".modal:not(#settings)"),box=modal.querySelector(".box");'
+                                     'box.insertAdjacentHTML("beforeend",' + json.dumps(reply) + ');location.hash=modal.id;'
+                                     'var raw=box.querySelector(".raw");raw.open=true;var reply=raw.querySelector(".md");'
+                                     'const style=e=>({width:getComputedStyle(e).scrollbarWidth,color:getComputedStyle(e).scrollbarColor,thumb:getComputedStyle(e,"::-webkit-scrollbar-thumb").backgroundColor,trackWidth:getComputedStyle(e,"::-webkit-scrollbar").width});'
+                                     'var result={overflow:reply.scrollHeight>reply.clientHeight,board:style(document.getElementById("sc")),reply:style(reply),code:style(reply.querySelector("pre"))};')
+        self.assertTrue(result['overflow'])
+        self.assertEqual(result['reply'], result['board'])
+        self.assertEqual(result['code'], result['board'])
+
     def test_features_popup_dismiss_and_no_repeat(self):
         result = self.update_browser('const next={...available,showChanges:true,newFeatures:Array.from({length:5},(_,i)=>({title:"New feature "+i,detail:"How it works"})),fixes:[{title:"A fix",detail:"Full fix description"}]};'
                                      'receive(next);var d=document.getElementById("spyhop-whats-new");'
