@@ -106,6 +106,15 @@
     flush(); return root;
   }
 
+  // 보드의 다른 창처럼 바깥(어두운 배경)을 누르면 닫는다. busy() 가 참이면(업데이트 준비 중) 닫지 않는다
+  function closeOnOutside(dialog, close, busy) {
+    dialog.addEventListener('mousedown', e => {
+      if (e.target !== dialog || (busy && busy())) return;
+      const r = dialog.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) { e.preventDefault(); close(); }
+    });
+  }
+
   function showAvailable() {
     const previous = document.activeElement;
     const dialog = document.createElement('dialog'); dialog.id = 'spyhop-update-offer'; dialog.className = 'spyhop-update-dialog'; dialog.setAttribute('aria-labelledby', 'spyhop-offer-title');
@@ -122,6 +131,7 @@
     const hint = document.createElement('p'); hint.className = 'update-restart'; hint.textContent = 'Spyhop will restart automatically after installation.';
     const install = document.createElement('button'); install.type = 'button'; install.className = 'update-primary'; install.textContent = 'Update and restart';
     install.addEventListener('click', () => { install.disabled = true; install.textContent = 'Preparing update…'; post('install'); });
+    closeOnOutside(dialog, close, () => install.disabled);
     footer.append(hint, install); dialog.append(dismiss, content, footer); document.body.appendChild(dialog); dialog.showModal(); install.focus({preventScroll:true});
   }
   function showChanges() {
@@ -146,6 +156,7 @@
     gotIt.type = 'button'; gotIt.className = 'update-primary'; gotIt.textContent = 'Got it';
     const close = () => { acknowledged = true; dialog.close(); dialog.remove(); post('dismiss'); if (previousFocus && previousFocus.isConnected) previousFocus.focus({preventScroll:true}); };
     gotIt.addEventListener('click', close); dialog.addEventListener('cancel', e => { e.preventDefault(); close(); });
+    closeOnOutside(dialog, close);
     footer.appendChild(gotIt); dialog.append(content, footer); document.body.appendChild(dialog); dialog.showModal(); gotIt.focus({preventScroll:true});
     post('dismiss');  // 화면에 한 번 띄웠으면 본 것으로 친다. 닫지 않고 앱을 꺼도 다음 실행에 다시 뜨지 않는다 (지금 창은 Got it 까지 남는다)
   }

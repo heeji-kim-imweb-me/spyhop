@@ -1713,11 +1713,25 @@ def orch_links():
     return ORCH
 
 
+PS_WORKTREES = {}  # 마지막 worktree ps 의 워크스페이스. worktree list 는 git 워크스페이스만 주므로 폴더 워크스페이스 이름은 여기서 얻는다
+
+
 def orca_agents():
     try:
-        return {a['paneKey']: a for w in orca('worktree', 'ps')['worktrees'] for a in w.get('agents', [])}
+        wts = orca('worktree', 'ps')['worktrees']
     except Exception:
         return {}
+    PS_WORKTREES.clear()
+    PS_WORKTREES.update({w['worktreeId']: {'id': w['worktreeId'], 'displayName': w.get('displayName') or '', 'path': w.get('path') or '',
+                                           'psOnly': True} for w in wts if w.get('worktreeId')})
+    return {a['paneKey']: a for w in wts for a in w.get('agents', [])}
+
+
+def add_folder_worktrees(worktrees):
+    """worktree list 에 없는 것(오르카 폴더 워크스페이스)만 채운다. git 워크스페이스는 list 값을 그대로 쓴다"""
+    for wid, w in PS_WORKTREES.items():
+        worktrees.setdefault(wid, dict(w))
+    return worktrees
 
 
 @per_file
@@ -2263,6 +2277,7 @@ def _build():
         worktrees = {w['id']: w for w in f_wt.result().get('worktrees', [])}
         LIST_CACHE['list'] = f_term.result()
         agents = f_agents.result()
+    add_folder_worktrees(worktrees)
     LIST_CACHE['stamp'] = {t['handle']: t.get('lastOutputAt') for t in LIST_CACHE['list']['terminals']}
     spy = {w for w, v in worktrees.items() if v.get('path') == os.path.expanduser('~/.spyhop')}
     raw = LIST_CACHE['list']['terminals']
@@ -2445,7 +2460,7 @@ def _build():
         wslist = json.dumps([{'id': w['id'], 'name': w.get('displayName') or os.path.basename(w.get('path', '')),
                               'path': (w.get('path') or '').replace(os.path.expanduser('~'), '~', 1)}
                              for w in worktrees.values() if not w.get('isArchived') and w.get('path') != os.path.expanduser('~/.spyhop')
-                             and not str(w.get('id', '')).startswith('term:')], ensure_ascii=False)  # 오르카 밖 폴더 · 터미널 칸으로는 옮길 수 없다
+                             and not str(w.get('id', '')).startswith('term:') and not w.get('psOnly')], ensure_ascii=False)  # 오르카 밖 폴더 · 터미널 칸과, 옮기기가 worktree list 로만 찾는 폴더 워크스페이스로는 옮길 수 없다
     legend = ('<div class="legend"><span><i class="lg done"></i>Done</span><span><i class="lg now"></i>Now</span>'
               '<span><i class="lg left"></i>Next</span><span><i class="lg side"></i>Intercept</span></div>')
     n_all = count['wait'] + count['busy']
