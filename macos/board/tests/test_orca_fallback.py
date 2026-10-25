@@ -77,5 +77,37 @@ class FindOrcaBinTest(unittest.TestCase):
             self.assertEqual(B.find_bin('orca'), registered)
 
 
+class FolderWorkspaceTest(unittest.TestCase):
+    PS = {'worktrees': [
+        {'worktreeId': 'folder:a', 'repo': 'workspace', 'path': '/w', 'displayName': 'gig', 'agents': [{'paneKey': 't1:l1'}]},
+        {'worktreeId': 'repo1::/w/api', 'repo': 'api', 'path': '/w/api', 'displayName': 'from ps', 'agents': []},
+    ]}
+
+    def setUp(self):
+        self.addCleanup(B.PS_WORKTREES.clear)
+
+    def test_ps_names_fill_folder_workspaces(self):
+        with patch.object(B, 'orca', return_value=self.PS):
+            agents = B.orca_agents()
+        self.assertEqual(list(agents), ['t1:l1'])
+        wts = B.add_folder_worktrees({})
+        self.assertEqual(wts['folder:a']['displayName'], 'gig')
+        self.assertTrue(wts['folder:a']['psOnly'])
+
+    def test_git_workspace_from_list_is_kept(self):
+        with patch.object(B, 'orca', return_value=self.PS):
+            B.orca_agents()
+        listed = {'id': 'repo1::/w/api', 'displayName': 'api', 'path': '/w/api', 'isArchived': False}
+        wts = B.add_folder_worktrees({'repo1::/w/api': listed})
+        self.assertIs(wts['repo1::/w/api'], listed)
+
+    def test_failed_ps_keeps_the_last_names(self):
+        with patch.object(B, 'orca', return_value=self.PS):
+            B.orca_agents()
+        with patch.object(B, 'orca', side_effect=OSError('orca gone')):
+            self.assertEqual(B.orca_agents(), {})
+        self.assertIn('folder:a', B.PS_WORKTREES)
+
+
 if __name__ == '__main__':
     unittest.main()
