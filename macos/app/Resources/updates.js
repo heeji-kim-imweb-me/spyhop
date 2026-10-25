@@ -147,6 +147,7 @@
     const close = () => { acknowledged = true; dialog.close(); dialog.remove(); post('dismiss'); if (previousFocus && previousFocus.isConnected) previousFocus.focus({preventScroll:true}); };
     gotIt.addEventListener('click', close); dialog.addEventListener('cancel', e => { e.preventDefault(); close(); });
     footer.appendChild(gotIt); dialog.append(content, footer); document.body.appendChild(dialog); dialog.showModal(); gotIt.focus({preventScroll:true});
+    post('dismiss');  // 화면에 한 번 띄웠으면 본 것으로 친다. 닫지 않고 앱을 꺼도 다음 실행에 다시 뜨지 않는다 (지금 창은 Got it 까지 남는다)
   }
   window.spyhopUpdates = {receive(next) { state = next; render(); }};
   // 보드의 live()가 칸과 설정을 교체해도 다시 붙인다. 변경한 자식은 관찰하지 않는다.
