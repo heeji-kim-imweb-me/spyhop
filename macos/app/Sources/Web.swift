@@ -18,7 +18,13 @@ final class WebHost: NSObject, WKUIDelegate, WKNavigationDelegate, WKScriptMessa
         let ucc = WKUserContentController()
         ucc.addUserScript(WKUserScript(source: Self.clipboardJS, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         ucc.add(WeakHandler(self), name: "spyhopCopy")
-        if board { ucc.add(WeakHandler(self), name: "spyhopChrome") }
+        if board {
+            ucc.add(WeakHandler(self), name: "spyhopChrome")
+            ucc.add(WeakHandler(self), name: "spyhopUpdates")
+            if let path = Bundle.main.path(forResource: "updates", ofType: "js"), let js = try? String(contentsOfFile: path, encoding: .utf8) {
+                ucc.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
+            }
+        }
         cfg.userContentController = ucc
         // 보드 서버는 이 이름표를 단 요청에만 화면을 준다(브라우저로는 열리지 않게)
         cfg.applicationNameForUserAgent = "Spyhop/" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "app")
@@ -58,6 +64,22 @@ final class WebHost: NSObject, WKUIDelegate, WKNavigationDelegate, WKScriptMessa
 
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
         let o = m.frameInfo.securityOrigin
+        if m.name == "spyhopUpdates" {
+            // 로컬 보드에서 온 고정 동작만 받는다. 파일 로더와 외부 문서는 설치를 요청할 수 없다.
+            guard o.protocol == "http", o.host == "127.0.0.1", o.port == Int(Board.port),
+                  m.frameInfo.request.url?.path == "/", let action = m.body as? String else { return }
+            let updates = Updates.shared
+            switch action {
+            case "status": break
+            case "dismiss": updates.dismissChanges()
+            case "dismiss-available": updates.dismissAvailable()
+            case "install": updates.install()
+            default: return
+            }
+            m.webView?.callAsyncJavaScript("window.spyhopUpdates.receive(state)", arguments: ["state": updates.state],
+                                         in: m.frameInfo, in: .page, completionHandler: nil)
+            return
+        }
         guard o.protocol == "file" || (o.host == "127.0.0.1" && o.port == Int(Board.port)) else { return }
         if m.name == "spyhopChrome", let v = m.webView as? BoardWebView, let d = m.body as? [String: Any] {
             v.headerBottom = (d["bottom"] as? NSNumber)?.doubleValue ?? 0

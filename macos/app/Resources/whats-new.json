@@ -1,0 +1,18 @@
+{
+  "newFeatures": [
+    {
+      "title": "Update without leaving Spyhop",
+      "detail": "Choose Check for Updates… in the Spyhop menu to review the new version's release notes before installing. Spyhop restarts automatically when the update is ready."
+    },
+    {
+      "title": "Release notes after each update",
+      "detail": "See every new feature and fix in the version you just installed. Open Release Notes in the Spyhop menu whenever you need them."
+    }
+  ],
+  "fixes": [
+    {
+      "title": "Consistent Full reply scrollbars",
+      "detail": "Expanded replies, code blocks, and tables now use the same scrollbar style as the rest of the board."
+    }
+  ]
+}

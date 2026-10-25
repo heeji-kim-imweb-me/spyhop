@@ -21,6 +21,8 @@ rm -f "$out/Spyhop-arm64" "$out/Spyhop-x86_64"
 # 보드 서버와 화면(앱 전용 사본, macos/board)
 cp macos/board/board.py macos/board/orca_art.py macos/board/panel.html LICENSE "$app/Contents/Resources/spyhop/"
 cp macos/app/Resources/AppIcon.icns macos/app/Resources/MenuBarIcon.png "$app/Contents/Resources/"
+# 릴리즈 전 whats-new.json에 이번 버전의 신규 기능과 수정을 빠짐없이 작성한다.
+cp macos/app/Resources/updates.js macos/app/Resources/whats-new.json macos/app/Resources/install-update.py "$app/Contents/Resources/"
 # 창이 여는 로더: 오르카 탭이 쓰는 것과 같은 페이지(board.py 의 LOADER_HTML)
 /usr/bin/python3 -B -c 'import sys; sys.path.insert(0, "macos/board"); import board; sys.stdout.write(board.LOADER_HTML)' > "$app/Contents/Resources/loader.html"
 sed "s/__VERSION__/$ver/g" macos/app/Info.plist > "$app/Contents/Info.plist"

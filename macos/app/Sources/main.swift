@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         let at = Bundle.main.bundlePath
         guard !at.contains("/AppTranslocation/") && !at.hasPrefix("/Volumes/") else { return needMove() }
         removeSwiftBarPlugin()
+        Updates.shared.restart = { NSApp.terminate(nil) }
+        Updates.shared.start()
         Board.ensure()
         setupStatusItem()
         offerLegacyCleanup()
@@ -54,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         let look: NSAppearance? = s.appearance == "dark" ? NSAppearance(named: .darkAqua) : s.appearance == "light" ? NSAppearance(named: .aqua) : nil
         if NSApp.appearance?.name != look?.name { NSApp.appearance = look }
         syncLoginItem()
+        Updates.shared.check()
     }
 
     // MARK: 창
@@ -134,6 +137,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     @objc func reload() {
         guard let v = boardView else { return }
         WebHost.shared.openBoard(v)
+    }
+
+    @objc func checkForUpdates() {
+        let updates = Updates.shared
+        guard updates.state["phase"] as? String != "installing" else { return }
+        updates.check(force: true) { [weak self] available in
+            if available {
+                self?.showWindow()
+                updates.presentAvailable()
+            } else {
+                let alert = NSAlert()
+                let error = updates.state["error"] as? String ?? ""
+                alert.messageText = error.isEmpty ? "You’re up to date" : "Could not check for updates"
+                alert.informativeText = error.isEmpty ? "Spyhop \(updates.version) is the latest version." : error
+                alert.addButton(withTitle: "OK")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc func openReleaseNotes() {
+        NSWorkspace.shared.open(URL(string: Updates.releases + "/latest")!)
     }
 
     // 브라우저처럼 Cmd +/- 로 글자 크기
@@ -323,6 +349,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
         app.addItem(withTitle: "About Spyhop", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        app.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "").target = self
+        app.addItem(withTitle: "Release Notes", action: #selector(openReleaseNotes), keyEquivalent: "").target = self
         app.addItem(.separator())
         app.addItem(withTitle: "Hide Spyhop", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Quit Spyhop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
