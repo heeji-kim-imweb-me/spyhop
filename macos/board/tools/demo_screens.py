@@ -2,6 +2,7 @@
 """README 스크린샷용 데모 보드를 만든다. 실제 세션·대화 기록 대신 가짜 데이터로 board.py 를 그린다.
 
   python3 tools/demo_screens.py            # docs/screenshots/*.png 생성 (Google Chrome 필요)
+  python3 tools/demo_screens.py detail     # 상세 창 그림(detail.png, detail-window.png)만
 """
 import json
 import os
@@ -207,6 +208,24 @@ def trim_bottom(name, pad=40):
 
 
 FROZEN_ORCAS = ('.orca{animation:none!important;transform:translateY(6%)!important}')
+# 상세 창이 열리는 효과(.modal:target .box{animation:sheet ...!important})보다 구체적으로 써야 꺼진다
+FROZEN_MODAL = ('.modal:target .box,.modal:target .bg,.modal *{animation:none!important;transition:none!important}')
+
+
+def mac_window(name, out):
+    """찍은 화면을 README 첫 그림(board-window.png)과 같은 맥 창 모양으로 감싼다.
+    그 그림을 만든 원본 스크립트가 없어서, 배경·그림자는 board-window.png 를 그대로 깔고 창 자리만 바꾼다."""
+    from PIL import Image, ImageDraw
+    bg = Image.open(os.path.join(OUTDIR, 'board-window.png')).convert('RGBA')
+    shot_ = Image.open(os.path.join(OUTDIR, name + '.png')).convert('RGBA')
+    x, y, w, h, r = 80, 64, 2560, 1120, 22   # board-window.png 의 창 자리와 모서리
+    shot_ = shot_.crop((0, 0, w, h))
+    shot_.convert('RGB').save(os.path.join(OUTDIR, name + '.png'), optimize=True)   # 창 없는 그림도 빈 띠 없이
+    big = Image.new('L', (w * 4, h * 4), 0)   # 4배로 그려 줄여서 모서리를 매끈하게
+    ImageDraw.Draw(big).rounded_rectangle((0, 0, w * 4 - 1, h * 4 - 1), r * 4, fill=255)
+    bg.paste(shot_, (x, y), big.resize((w, h), Image.LANCZOS))
+    bg.convert('RGB').save(os.path.join(OUTDIR, out + '.png'), optimize=True)
+    print('wrote', os.path.join(OUTDIR, out + '.png'))
 
 
 def main():
@@ -222,12 +241,17 @@ def main():
     # 범고래는 멈춘 모습으로 두 마리
     html = html.replace('setTimeout(pop,300+Math.random()*1500);', 'pop();pop();')
     open(board, 'w', encoding='utf-8').write(html)
+    first = html.split('class="modal ', 1)[1].split('id="', 1)[1].split('"', 1)[0]
+    # 상세 창: 효과를 끄고 다 열린 모습으로 찍는다. 헤드리스 크롬은 화면 높이가 창보다 80px 작게 잡혀서
+    # 640 으로 찍어야 board-window.png 와 같은 1280x560 화면이 나온다 (아래 남는 80px 은 mac_window 가 잘라낸다)
+    shot(board, 'detail', 1280, 640, hash_='#' + first, css=FROZEN_ORCAS + FROZEN_MODAL)
+    mac_window('detail', 'detail-window')
+    if sys.argv[1:] == ['detail']:   # python3 tools/demo_screens.py detail : 상세 그림만 다시 찍는다
+        shutil.rmtree(TMP, ignore_errors=True)
+        return
     shot(board, 'board', 1280, 700, css=FROZEN_ORCAS)
     trim_bottom('board')
     shot(board, 'settings', 1280, 980, hash_='#settings', css=FROZEN_ORCAS + '#mcpu,#mmem{visibility:hidden}')
-    first = html.split('class="modal ', 1)[1].split('id="', 1)[1].split('"', 1)[0]
-    # 상세 창이 열리는 효과 중간에 찍히면 반투명하게 나온다. 효과를 끄고 다 열린 모습으로 찍는다
-    shot(board, 'detail', 1280, 640, hash_='#' + first, css=FROZEN_ORCAS + '.modal,.modal *{animation:none!important;transition:none!important}')
     patch('ai')
     B.build()
     shot(B.OUT, 'ai-groups', 1280, 700)   # 넉넉히 찍고 아래 빈 공간은 잘라낸다 (칸마다 카드 수가 달라 잘리던 것 방지)
