@@ -38,7 +38,7 @@ brew install leeleelee3264/tap/spyhop && open -a Spyhop
   </tr>
   <tr>
     <td><img src="docs/screenshots/ai-groups.png" alt="AI topics"><br><sub><b>AI topics</b>: related work in one column.</sub></td>
-    <td><img src="docs/screenshots/detail.png" alt="Detail view"><br><sub><b>Detail view</b>: every step, the last reply and the TODO list.</sub></td>
+    <td><img src="docs/screenshots/detail-window.png" alt="Detail view"><br><sub><b>Detail view</b>: every step, the last reply and the TODO list.</sub></td>
   </tr>
 </table>
 
